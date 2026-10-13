@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.data/
+artifacts/
+.env
+.DS_Store
+# Keep application source even when a user-level ignore excludes "server".
+!server/
+!server/**

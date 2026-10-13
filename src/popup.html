@@ -1,0 +1,8 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Capture conversation</title><link rel="stylesheet" href="style.css"></head>
+<body class="popup"><header><a class="brand" href="#">IDEAFOUNDRY <span>/ CAPTURE</span></a><button id="settings" class="text-button" aria-label="Open settings">Settings ↗</button></header>
+<main><p class="eyebrow">FROM CONVERSATION TO KNOWLEDGE</p><h1>Keep the thinking.</h1><p class="intro">Bring this conversation into your research.</p>
+<div id="status" role="status" aria-live="polite">Reading the current page…</div>
+<section id="capture" hidden><div class="document-heading"><h2 id="title"></h2><span id="count"></span></div><p id="warning" class="hint"></p><details><summary>Review conversation</summary><pre id="preview"></pre></details>
+<fieldset><legend>File format</legend><label class="choice"><input type="radio" name="format" value="md" checked> Markdown <small>.md</small></label><label class="choice"><input type="radio" name="format" value="pdf"> PDF <small>.pdf</small></label></fieldset>
+<div class="actions"><button id="send" class="primary">Send to knowledge base ↗</button><button id="download">Download file ↓</button></div></section>
+<button id="retry" hidden>Read page again</button><p class="footnote">Your conversation stays in your browser until you send it.</p></main><script type="module" src="popup.js"></script></body></html>
