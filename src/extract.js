@@ -35,6 +35,7 @@ function hasMeaningfulContent(node) {
 }
 
 const sidebarSelector = 'nav, aside, [role="navigation"], [role="complementary"], #sidebar, #left-sidebar, #right-sidebar, .sidebar, .app-sidebar, .conversation-sidebar, .sidebar-panel, .sidebar-container, [aria-label*="sidebar" i], [data-testid*="sidebar" i]';
+const chatGptUserBubbleSelector = '.bg-user-message, .user-message-bubble, [class*="user-message-bubble"]';
 
 function isInSidebar(node) {
   return !!node.closest?.(sidebarSelector);
@@ -46,7 +47,7 @@ function chatGptRole(node) {
     : node.querySelector('[data-message-author-role], [data-role], [data-turn-role]');
   const explicit = labeled?.getAttribute('data-message-author-role') || labeled?.getAttribute('data-role') || labeled?.getAttribute('data-turn-role');
   if (/^(user|assistant|system)$/i.test(explicit || '')) return explicit.toLowerCase();
-  if (node.matches('[data-testid="user-message"], [class*="user-turn"]') || node.querySelector('[data-testid="user-message"], [class*="user-turn"]')) return 'user';
+  if (node.matches(`[data-testid="user-message"], [class*="user-turn"], ${chatGptUserBubbleSelector}`) || node.querySelector('[data-testid="user-message"], [class*="user-turn"]')) return 'user';
   if (node.matches('[class*="agent-turn"], [class*="assistant-turn"]') || node.querySelector('[class*="agent-turn"], [class*="assistant-turn"]')) return 'assistant';
 
   // ChatGPT has rendered some conversation turns as articles whose only role
@@ -78,7 +79,7 @@ export function chatGptConversationRoot(doc) {
   const score = node => {
     const roles = count(node, '[data-message-author-role], [data-role="user"], [data-role="assistant"]');
     const turns = count(node, '[data-testid^="conversation-turn-"], [data-turn-id]');
-    const bubbles = count(node, '.user-message-bubble, [class*="user-message-bubble"]');
+    const bubbles = count(node, chatGptUserBubbleSelector);
     const prose = count(node, '.markdown, .prose');
     const result = roles * 8 + turns * 6 + bubbles * 7 + prose * 3;
     return result > 0 && node.id === 'thread' ? result + 2 : result;
@@ -91,7 +92,7 @@ function chatGptClassTurns(root) {
   const add = (selector, role) => {
     for (const node of root.querySelectorAll(selector)) {
       if (isInSidebar(node)) continue;
-      if (role === 'assistant' && node.closest('.user-message-bubble, [class*="user-message-bubble"], [data-message-author-role="user"], [data-role="user"]')) continue;
+      if (role === 'assistant' && node.closest(`${chatGptUserBubbleSelector}, [data-message-author-role="user"], [data-role="user"]`)) continue;
       if (role === 'assistant') {
         let ancestor = node.parentElement;
         let coveredByLabeledTurn = false;
@@ -111,8 +112,94 @@ function chatGptClassTurns(root) {
   // assistant prose inside markdown/prose containers. These classes remain
   // useful when the older role attributes and conversation-turn test IDs are
   // absent. Restrict prose candidates to a real conversation root chosen above.
-  add('.user-message-bubble, [class*="user-message-bubble"]', 'user');
+  add(chatGptUserBubbleSelector, 'user');
   add('.markdown, .prose', 'assistant');
+  return result;
+}
+
+function chatGptCommonAncestor(nodes) {
+  if (!nodes.length) return null;
+  const ancestors = new Set();
+  for (let current = nodes[0]; current; current = current.parentElement) ancestors.add(current);
+  for (let current = nodes[1]?.parentElement; current; current = current.parentElement) {
+    if (ancestors.has(current) && nodes.every(node => current === node || current.contains(node))) return current;
+  }
+  return nodes.length === 1 ? nodes[0].parentElement : null;
+}
+
+const inferredExcludedSelector = `${chatGptUserBubbleSelector}, script,style,nav,aside,header,footer,form,textarea,input,select,[contenteditable="true"],[role="navigation"],[role="complementary"],[role="toolbar"],[class*="sidebar" i],[class*="toolbar" i],[class*="composer" i],[data-testid*="composer" i],[data-testid*="header" i],[aria-label*="composer" i],[hidden],[aria-hidden="true"],.sr-only,[data-idea-capture-control],[data-idea-capture-owned]`;
+
+function inferredContentNodes(source) {
+  if (source.matches?.(inferredExcludedSelector)) return [];
+  const collectSafeChildren = node => {
+    const safe = [];
+    for (const child of node.children) {
+      if (child.matches(inferredExcludedSelector)) continue;
+      if (child.querySelector(inferredExcludedSelector)) safe.push(...collectSafeChildren(child));
+      else if (hasMeaningfulContent(child)) safe.push(child);
+    }
+    return safe;
+  };
+  if (source.querySelector(inferredExcludedSelector)) return collectSafeChildren(source);
+  return hasMeaningfulContent(source) ? [source] : [];
+}
+
+function chatGptSiblingContent(anchor, stopAt, bubbles, existingCandidates) {
+  const result = [];
+  // A turn branch that is itself the user bubble has no in-branch siblings.
+  // In particular, do not climb past it into adjacent turns or page chrome.
+  if (anchor === stopAt || !stopAt?.contains(anchor)) return result;
+  let pathNode = anchor;
+  for (let parent = anchor.parentElement; parent && stopAt.contains(parent); pathNode = parent, parent = parent.parentElement) {
+    for (const sibling of parent.children) {
+      if (sibling === pathNode || pathNode.contains(sibling) || bubbles.some(bubble => sibling === bubble || sibling.contains(bubble))) continue;
+      if (!(anchor.compareDocumentPosition(sibling) & 4)) continue;
+      if (existingCandidates.some(candidate => candidate.role !== 'user' && (sibling === candidate.node || sibling.contains(candidate.node) || candidate.node.contains(sibling)))) continue;
+      for (const node of inferredContentNodes(sibling)) result.push({ node, contentNode: node, role: 'message' });
+    }
+    if (parent === stopAt) break;
+  }
+  return result;
+}
+
+function chatGptInferredTurns(root, bubbles, existingCandidates) {
+  const result = [];
+  const covered = branch => existingCandidates.some(candidate => {
+    if (candidate.node !== branch && !branch.contains(candidate.node)) return false;
+    if (candidate.role !== 'user') return true;
+    return !candidate.node.matches?.(chatGptUserBubbleSelector);
+  });
+
+  if (bubbles.length > 1) {
+    const common = chatGptCommonAncestor(bubbles);
+    if (!common) return result;
+    const branches = [...common.children];
+    const branchFor = bubble => {
+      let branch = bubble;
+      while (branch.parentElement && branch.parentElement !== common) branch = branch.parentElement;
+      return branch;
+    };
+    const first = branches.indexOf(branchFor(bubbles[0]));
+    if (first < 0) return result;
+    for (const branch of branches.slice(first)) {
+      const containedBubbles = bubbles.filter(bubble => branch === bubble || branch.contains(bubble));
+      if (containedBubbles.length) {
+        for (const bubble of containedBubbles) result.push(...chatGptSiblingContent(bubble, branch, bubbles, existingCandidates));
+      }
+      else if (!covered(branch)) {
+        for (const node of inferredContentNodes(branch)) result.push({ node, contentNode: node, role: 'message' });
+      }
+    }
+    return result;
+  }
+
+  // With one prompt there is no repeated user boundary to establish a message
+  // list. Walk outward only through the selected conversation root and use
+  // following sibling branches. This can recover a nested reply while keeping
+  // the adapter anchored to the actual user bubble.
+  const bubble = bubbles[0];
+  if (!bubble) return result;
+  result.push(...chatGptSiblingContent(bubble, root, bubbles, existingCandidates).filter(candidate => !covered(candidate.node)));
   return result;
 }
 
@@ -138,7 +225,8 @@ export function extractConversation(doc = document, url = location.href, options
         },
       });
     }
-    const copy = node.cloneNode(true);
+    const copy = doc.createElement('div');
+    copy.append(node.cloneNode(true));
     copy.querySelectorAll('script,style,nav,textarea,input,[aria-hidden="true"],[hidden],.sr-only,[data-idea-capture-control],[data-idea-capture-owned]').forEach(n => n.remove());
 
     let mediaOrdinal = 0;
@@ -207,7 +295,7 @@ export function extractConversation(doc = document, url = location.href, options
       let raw = element.getAttribute(attr) || (tag === 'img' ? srcsetUrl(element.getAttribute('srcset')) : '');
       let mediaError = '';
       if (tag === 'canvas') {
-        const originalCanvas = node.querySelectorAll('canvas')[canvasIndex++];
+        const originalCanvas = (node.matches?.('canvas') ? [node] : [...node.querySelectorAll('canvas')])[canvasIndex++];
         try { raw = originalCanvas.toDataURL('image/png'); } catch { mediaError = 'Canvas image could not be captured.'; }
       }
       if (tag === 'svg') {
@@ -237,6 +325,7 @@ export function extractConversation(doc = document, url = location.href, options
   let provider = 'Other';
   let candidates = [];
   let unlabeledChatGptTurns = false;
+  let chatGptPromptsOnly = false;
   if (/(^|\.)(chatgpt\.com|chat\.openai\.com)$/.test(host)) {
     provider = 'ChatGPT';
     const root = chatGptConversationRoot(doc);
@@ -263,6 +352,14 @@ export function extractConversation(doc = document, url = location.href, options
         candidates.push(candidate);
       }
     }
+    const userBubbles = [...root.querySelectorAll(chatGptUserBubbleSelector)]
+      .filter(node => !isInSidebar(node) && hasMeaningfulContent(node));
+    const inferredTurns = chatGptInferredTurns(root, userBubbles, candidates);
+    for (const candidate of inferredTurns) {
+      if (!candidates.some(existing => existing.node === candidate.node || existing.node.contains(candidate.node))) candidates.push(candidate);
+    }
+    if (inferredTurns.length) unlabeledChatGptTurns = true;
+    chatGptPromptsOnly = userBubbles.length > 0 && !candidates.some(candidate => candidate.role === 'assistant') && inferredTurns.length === 0;
     const uncoveredTurns = unrecognizedTurns.filter(node => !candidates.some(candidate => node.contains(candidate.node)));
     const isConversationRoute = /\/c\/[^/]+/.test(new URL(url).pathname);
     if (uncoveredTurns.length && isConversationRoute && candidates.length) {
@@ -286,9 +383,9 @@ export function extractConversation(doc = document, url = location.href, options
   // Drop only nested wrappers that repeat a role. A containing message with a
   // different role is a separate speaker and must remain in the transcript.
   candidates = candidates.filter(({ node, role }) => !candidates.some(other => other.node !== node && other.role === role && other.node.contains(node)));
-  const messages = candidates.map(({ node, role }, messageIndex) => {
-    let contentNode = node;
-    if (provider === 'ChatGPT') {
+  const messages = candidates.map(({ node, role, contentNode: inferredNode }, messageIndex) => {
+    let contentNode = inferredNode || node;
+    if (provider === 'ChatGPT' && !inferredNode) {
       const wrapper = node.closest('[data-testid^="conversation-turn-"], article, [data-turn-id], [data-message-id], [class*="assistant-turn"], [class*="agent-turn"]');
       if (wrapper && wrapper !== node) {
         const nestedCandidates = candidates.filter(candidate => wrapper.contains(candidate.node));
@@ -299,7 +396,8 @@ export function extractConversation(doc = document, url = location.href, options
     return { node, contentNode, providerId: messageId(node), messageIndex, role: ({ user: 'User', assistant: 'Assistant', system: 'System' })[role] || 'Message', markdown };
   }).filter(message => !includeMarkdown || message.markdown);
   let warning = 'Captures messages currently loaded on the page. Load older messages before exporting; detected media is included when available, and hidden branches are not included.';
-  if (unlabeledChatGptTurns) warning = 'Some ChatGPT turns did not expose a speaker label. Their article order is preserved as messages; review the preview before saving. Only loaded content is included.';
+  if (unlabeledChatGptTurns) warning = 'Some ChatGPT messages did not expose a speaker label. Their order was inferred from visible turn structure; review the preview before saving. Only loaded content is included.';
+  if (chatGptPromptsOnly) warning = 'ChatGPT user prompts were detected, but reply boundaries could not be identified. The capture may be incomplete; review the preview before saving. Only loaded content is included.';
   if (!messages.length && provider === 'Other') {
     const main = doc.querySelector('main, [role="main"], article');
     if (main && hasMeaningfulContent(main)) {

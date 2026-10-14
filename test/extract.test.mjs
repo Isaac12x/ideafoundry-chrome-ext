@@ -97,6 +97,38 @@ test('ChatGPT detects user bubbles and assistant prose in the current thread lay
   assert.equal(result.media[0].url, 'https://cdn.example/gallery.png');
   dom.window.close();
 });
+test('ChatGPT bounds inferred replies to reported user ancestry and excludes page chrome and composer', () => {
+  const markup = `<main><div class="bg-user-message">Q1</div><div><p>A1</p></div><div class="bg-user-message">Q2</div><div><p>A2</p></div><footer>Disclaimer</footer><form class="composer"><div contenteditable="true">Draft only</div></form></main><aside>Outside private navigation</aside>`;
+  const dom = new JSDOM(markup, { url: 'https://chatgpt.com/c/123' });
+  const result = extractConversation(dom.window.document, dom.window.location.href);
+  assert.deepEqual(result.messages.map(message => message.role), ['User', 'Message', 'User', 'Message']);
+  assert.deepEqual(result.messages.map(message => message.markdown), ['Q1', 'A1', 'Q2', 'A2']);
+  assert.doesNotMatch(result.messages.map(message => message.markdown).join('\n'), /Disclaimer|Draft only|Outside private navigation/);
+  // Discovery stays stable after the extension marks a prompt group collapsed.
+  dom.window.document.querySelector('.bg-user-message').classList.add('idea-capture-section-collapsed');
+  const rediscovered = extractConversation(dom.window.document, dom.window.location.href);
+  assert.deepEqual(rediscovered.messages.map(message => message.markdown), ['Q1', 'A1', 'Q2', 'A2']);
+  dom.window.close();
+});
+test('ChatGPT inference keeps grouped neutral replies disjoint and splits composer branches safely', () => {
+  const dom = new JSDOM(`<main id="thread">
+    <div class="turn"><div class="bg-user-message">Grouped question</div><div><p>Grouped reply</p></div></div>
+    <div class="turn"><div class="bg-user-message">Mixed question</div></div>
+    <div><p>Mixed reply</p><div class="composer"><textarea>Private draft</textarea></div></div>
+    <div><img src="https://cdn.example/direct.png" alt="Direct image"></div>
+    <footer>Footer text</footer>
+  </main><aside>Sidebar text</aside>`, { url: 'https://chatgpt.com/c/123' });
+  const result = extractConversation(dom.window.document, dom.window.location.href, { includeNodes: true });
+  assert.deepEqual(result.messages.map(message => message.role), ['User', 'Message', 'User', 'Message', 'Message']);
+  assert.match(result.messages[1].markdown, /Grouped reply/);
+  assert.match(result.messages[3].markdown, /Mixed reply/);
+  assert.doesNotMatch(result.messages[3].markdown, /Private draft/);
+  assert.match(result.messages[4].markdown, /\{\{idea-media:media-4-0\}\}/);
+  assert.equal(result.media[0].url, 'https://cdn.example/direct.png');
+  assert.equal(result.sections.flatMap(section => section.nodes).some(node => node.matches?.('.composer') || node.closest?.('.composer')), false);
+  assert.doesNotMatch(result.messages.map(message => message.markdown).join('\n'), /Footer text|Sidebar text/);
+  dom.window.close();
+});
 test('ChatGPT excludes sidebar landmarks from root scoring and message candidates', () => {
   const dom = new JSDOM(`<body class="sidebar-open"><main><section aria-label="History sidebar"><article data-testid="conversation-turn-99"><h2>You said:</h2><p>Sidebar prompt</p></article><div class="markdown">Sidebar answer</div></section><section id="thread"><article data-testid="conversation-turn-1"><h2>You said:</h2><p>Actual prompt</p></article><article data-testid="conversation-turn-2"><h2>ChatGPT said:</h2><p>Actual answer</p></article></section></main><main id="sidebar" aria-label="Sidebar"><div class="markdown">Wrong root</div></main></body>`, { url: 'https://chatgpt.com/c/123' });
   const result = extractConversation(dom.window.document, dom.window.location.href);

@@ -29,6 +29,7 @@ export function createCaptureControls(doc = document, win = window) {
   let destroyed = false;
   let activeSectionId = null;
   let geometryRoot = null;
+  const sectionMediaNodes = new Map();
   let railFrame = 0;
   let cachedContentBounds = null;
   let preserveActiveSection = false;
@@ -47,7 +48,7 @@ export function createCaptureControls(doc = document, win = window) {
         *{box-sizing:border-box}
         #idea-capture-panel{position:fixed;right:16px;bottom:16px;z-index:2147483647;width:min(340px,calc(100vw - 32px));max-height:min(70vh,620px);display:flex;flex-direction:column;background:#fff;color:#18221d;border:1px solid #b9c6be;border-radius:12px;box-shadow:0 8px 32px #10251c33;font:13px/1.4 system-ui,sans-serif}
         [hidden]{display:none!important}
-        #idea-capture-panel>header{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid #e0e8e3;font-weight:700}button{font:inherit;cursor:pointer;border:1px solid #ccd8d0;border-radius:6px;background:#f7faf8;color:inherit;padding:5px 8px}button:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px solid #19704c;outline-offset:2px}.tools{display:flex;gap:6px;flex-wrap:wrap;padding:9px 12px 4px}.count{padding:2px 14px 8px;color:#506158}.list{overflow:auto;padding:0 8px 10px}.row{display:grid;grid-template-columns:auto 1fr auto;align-items:start;gap:8px;padding:8px 6px;border-top:1px solid #edf1ee}.row input{margin:2px 0 0}.label{overflow-wrap:anywhere}.label small{display:block;color:#65746b;margin-top:2px}.collapse{white-space:nowrap}.empty{padding:8px 14px;color:#506158}.empty p{margin:0 0 10px}.empty textarea{display:block;width:100%;min-height:150px;margin-top:8px;font:11px/1.4 ui-monospace,monospace;resize:vertical}
+        #idea-capture-panel>header{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid #e0e8e3;font-weight:700}button{font:inherit;cursor:pointer;border:1px solid #ccd8d0;border-radius:6px;background:#f7faf8;color:inherit;padding:5px 8px}button:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px solid #19704c;outline-offset:2px}.tools{display:flex;gap:6px;flex-wrap:wrap;padding:9px 12px 4px}.count{padding:2px 14px 8px;color:#506158}.list{overflow:auto;padding:0 8px 10px}.row{display:grid;grid-template-columns:auto 1fr auto;align-items:start;gap:8px;padding:8px 6px;border-top:1px solid #edf1ee}.row input{margin:2px 0 0}.label{overflow-wrap:anywhere}.label small{display:block;color:#65746b;margin-top:2px}.collapse{white-space:nowrap}.empty{padding:8px 14px;color:#506158}.empty p{margin:0 0 10px}.empty textarea,.diagnostics textarea{display:block;width:100%;min-height:150px;margin-top:8px;font:11px/1.4 ui-monospace,monospace;resize:vertical}
         #idea-capture-margin-controls{position:fixed;top:50%;z-index:2147483646;transform:translateY(-50%);display:grid;gap:6px;padding:9px;background:#fff;color:#18221d;border:1px solid #b9c6be;border-radius:9px;box-shadow:0 4px 18px #10251c22;font:12px/1.35 system-ui,sans-serif}
         #idea-capture-margin-controls .idea-capture-margin-label{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#506158}
         #idea-capture-margin-controls .idea-capture-margin-select{display:flex;align-items:center;gap:6px;min-width:0}
@@ -62,7 +63,7 @@ export function createCaptureControls(doc = document, win = window) {
       </style>
       <section id="idea-capture-panel" data-idea-panel aria-label="Conversation sections" hidden>
         <header><span>Choose sections to capture</span><button type="button" data-action="toggle-panel" aria-expanded="false">Open</button></header>
-        <div class="panel-body" hidden><div class="tools"><button type="button" data-action="select-all">Select all</button><button type="button" data-action="select-none">Select none</button><button type="button" data-action="collapse-all">Collapse all</button><button type="button" data-action="expand-all">Expand all</button></div><div class="count" aria-live="polite"></div><div class="empty" hidden><p data-empty-message></p><button type="button" data-action="retry">Retry detection</button><button type="button" data-action="copy-diagnostics">Copy diagnostics</button><p data-diagnostics-status aria-live="polite"></p><textarea data-diagnostics-fallback readonly hidden aria-label="Diagnostics to copy manually"></textarea></div><div class="list"></div></div>
+        <div class="panel-body" hidden><div class="tools"><button type="button" data-action="select-all">Select all</button><button type="button" data-action="select-none">Select none</button><button type="button" data-action="collapse-all">Collapse all</button><button type="button" data-action="expand-all">Expand all</button><button type="button" data-action="copy-diagnostics">Copy diagnostics</button></div><div class="count" aria-live="polite"></div><div class="empty" hidden><p data-empty-message></p><button type="button" data-action="retry">Retry detection</button><button type="button" data-action="copy-diagnostics">Copy diagnostics</button></div><div class="diagnostics"><p data-diagnostics-status aria-live="polite"></p><textarea data-diagnostics-fallback readonly hidden aria-label="Diagnostics to copy manually"></textarea></div><div class="list"></div></div>
       </section>
       <aside id="idea-capture-margin-controls" aria-label="Current conversation section" hidden>
         <label class="idea-capture-margin-select"><input type="checkbox" data-idea-section-id aria-label="Include current section"><span>Include</span></label>
@@ -107,6 +108,7 @@ export function createCaptureControls(doc = document, win = window) {
     const action = event.target.closest('button')?.dataset.action;
     if (!action) return;
     if (action === 'retry') { refresh(); return; }
+    if (action === 'copy-diagnostics') { void copyDiagnostics(); return; }
     if (action === 'select-all' || action === 'select-none') for (const section of sections) selected.set(section.id, action === 'select-all');
     if (action === 'collapse-all' || action === 'expand-all') for (const section of sections) collapsed.set(section.id, action === 'collapse-all');
     render();
@@ -258,6 +260,12 @@ export function createCaptureControls(doc = document, win = window) {
     const foreignNodes = sections.filter(candidate => candidate.id !== section.id).flatMap(candidate => candidate.nodes);
     const targets = new Set();
     for (const node of section.nodes) {
+      if (node.matches?.('article, [data-testid^="conversation-turn-"], [data-turn-id], [data-message-id], [class~="turn"], [class*="assistant-turn"], [class*="agent-turn"]')
+        && !foreignNodes.some(foreign => node.contains(foreign))
+        && !node.querySelector('textarea, input, [contenteditable="true"], [role="textbox"]')) {
+        targets.add(node);
+        continue;
+      }
       const candidates = [];
       for (let ancestor = node.parentElement; ancestor && ancestor !== doc.body && ancestor !== doc.documentElement; ancestor = ancestor.parentElement) {
         if (!ancestor.matches('article, [data-testid^="conversation-turn-"], [data-turn-id], [data-message-id], [class~="turn"], [class*="assistant-turn"], [class*="agent-turn"]')) continue;
@@ -267,7 +275,7 @@ export function createCaptureControls(doc = document, win = window) {
       }
       targets.add(candidates.at(-1) || node);
     }
-    return [...targets];
+    return [...targets].filter(target => ![...targets].some(ancestor => ancestor !== target && ancestor.contains(target)));
   }
   function applyCollapse() {
     for (const section of sections) for (const node of collapseTargets(section)) {
@@ -308,16 +316,31 @@ export function createCaptureControls(doc = document, win = window) {
     for (const node of section?.nodes.slice(0, 3) || []) {
       if (!node.isConnected) continue;
       const layout = node.closest?.('article, [data-testid^="conversation-turn-"], [data-turn-id], [data-message-id], [class~="turn"], [class*="assistant-turn"], [class*="agent-turn"]');
-      const rect = layout?.getBoundingClientRect() || node.getBoundingClientRect();
-      if (rect.width >= 160 && rect.width <= maxWidth && rect.height > 0 && !layout?.querySelector('textarea, input, [contenteditable="true"], [role="textbox"]')) rects.push(rect);
-      if (!rects.length) {
-        const content = node.querySelector?.('p, [class*="markdown"], [data-testid], [data-message-author-role], user-query, model-response');
-        const contentRect = content?.getBoundingClientRect();
-        if (contentRect?.width >= 160 && contentRect.width <= maxWidth && contentRect.height > 0) rects.push(contentRect);
+      if (layout && !layout.querySelector('textarea, input, [contenteditable="true"], [role="textbox"]')) {
+        const rect = layout.getBoundingClientRect();
+        if (rect.width >= 160 && rect.width <= maxWidth && rect.height > 0) rects.push(rect);
+      } else {
+        const contentSelector = 'p, h1, h2, h3, h4, h5, h6, pre, code, table, blockquote, li, [class*="markdown"], [class*="prose"]';
+        const contentNodes = [...(node.matches?.(contentSelector) ? [node] : []), ...(node.querySelectorAll?.(contentSelector) || [])];
+        const contentRects = contentNodes.map(content => content.getBoundingClientRect())
+          .filter(rect => rect.width >= 160 && rect.width <= maxWidth && rect.height > 0);
+        if (contentRects.length) rects.push(...contentRects);
+        else {
+          const rect = node.getBoundingClientRect();
+          if (rect.width >= 160 && rect.width <= maxWidth && rect.height > 0) rects.push(rect);
+        }
       }
     }
     if (rects.length) {
       cachedContentBounds = { left: median(rects.map(rect => rect.left)), right: median(rects.map(rect => rect.right)) };
+      const mediaRects = (sectionMediaNodes.get(section?.id) || [])
+        .filter(node => node.isConnected)
+        .map(node => node.getBoundingClientRect())
+        .filter(rect => rect.width > 0 && rect.height > 0 && rect.bottom > 0 && rect.top < (win.innerHeight || doc.documentElement.clientHeight));
+      if (mediaRects.length) {
+        cachedContentBounds.left = Math.min(cachedContentBounds.left, ...mediaRects.map(rect => Math.max(0, rect.left)));
+        cachedContentBounds.right = Math.max(cachedContentBounds.right, ...mediaRects.map(rect => Math.min(viewport, rect.right)));
+      }
       return cachedContentBounds;
     }
     const root = isChatGptPage() ? conversationGeometryRoot() : null;
@@ -510,7 +533,7 @@ export function createCaptureControls(doc = document, win = window) {
       if (route !== nextRoute) {
         restoreClasses();
         for (const header of headers.values()) header.remove(); headers.clear();
-        selected.clear(); collapsed.clear(); sections = []; activeSectionId = null; preserveActiveSection = false; cachedContentBounds = null; geometryRoot = null; route = nextRoute;
+        selected.clear(); collapsed.clear(); sections = []; sectionMediaNodes.clear(); activeSectionId = null; preserveActiveSection = false; cachedContentBounds = null; geometryRoot = null; route = nextRoute;
       }
       const previous = sections;
       const discovery = extractConversation(doc, nextRoute, { includeNodes: true, includeMarkdown: false });
@@ -540,6 +563,21 @@ export function createCaptureControls(doc = document, win = window) {
         if (!nodeIds.has(anchor)) nodeIds.set(anchor, id);
         return { ...section, id };
       });
+      sectionMediaNodes.clear();
+      const turnSelector = 'article, [data-testid^="conversation-turn-"], [data-turn-id], [data-message-id], [class~="turn"], [class*="assistant-turn"], [class*="agent-turn"]';
+      for (const section of sections) {
+        const media = new Set();
+        const foreignNodes = sections.filter(candidate => candidate.id !== section.id).flatMap(candidate => candidate.nodes);
+        for (const node of section.nodes) {
+          const wrapper = node.closest?.(turnSelector);
+          const contentRoot = wrapper && foreignNodes.some(foreign => wrapper.contains(foreign)) ? node : wrapper || node;
+          if (contentRoot.querySelector('textarea, input, [contenteditable="true"], [role="textbox"]')) continue;
+          const mediaSelector = 'img[src], img[srcset], video, audio, iframe, object, embed, canvas, svg[aria-label]';
+          if (contentRoot.matches?.(mediaSelector)) media.add(contentRoot);
+          for (const candidate of contentRoot.querySelectorAll(mediaSelector)) media.add(candidate);
+        }
+        if (media.size) sectionMediaNodes.set(section.id, [...media]);
+      }
       for (const section of sections) {
         if (!selected.has(section.id)) selected.set(section.id, true);
         if (!collapsed.has(section.id)) collapsed.set(section.id, false);

@@ -1,8 +1,8 @@
 import manifest from '../manifest.json' with { type: 'json' };
 import { chatGptConversationRoot } from './extract.js';
 
-const SAMPLE_LIMIT = 10;
-const ANCESTRY_LIMIT = 6;
+const SAMPLE_LIMIT = 12;
+const ANCESTRY_LIMIT = 10;
 const ROOT_LIMIT = 10;
 
 const SELECTORS = {
@@ -11,6 +11,7 @@ const SELECTORS = {
   conversationTurn: '[data-testid^="conversation-turn-"], [data-turn-id], [data-message-id]',
   article: 'article',
   chatGptUserBubble: '.user-message-bubble, [class*="user-message-bubble"]',
+  chatGptReportedUserBubble: '.bg-user-message',
   chatGptUserText: '.whitespace-pre-wrap',
   chatGptAssistantText: '.markdown, .prose',
   claudeMessage: '[data-testid="user-message"], [data-is-streaming], .font-claude-response',
@@ -75,6 +76,12 @@ export function collectDiagnostics(doc = document, url = location.href) {
   const roots = [...doc.querySelectorAll(SELECTORS.conversationRoot)];
   const outerRoots = roots.filter(node => !roots.some(other => other !== node && other.contains(node)));
   const selectedChatGptRoot = provider === 'ChatGPT' ? chatGptConversationRoot(doc) : null;
+  const structuralCounts = node => ({
+    paragraphs: node.querySelectorAll('p').length,
+    media: node.querySelectorAll('img, video, audio, figure, table, canvas, svg, iframe, object, embed').length,
+    userBubbles: node.querySelectorAll(`${SELECTORS.chatGptUserBubble}, ${SELECTORS.chatGptReportedUserBubble}`).length,
+    userText: node.querySelectorAll(SELECTORS.chatGptUserText).length,
+  });
   const rootCandidates = roots.slice(0, ROOT_LIMIT).map(node => ({
     selector: node.matches('#thread') ? '#thread' : node.matches('main') ? 'main' : '[role="main"]',
     ...safeDescriptor(node, win),
@@ -82,6 +89,7 @@ export function collectDiagnostics(doc = document, url = location.href) {
       roleMessages: node.querySelectorAll(SELECTORS.messageRole).length,
       turnMarkers: node.querySelectorAll(SELECTORS.conversationTurn).length,
       userBubbles: node.querySelectorAll(SELECTORS.chatGptUserBubble).length,
+      reportedUserBubbles: node.querySelectorAll(SELECTORS.chatGptReportedUserBubble).length,
       assistantText: node.querySelectorAll(SELECTORS.chatGptAssistantText).length,
     },
     outermost: outerRoots.includes(node),
@@ -98,35 +106,53 @@ export function collectDiagnostics(doc = document, url = location.href) {
     ['geminiMessage', SELECTORS.geminiMessage],
   ];
   const samples = [];
-  for (const [kind, selector] of sampleSelectors) {
-    for (const node of doc.querySelectorAll(selector)) {
+  const addSamples = (kind, nodes, limit) => {
+    let added = 0;
+    for (const node of nodes) {
+      if (added >= limit || samples.length >= SAMPLE_LIMIT) break;
       if (node.closest('[data-idea-capture-owned], [data-idea-capture-control]')) continue;
       const root = roots.find(candidate => candidate === node || candidate.contains(node)) || null;
       samples.push({ kind, ancestry: ancestryOf(node, root, win) });
+      added++;
+    }
+  };
+  // Reserve room for both known user bubbles and structural evidence from
+  // content outside those bubbles, even when legacy selectors happen to match.
+  const knownUserBubbles = [...doc.querySelectorAll(`${SELECTORS.chatGptUserBubble}, ${SELECTORS.chatGptReportedUserBubble}, [data-message-author-role="user"], [data-role="user"], [data-turn-role="user"]`)];
+  addSamples('knownUserBubble', knownUserBubbles, 3);
+  const diagnosticRoot = selectedChatGptRoot || roots.find(node => node.matches('main') && visibilityOf(node, win) === 'visible') || roots[0] || doc.body;
+  if (diagnosticRoot) {
+    const outsideUserBubble = node => !node.closest(`${SELECTORS.chatGptUserBubble}, ${SELECTORS.chatGptReportedUserBubble}, [data-message-author-role="user"], [data-role="user"], [data-turn-role="user"], nav, aside, [role="navigation"], [contenteditable="true"], textarea, input, [data-idea-capture-owned], [data-idea-capture-control]`);
+    const paragraphs = [...diagnosticRoot.querySelectorAll('p')].filter(outsideUserBubble);
+    const media = [...diagnosticRoot.querySelectorAll('img, video, audio, figure, table, canvas, svg, iframe, object, embed')].filter(outsideUserBubble);
+    addSamples('contentParagraph', paragraphs, 3);
+    addSamples('contentMedia', media, 3);
+  }
+  for (const [kind, selector] of sampleSelectors) {
+    const categoryLimit = kind === 'chatGptUserBubble' ? 2 : 1;
+    for (const node of doc.querySelectorAll(selector)) {
       if (samples.length >= SAMPLE_LIMIT) break;
-    }
-    if (samples.length >= SAMPLE_LIMIT) break;
-  }
-  if (!samples.length) {
-    const fallbackRoot = selectedChatGptRoot || roots.find(node => node.matches('main') && visibilityOf(node, win) === 'visible') || roots[0] || doc.body;
-    if (fallbackRoot) {
-      for (const node of fallbackRoot.querySelectorAll('p, img, [contenteditable], textarea')) {
-        if (node.closest('[data-idea-capture-owned], [data-idea-capture-control]')) continue;
-        samples.push({ kind: 'fallbackStructure', ancestry: ancestryOf(node, fallbackRoot, win) });
-        if (samples.length >= SAMPLE_LIMIT) break;
-      }
+      if (samples.filter(sample => sample.kind === kind).length >= categoryLimit) break;
+      if (node.closest('[data-idea-capture-owned], [data-idea-capture-control]')) continue;
+      const root = roots.find(candidate => candidate === node || candidate.contains(node)) || null;
+      samples.push({ kind, ancestry: ancestryOf(node, root, win) });
     }
   }
+  const topBranchStructure = diagnosticRoot ? [...diagnosticRoot.children].slice(0, 8).map(node => ({
+    ...safeDescriptor(node, win),
+    descendantCounts: structuralCounts(node),
+  })) : [];
   return {
     version: manifest.version,
-    diagnosticsVersion: 1,
+    diagnosticsVersion: 2,
     provider,
     hostname: parsedUrl.hostname,
     routeShape: parsedUrl.pathname.split('/').filter(Boolean).map(segment => /^(g|c|chat|app|share)$/i.test(segment) ? segment.toLowerCase() : '…'),
     rootCandidateCount: roots.length,
     rootCandidates,
+    topBranchStructure,
     selectorCounts,
     samples,
-    limits: { sampleLimit: SAMPLE_LIMIT, ancestryLimit: ANCESTRY_LIMIT, rootLimit: ROOT_LIMIT },
+    limits: { sampleLimit: SAMPLE_LIMIT, ancestryLimit: ANCESTRY_LIMIT, rootLimit: ROOT_LIMIT, topBranchLimit: 8 },
   };
 }

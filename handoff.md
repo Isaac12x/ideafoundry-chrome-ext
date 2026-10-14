@@ -114,3 +114,15 @@ Live-page limitation remains: no matching ChatGPT tab was found through the avai
 - Root reviewed the nested-scroll screenshot (`artifacts/provider-layout-sections.png`) and final source after the independent Luna review and fresh fix pass.
 - Reinjection now replaces outdated controllers and rebuilds orphaned injected UI; same-version reinjection preserves selection state. Refreshing chat tabs after an extension update remains the simplest installation path.
 - `git diff --check` passed. No remote is configured, so a PR cannot be published or monitored.
+
+## 2026-10-14 — 0.3.2 diagnostics-driven ChatGPT correction
+
+The supplied live diagnostics exposed the actual mismatch: ChatGPT used `.bg-user-message` with nested `.text-size-chat.whitespace-pre-wrap`, and none of the previously recognized role, article, turn, or prose markers. The adapter now recognizes that prompt markup and recovers unmarked reply branches anchored to those prompts. Inferred speakers are explicitly labeled Message with a preview warning; prompt-only detection warns about incomplete capture. The wildcard origin and IdeaFoundry 8443 configuration remain supported.
+
+Luna implementation agents updated extraction, controls, diagnostics, and browser coverage. An independent Luna reviewer found excluded source branches could leak into capture. Root then reproduced that issue and identified root-level media omission and mixed composer collapse. Fresh Luna fix agents bounded traversal, rejected excluded source branches, split mixed branches into safe nodes, preserved direct media, and repaired media bounds within shared wrappers. Root reviewed the resulting source and reran the original leak reproduction successfully.
+
+Diagnostics v2 samples non-user paragraphs/media even when prompts match, without transcript text or media URLs. Copy diagnostics is available in recognized conversations as well as empty states. The launcher starts closed. Inferred replies and images participate in section collapse and selection; collapse does not remove them from exports. The existing pending media-bound improvement from the prior turn is included in this release.
+
+Validation: root `npm test` passed 58/58; the final build and complete Playwright browser suite passed. The browser fixture uses the exact supplied prompt ancestry plus neutral reply, table, and image containers without old message selectors; it tests both gutters, repeated capture, collapsed export, selection/media exclusion, single-prompt replies, and retains existing PDF/KB/remote checks. Root inspected `artifacts/reported-layout-sections.png`; expand controls and composer remain visible after both sections collapse. `git diff --check` passed.
+
+Live assistant markup was not provided, so structural recovery is verified against fixtures rather than the user's authenticated live page. Reload the unpacked extension from dist/ and refresh existing ChatGPT tabs to use version 0.3.2. No Git remote is configured, so publishing a PR and monitoring its comments are unavailable.

@@ -122,6 +122,26 @@ try {
         <div class="turn"><div class="user-message-bubble"><p>How should we scope the pilot?</p></div><div class="markdown"><p>Start with three interviews and a short survey.</p>${longConsent}</div></div>
         <div class="turn"><div class="user-message-bubble"><p>What will the team learn?</p></div><div class="markdown"><p>Compare how each method changes the next decision.</p></div></div>
       </div></div><form class="composer"><div contenteditable="true" aria-label="Message composer">Ask anything</div></form></section></div>` });
+    if (path.endsWith('/c/reported-layout')) return route.fulfill({ status: 200, contentType: 'text/html', body: `<!doctype html><title>Conversation · ChatGPT</title><style>
+      *{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;font:15px/1.6 system-ui,sans-serif;color:#202522;background:#f6f7f6}
+      nav{position:fixed;inset:0 auto 0 0;width:210px;padding:24px;background:#ecefeb;border-right:1px solid #d7ddd8}nav a{display:block;padding:10px;color:#24543b}
+      .frame{position:fixed;inset:0 0 0 210px;display:flex;flex-direction:column}.toolbar{height:54px;padding:14px 24px;background:white;border-bottom:1px solid #e1e5e2}
+      #thread{flex:1;min-height:0;overflow:auto;padding:18px 24px 30px}#thread>div{width:min(700px,100%);margin:0 auto 8px}#thread>div:nth-child(even){margin-bottom:28px;padding:14px 18px;background:white;border-radius:12px}
+      .relative{position:relative;width:100%;min-width:0}.flex{display:flex}.flex-col{flex-direction:column}.items-end{align-items:flex-end}.gap-1{gap:4px}
+      .bg-user-message{width:max-content;max-width:min(580px,100%);padding:12px 16px;border-radius:16px;background:#e7eee9}.whitespace-pre-wrap{white-space:pre-wrap}
+      #thread p{margin:0 0 12px}#thread table{border-collapse:collapse;margin:10px 0}#thread td{padding:7px 10px;border:1px solid #d9dfda}
+      .gallery{display:flex;gap:10px;margin:12px 0}.gallery figure{width:150px;height:96px;margin:0;padding:8px;border-radius:8px;background:#e9eee9}.gallery img{width:100%;height:100%;object-fit:cover}
+      .composer{height:88px;flex:none;padding:14px 20px 18px;background:#fff;border-top:1px solid #dfe4e0}.composer [contenteditable=true]{width:min(700px,100%);height:52px;margin:auto;padding:12px 16px;border:1px solid #ccd4ce;border-radius:16px;background:white}
+      </style><nav><a href="#workspace">Workspace</a><a href="#help">Help</a></nav><div class="frame"><div class="toolbar">Research planning</div><main id="thread">
+        <div><div class="relative w-full min-w-0 text-size-chat leading-relaxed"><div class="flex flex-col items-end gap-1"><div class="bg-user-message text-user-message min-w-0 max-w-(--user-chat-width) overflow-hidden break-words"><div><div class="whitespace-pre-wrap">Compare the community interview and survey findings.</div></div></div></div></div></div>
+        <div><div class="relative w-full min-w-0"><p>Interviews explain local context; surveys show how common each pattern is.</p><table><tbody><tr><td>Interviews</td><td>Context and motivations</td></tr><tr><td>Survey</td><td>Pattern frequency</td></tr></tbody></table><div class="gallery" id="reported-gallery"><figure><img id="reported-evidence" alt="Study evidence"></figure></div></div></div>
+        <div><div class="relative w-full min-w-0 text-size-chat leading-relaxed"><div class="flex flex-col items-end gap-1"><div class="bg-user-message text-user-message min-w-0 max-w-(--user-chat-width) overflow-hidden break-words"><div><div class="whitespace-pre-wrap">What should the pilot test first?</div></div></div></div></div></div>
+        <div><div class="relative w-full min-w-0"><p>Test the interview guide with three participants, then revise the survey.</p><div class="gallery"><figure>Interview guide</figure><figure>Survey draft</figure></div></div></div>
+      </main><form class="composer"><div contenteditable="true" aria-label="Message composer">Ask anything</div></form></div>` });
+    if (path.endsWith('/c/reported-single-layout')) return route.fulfill({ status: 200, contentType: 'text/html', body: `<!doctype html><title>Conversation · ChatGPT</title><main id="thread">
+      <div><div class="relative w-full min-w-0 text-size-chat leading-relaxed"><div class="flex flex-col items-end gap-1"><div class="bg-user-message text-user-message min-w-0 max-w-(--user-chat-width) overflow-hidden break-words"><div><div class="whitespace-pre-wrap">What did the participants say?</div></div></div></div></div></div>
+      <div><div class="relative w-full min-w-0"><p>Participants valued a shorter onboarding flow.</p><table><tbody><tr><td>Clarity</td><td>Time saved</td></tr></tbody></table></div></div>
+    </main>` });
     return route.fulfill({ status: 200, contentType: 'text/html', body: `<!doctype html><title>Planning · ChatGPT</title><style>body{margin:0;font:16px/1.6 system-ui,sans-serif}main.chat{max-width:700px;margin:0 auto;padding:32px 24px;min-height:100vh}article{display:block;margin:18px 0;padding:16px 20px;background:white}</style><main class="chat">
       <article data-testid="conversation-turn-1"><h2 class="sr-only">You said:</h2><div class="markdown"><p>Compare two research approaches.</p></div></article>
       <article data-testid="conversation-turn-2"><h2 class="sr-only">ChatGPT said:</h2><div class="markdown"><p>Interviews give context; surveys give breadth.</p><p>Before the images.</p><img id="inline-png" alt="PNG evidence"><img id="inline-webp" alt="WebP evidence"><p>After the images.</p><p><a href="${appUrl}/media/brief.pdf" download="brief.pdf">Read the linked PDF brief</a></p></div></article>
@@ -247,6 +267,78 @@ try {
   assert.equal(await actualLayout.locator('.composer [contenteditable="true"]').textContent(), 'Ask anything', 'the composer remains intact');
   assert.equal(await actualLayout.locator('.markdown a').count(), 1, 'links in provider message content remain intact');
   await actualLayout.screenshot({ path: 'artifacts/provider-layout-sections.png', fullPage: true });
+  const reportedLayout = await context.newPage();
+  await reportedLayout.setViewportSize({ width: 1440, height: 900 });
+  await reportedLayout.goto('https://chatgpt.com/g/g-p-demo/c/reported-layout');
+  await reportedLayout.locator('.idea-capture-section-header').first().waitFor();
+  assert.equal(await reportedLayout.locator('.idea-capture-section-header').count(), 2, 'the reported user bubble layout creates two prompt sections');
+  assert.equal(await reportedLayout.locator('.bg-user-message').count(), 2);
+  assert.equal(await reportedLayout.locator('[data-message-author-role], [data-role], [data-turn-role], [data-testid], [role], article, .markdown, .prose, .assistant-turn').count(), 0, 'the reported fixture uses no role, test ID, article, or fabricated assistant markers');
+  await reportedLayout.evaluate(() => {
+    const canvas = document.createElement('canvas'); canvas.width = 96; canvas.height = 64;
+    const context = canvas.getContext('2d'); context.fillStyle = '#e8f0eb'; context.fillRect(0, 0, 96, 64); context.fillStyle = '#247a52'; context.fillRect(8, 8, 80, 48);
+    document.querySelector('#reported-evidence').src = canvas.toDataURL('image/png');
+  });
+  const reportedTabId = await worker.evaluate(async () => (await chrome.tabs.query({ url: 'https://chatgpt.com/g/g-p-demo/c/reported-layout' }))[0].id);
+  const reportedCapture = await send({ type: 'capture', tabId: reportedTabId });
+  assert.equal(reportedCapture.ok, true, reportedCapture.error);
+  assert.equal(reportedCapture.conversation.messages.length, 4, 'both prompts and their inferred replies are captured');
+  assert.deepEqual(reportedCapture.conversation.messages.map(message => message.role), ['User', 'Message', 'User', 'Message']);
+  assert.equal(reportedCapture.conversation.messages[0].sectionId, reportedCapture.conversation.messages[1].sectionId, 'the first reply stays with its prompt');
+  assert.equal(reportedCapture.conversation.messages[2].sectionId, reportedCapture.conversation.messages[3].sectionId, 'the second reply stays with its prompt');
+  assert.match(reportedCapture.conversation.messages[1].markdown, /local context/);
+  assert.match(reportedCapture.conversation.messages[1].markdown, /Pattern frequency/);
+  assert.doesNotMatch(reportedCapture.conversation.messages[1].markdown, /Compare the community interview|What should the pilot test first/);
+  assert.match(reportedCapture.conversation.messages[3].markdown, /three participants/);
+  assert.doesNotMatch(reportedCapture.conversation.messages[3].markdown, /Compare the community interview|What should the pilot test first/);
+  assert.equal(reportedCapture.conversation.media.length, 1, 'the image in the inferred reply is captured');
+  assert.equal(reportedCapture.conversation.media[0].messageRole, 'Message');
+  const refreshedReportedCapture = await send({ type: 'capture', tabId: reportedTabId });
+  assert.equal(refreshedReportedCapture.ok, true, refreshedReportedCapture.error);
+  assert.equal(refreshedReportedCapture.conversation.messages.length, 4, 'refreshing capture does not duplicate inferred prompts');
+  assert.equal(refreshedReportedCapture.conversation.messages.filter(message => message.role === 'Message').some(message => /Compare the community interview|What should the pilot test first/.test(message.markdown)), false);
+  const reportedFirstReply = reportedLayout.locator('#thread p').first();
+  const reportedSecondReply = reportedLayout.locator('#thread p').nth(1);
+  await mkdir('artifacts', { recursive: true });
+  await reportedLayout.screenshot({ path: 'artifacts/reported-layout-before-collapse.png', fullPage: true });
+  const firstReplyBounds = await reportedFirstReply.boundingBox();
+  assert.ok(firstReplyBounds);
+  await reportedLayout.mouse.click(250, firstReplyBounds.y + firstReplyBounds.height / 2);
+  await reportedLayout.waitForFunction(() => document.querySelectorAll('.idea-capture-section-collapsed').length >= 2);
+  assert.equal(await reportedLayout.locator('.bg-user-message').first().isVisible(), false, 'a left margin collapse hides the prompt');
+  assert.equal(await reportedLayout.locator('#reported-gallery img').isVisible(), false, 'the same left margin collapse hides reply media');
+  const secondReplyBounds = await reportedSecondReply.boundingBox();
+  assert.ok(secondReplyBounds);
+  await reportedLayout.mouse.click(1380, secondReplyBounds.y + secondReplyBounds.height / 2);
+  await reportedLayout.waitForFunction(() => document.querySelectorAll('.idea-capture-section-collapsed').length >= 4);
+  assert.equal(await reportedLayout.locator('.bg-user-message').nth(1).isVisible(), false, 'a right margin collapse hides the second prompt');
+  assert.equal(await reportedLayout.locator('#thread p').nth(1).isVisible(), false, 'the second reply collapses with its prompt');
+  const collapsedReportedExport = await send({ type: 'capture', tabId: reportedTabId, mode: 'export' });
+  assert.equal(collapsedReportedExport.ok, true, collapsedReportedExport.error);
+  assert.equal(collapsedReportedExport.conversation.messages.length, 4, 'collapsed prompts and replies remain exportable');
+  assert.match(collapsedReportedExport.conversation.messages[1].markdown, /local context/);
+  assert.match(collapsedReportedExport.conversation.messages[3].markdown, /three participants/);
+  assert.equal(collapsedReportedExport.conversation.media.length, 1, 'collapsed reply media remains exportable');
+  await reportedLayout.locator('#idea-capture-panel [data-action="toggle-panel"]').click();
+  const reportedChecks = reportedLayout.locator('#idea-capture-panel input[data-section-id]');
+  assert.equal(await reportedChecks.count(), 2);
+  await reportedChecks.first().uncheck();
+  const selectedReportedExport = await send({ type: 'capture', tabId: reportedTabId, mode: 'export' });
+  assert.equal(selectedReportedExport.ok, true, selectedReportedExport.error);
+  assert.equal(selectedReportedExport.conversation.messages.length, 2);
+  assert.equal(selectedReportedExport.conversation.messages.some(message => message.markdown.includes('community interview')), false);
+  assert.equal(selectedReportedExport.conversation.media.length, 0, 'excluding the section also excludes its reply image');
+  assert.equal(await reportedLayout.locator('nav a').count(), 2, 'navigation remains outside captured messages');
+  assert.equal(await reportedLayout.locator('.composer [contenteditable="true"]').textContent(), 'Ask anything', 'the composer remains outside captured messages');
+  await reportedLayout.screenshot({ path: 'artifacts/reported-layout-sections.png', fullPage: true });
+  const reportedSingleLayout = await context.newPage();
+  await reportedSingleLayout.goto('https://chatgpt.com/g/g-p-demo/c/reported-single-layout');
+  await reportedSingleLayout.locator('.idea-capture-section-header').first().waitFor();
+  const reportedSingleTabId = await worker.evaluate(async () => (await chrome.tabs.query({ url: 'https://chatgpt.com/g/g-p-demo/c/reported-single-layout' }))[0].id);
+  const reportedSingleCapture = await send({ type: 'capture', tabId: reportedSingleTabId });
+  assert.equal(reportedSingleCapture.ok, true, reportedSingleCapture.error);
+  assert.deepEqual(reportedSingleCapture.conversation.messages.map(message => message.role), ['User', 'Message'], 'a lone reported bubble still infers its adjacent reply');
+  assert.match(reportedSingleCapture.conversation.messages[1].markdown, /shorter onboarding flow/);
   const roleWrapperPage = await context.newPage();
   await roleWrapperPage.setViewportSize({ width: 1440, height: 900 });
   await roleWrapperPage.goto('https://chatgpt.com/g/g-p-demo/c/role-wrapper-layout');

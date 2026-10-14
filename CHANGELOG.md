@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.2 — 2026-10-14
+
+- Added ChatGPT `bg-user-message` support based on supplied live-page diagnostics.
+- Added user-anchored recovery of unmarked reply content, with an explicit inference warning.
+- Expanded structural diagnostics to include non-user content even when prompt selectors match.
+- Kept media within collapse groups and outside side-control placement.
+
 ## 0.3.1 — 2026-10-14
 
 - Broadened ChatGPT detection to class-based message layouts and improved conversation-root selection.

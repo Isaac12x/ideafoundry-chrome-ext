@@ -28,6 +28,28 @@ test('empty discovery keeps a closed launcher visible and Retry finds messages a
   assert.equal(shadow.querySelectorAll('.row').length, 1);
 });
 
+test('recognized conversations expose diagnostics inside the closed-by-default panel', async t => {
+  const dom = new JSDOM('<!doctype html><html><body><main><div data-message-author-role="user">Private prompt</div><div data-message-author-role="assistant">Private answer</div></main></body></html>', {
+    url: 'https://chatgpt.com/c/123', pretendToBeVisual: true,
+  });
+  let copied = '';
+  Object.defineProperty(dom.window.navigator, 'clipboard', {
+    configurable: true,
+    value: { writeText: async value => { copied = value; } },
+  });
+  const controls = createCaptureControls(dom.window.document, dom.window);
+  t.after(() => { controls.destroy(); dom.window.close(); });
+  const shadow = dom.window.document.querySelector('[data-idea-capture-owned="host"]').shadowRoot;
+  assert.equal(shadow.querySelector('.panel-body').hidden, true);
+  const copyButton = shadow.querySelector('.tools [data-action="copy-diagnostics"]');
+  assert.ok(copyButton, 'diagnostics are available when messages are recognized');
+  shadow.querySelector('[data-action="toggle-panel"]').click();
+  copyButton.click();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.match(shadow.querySelector('[data-diagnostics-status]').textContent, /copied to clipboard/);
+  assert.doesNotMatch(copied, /Private prompt|Private answer|123/);
+});
+
 test('generic page fallback keeps its media attached when selection filters media by message index', () => {
   const dom = new JSDOM('<main><h1>Notes</h1><p>Chart <img src="https://cdn.example/chart.png" alt="chart"></p></main>', { url: 'https://example.com/notes', pretendToBeVisual: true });
   const controls = createCaptureControls(dom.window.document, dom.window);

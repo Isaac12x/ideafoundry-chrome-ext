@@ -128,6 +128,81 @@ test('gutter hit regions are clipped by scroll containers and the viewport', t =
   assert.ok(assistant.classList.contains('idea-capture-section-collapsed'));
 });
 
+test('unmarked replies collapse with their prompt and direct media keeps margin controls outside the gallery', t => {
+  const dom = new JSDOM(`<!doctype html><html><body><main>
+    <div class="prompt-branch"><div class="bg-user-message">Question</div></div>
+    <div class="reply-branch"><p>Unmarked answer</p><img src="https://cdn.example/chart.png" alt="Chart"></div>
+  </main></body></html>`, { url: 'https://chatgpt.com/c/1', pretendToBeVisual: true });
+  Object.defineProperty(dom.window, 'innerWidth', { configurable: true, value: 1200 });
+  const { document } = dom.window;
+  const controls = createCaptureControls(document, dom.window);
+  t.after(() => { controls.destroy(); dom.window.close(); });
+  const shadow = document.querySelector('[data-idea-capture-owned="host"]').shadowRoot;
+  const header = document.querySelector('.idea-capture-section-header');
+  assert.ok(header, 'the inferred prompt and unmarked reply form a section');
+  const prompt = document.querySelector('.bg-user-message');
+  const reply = document.querySelector('.reply-branch');
+  const paragraph = reply.querySelector('p');
+  const image = reply.querySelector('img');
+  setRect(prompt, { left: 200, right: 500, top: 100, bottom: 150 });
+  setRect(reply, { left: 0, right: 1200, top: 160, bottom: 320 });
+  setRect(paragraph, { left: 200, right: 500, top: 170, bottom: 220 });
+  setRect(image, { left: 700, right: 1100, top: 230, bottom: 300 });
+  controls.refresh();
+
+  header.querySelector('button').click();
+  assert.ok(prompt.classList.contains('idea-capture-section-collapsed'));
+  assert.ok(reply.classList.contains('idea-capture-section-collapsed'), 'the inferred reply branch collapses with its prompt');
+  const rail = shadow.querySelector('#idea-capture-margin-controls');
+  assert.equal(rail.hidden, false);
+  assert.equal(rail.style.left, 'auto');
+  assert.equal(rail.style.right, '1008px', 'the cached section bounds include media extending beyond the text');
+});
+
+test('media in a section is retained when its shared article also contains another section', t => {
+  const dom = new JSDOM(`<!doctype html><html><body><main><article>
+    <div data-message-author-role="user"><p>First question</p></div>
+    <div data-message-author-role="assistant"><p>First answer</p></div>
+    <div data-message-author-role="user"><p>Second question</p></div>
+    <div data-message-author-role="assistant"><p>Second answer</p><div class="image-gallery"><img src="https://cdn.example/chart.png" alt="Chart"></div></div>
+  </article></main></body></html>`, { url: 'https://chatgpt.com/c/1', pretendToBeVisual: true });
+  Object.defineProperty(dom.window, 'innerWidth', { configurable: true, value: 1200 });
+  const { document } = dom.window;
+  const controls = createCaptureControls(document, dom.window);
+  t.after(() => { controls.destroy(); dom.window.close(); });
+
+  const article = document.querySelector('article');
+  const [firstUser, firstAssistant, secondUser, secondAssistant] = document.querySelectorAll('[data-message-author-role]');
+  const image = document.querySelector('img');
+  setRect(article, { left: 300, right: 700, top: 0, bottom: 600 });
+  for (const node of [firstUser, firstAssistant, secondUser, secondAssistant]) setRect(node, { left: 300, right: 700, top: 100, bottom: 400 });
+  for (const node of document.querySelectorAll('p')) setRect(node, { left: 300, right: 700, top: 110, bottom: 150 });
+  setRect(image, { left: 900, right: 1100, top: 250, bottom: 320 });
+  controls.refresh();
+
+  const secondHeader = [...document.querySelectorAll('.idea-capture-section-header')][1];
+  secondHeader.querySelector('button').click();
+  const rail = document.querySelector('[data-idea-capture-owned="host"]').shadowRoot.querySelector('#idea-capture-margin-controls');
+  assert.equal(rail.hidden, false);
+  assert.equal(rail.style.right, '908px', 'the rail is positioned against the gallery-expanded section bounds');
+});
+
+test('a grouped prompt and unmarked reply keep the section header visible when collapsed', t => {
+  const dom = new JSDOM(`<!doctype html><html><body><main>
+    <article><div class="bg-user-message">Question</div><div class="reply-content"><p>Unmarked answer</p></div></article>
+  </main></body></html>`, { url: 'https://chatgpt.com/c/1', pretendToBeVisual: true });
+  const { document } = dom.window;
+  const controls = createCaptureControls(document, dom.window);
+  t.after(() => { controls.destroy(); dom.window.close(); });
+  const header = document.querySelector('.idea-capture-section-header');
+  assert.ok(header);
+  header.querySelector('button').click();
+  assert.ok(header.isConnected, 'collapsing a grouped turn does not hide the controls placed before it');
+  assert.equal(header.closest('.idea-capture-section-collapsed'), null, 'the collapsed display rule cannot hide the section header');
+  assert.equal(header.nextElementSibling, document.querySelector('article'));
+  assert.ok(document.querySelector('article').classList.contains('idea-capture-section-collapsed'));
+});
+
 test('empty state copies structural diagnostics and exposes a readonly fallback when clipboard access fails', async t => {
   const dom = new JSDOM('<!doctype html><html><body><main><p>Private transcript text</p></main></body></html>', {
     url: 'https://chatgpt.com/c/private-conversation-id', pretendToBeVisual: true,
