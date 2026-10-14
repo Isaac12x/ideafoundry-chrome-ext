@@ -95,3 +95,22 @@ Live authenticated ChatGPT/Claude sessions were not available for inspection (br
 - Root reviewed source after the independent Luna review, reproduced its detection findings, checked the actual IdeaFoundry Markdown serving contract, and inspected the ChatGPT launcher screenshot. A fresh Luna agent fixed the resulting issues and added targeted tests.
 - `git diff --check`: passed.
 - No Git remote is configured; PR publication and comment monitoring are unavailable. Work remains on `feat/collapsible-conversation-sections`.
+
+## 2026-10-14 — 0.3.1 follow-up on live detection and gutter clicks
+
+The user supplied another screenshot showing the empty-state widget on a visibly loaded ChatGPT project conversation. They clarified that the whole blank left/right margin alongside a section must be clickable, and that a prompt-side toggle must appear.
+
+Luna agents expanded class-based ChatGPT extraction and selected-root detection, added two-sided margin hit testing, and added routed browser fixtures with nested scrolling, unrelated main/sidebar regions, and full-width wrappers. The widget empty state now offers Copy diagnostics with a readonly fallback when clipboard access fails. Diagnostics report bounded structural samples and selector counts, omit transcript text/media attributes, and redact route identifiers.
+
+An independent Luna reviewer examined the changes. Root then reproduced a full-width role-wrapper padding click that was still ignored. A fresh Luna fix agent addressed that case, gallery click protection, scroll clipping, sidebar exclusions, and repeated root-scoring work on scroll. Browser coverage retains the existing media, KB, queue, and popup workflows.
+
+Live-page limitation remains: no matching ChatGPT tab was found through the available Chrome scripting interface; Arc/Safari scripting did not yield the target page. An optional browser-identification question was sent. The reported layout improvements are verified with browser fixtures, not the user's authenticated DOM. If the updated adapter still misses the user's page, Copy diagnostics provides structural evidence for the next correction without asking for the transcript.
+
+### 0.3.1 final verification
+
+- Root final `npm test`: 51/51 passed.
+- Root final `npm run build` and `npm run test:browser`: passed against the final sources, including the controller reinjection/orphan-UI change.
+- Browser coverage checks class-based project conversations, prompt toggles, both gutters, nested scrolling, full-width wrapper padding, gallery click protection, and the existing export/KB/remote workflows.
+- Root reviewed the nested-scroll screenshot (`artifacts/provider-layout-sections.png`) and final source after the independent Luna review and fresh fix pass.
+- Reinjection now replaces outdated controllers and rebuilds orphaned injected UI; same-version reinjection preserves selection state. Refreshing chat tabs after an extension update remains the simplest installation path.
+- `git diff --check` passed. No remote is configured, so a PR cannot be published or monitored.

@@ -1,4 +1,5 @@
-import { extractConversation } from './extract.js';
+import { chatGptConversationRoot, extractConversation } from './extract.js';
+import { collectDiagnostics } from './diagnostics.js';
 
 const HOST_ID = 'idea-capture-controls';
 const COLLAPSED_CLASS = 'idea-capture-section-collapsed';
@@ -27,6 +28,7 @@ export function createCaptureControls(doc = document, win = window) {
   let refreshing = false;
   let destroyed = false;
   let activeSectionId = null;
+  let geometryRoot = null;
   let railFrame = 0;
   let cachedContentBounds = null;
   let preserveActiveSection = false;
@@ -45,7 +47,7 @@ export function createCaptureControls(doc = document, win = window) {
         *{box-sizing:border-box}
         #idea-capture-panel{position:fixed;right:16px;bottom:16px;z-index:2147483647;width:min(340px,calc(100vw - 32px));max-height:min(70vh,620px);display:flex;flex-direction:column;background:#fff;color:#18221d;border:1px solid #b9c6be;border-radius:12px;box-shadow:0 8px 32px #10251c33;font:13px/1.4 system-ui,sans-serif}
         [hidden]{display:none!important}
-        #idea-capture-panel>header{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid #e0e8e3;font-weight:700}button{font:inherit;cursor:pointer;border:1px solid #ccd8d0;border-radius:6px;background:#f7faf8;color:inherit;padding:5px 8px}button:focus-visible,input:focus-visible{outline:2px solid #19704c;outline-offset:2px}.tools{display:flex;gap:6px;flex-wrap:wrap;padding:9px 12px 4px}.count{padding:2px 14px 8px;color:#506158}.list{overflow:auto;padding:0 8px 10px}.row{display:grid;grid-template-columns:auto 1fr auto;align-items:start;gap:8px;padding:8px 6px;border-top:1px solid #edf1ee}.row input{margin:2px 0 0}.label{overflow-wrap:anywhere}.label small{display:block;color:#65746b;margin-top:2px}.collapse{white-space:nowrap}.empty{padding:8px 14px;color:#506158}.empty p{margin:0 0 10px}
+        #idea-capture-panel>header{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid #e0e8e3;font-weight:700}button{font:inherit;cursor:pointer;border:1px solid #ccd8d0;border-radius:6px;background:#f7faf8;color:inherit;padding:5px 8px}button:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px solid #19704c;outline-offset:2px}.tools{display:flex;gap:6px;flex-wrap:wrap;padding:9px 12px 4px}.count{padding:2px 14px 8px;color:#506158}.list{overflow:auto;padding:0 8px 10px}.row{display:grid;grid-template-columns:auto 1fr auto;align-items:start;gap:8px;padding:8px 6px;border-top:1px solid #edf1ee}.row input{margin:2px 0 0}.label{overflow-wrap:anywhere}.label small{display:block;color:#65746b;margin-top:2px}.collapse{white-space:nowrap}.empty{padding:8px 14px;color:#506158}.empty p{margin:0 0 10px}.empty textarea{display:block;width:100%;min-height:150px;margin-top:8px;font:11px/1.4 ui-monospace,monospace;resize:vertical}
         #idea-capture-margin-controls{position:fixed;top:50%;z-index:2147483646;transform:translateY(-50%);display:grid;gap:6px;padding:9px;background:#fff;color:#18221d;border:1px solid #b9c6be;border-radius:9px;box-shadow:0 4px 18px #10251c22;font:12px/1.35 system-ui,sans-serif}
         #idea-capture-margin-controls .idea-capture-margin-label{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#506158}
         #idea-capture-margin-controls .idea-capture-margin-select{display:flex;align-items:center;gap:6px;min-width:0}
@@ -60,7 +62,7 @@ export function createCaptureControls(doc = document, win = window) {
       </style>
       <section id="idea-capture-panel" data-idea-panel aria-label="Conversation sections" hidden>
         <header><span>Choose sections to capture</span><button type="button" data-action="toggle-panel" aria-expanded="false">Open</button></header>
-        <div class="panel-body" hidden><div class="tools"><button type="button" data-action="select-all">Select all</button><button type="button" data-action="select-none">Select none</button><button type="button" data-action="collapse-all">Collapse all</button><button type="button" data-action="expand-all">Expand all</button></div><div class="count" aria-live="polite"></div><div class="empty" hidden><p data-empty-message></p><button type="button" data-action="retry">Retry detection</button></div><div class="list"></div></div>
+        <div class="panel-body" hidden><div class="tools"><button type="button" data-action="select-all">Select all</button><button type="button" data-action="select-none">Select none</button><button type="button" data-action="collapse-all">Collapse all</button><button type="button" data-action="expand-all">Expand all</button></div><div class="count" aria-live="polite"></div><div class="empty" hidden><p data-empty-message></p><button type="button" data-action="retry">Retry detection</button><button type="button" data-action="copy-diagnostics">Copy diagnostics</button><p data-diagnostics-status aria-live="polite"></p><textarea data-diagnostics-fallback readonly hidden aria-label="Diagnostics to copy manually"></textarea></div><div class="list"></div></div>
       </section>
       <aside id="idea-capture-margin-controls" aria-label="Current conversation section" hidden>
         <label class="idea-capture-margin-select"><input type="checkbox" data-idea-section-id aria-label="Include current section"><span>Include</span></label>
@@ -80,6 +82,8 @@ export function createCaptureControls(doc = document, win = window) {
   const count = shadow.querySelector('.count');
   const empty = shadow.querySelector('.empty');
   const emptyText = shadow.querySelector('[data-empty-message]');
+  const diagnosticsStatus = shadow.querySelector('[data-diagnostics-status]');
+  const diagnosticsFallback = shadow.querySelector('[data-diagnostics-fallback]');
   const onTogglePanel = () => {
     const open = toggleButton.getAttribute('aria-expanded') !== 'true';
     toggleButton.setAttribute('aria-expanded', String(open));
@@ -108,7 +112,9 @@ export function createCaptureControls(doc = document, win = window) {
     render();
   };
   const onEmptyClick = event => {
-    if (event.target.closest('button')?.dataset.action === 'retry') refresh();
+    const action = event.target.closest('button')?.dataset.action;
+    if (action === 'retry') refresh();
+    if (action === 'copy-diagnostics') void copyDiagnostics();
   };
   const onListChange = event => {
     const input = event.target.closest('input[data-section-id]');
@@ -133,8 +139,21 @@ export function createCaptureControls(doc = document, win = window) {
   };
   const onDocClick = event => {
     const button = event.target.closest?.('button[data-idea-section-id]');
-    if (!button) return;
-    const id = button.dataset.ideaSectionId;
+    if (button) {
+      event.stopPropagation();
+      const id = button.dataset.ideaSectionId;
+      activeSectionId = id;
+      preserveActiveSection = true;
+      collapsed.set(id, !collapsed.get(id));
+      render();
+      return;
+    }
+    const section = sectionAtMarginPoint(event);
+    if (!section) return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.stopImmediatePropagation?.();
+    const id = section.id;
     activeSectionId = id;
     preserveActiveSection = true;
     collapsed.set(id, !collapsed.get(id));
@@ -148,7 +167,7 @@ export function createCaptureControls(doc = document, win = window) {
   list.addEventListener('change', onListChange);
   list.addEventListener('click', onListClick);
   doc.addEventListener('change', onDocChange);
-  doc.addEventListener('click', onDocClick);
+  doc.addEventListener('click', onDocClick, true);
 
   function render() {
     count.textContent = `${sections.filter(section => selected.get(section.id) !== false).length} of ${sections.length} sections selected`;
@@ -191,6 +210,23 @@ export function createCaptureControls(doc = document, win = window) {
     syncRail();
     if (activeSection && activeKind) [...list.children].find(row => row.dataset.sectionId === activeSection)?.querySelector(activeKind === 'input' ? 'input' : 'button')?.focus();
   }
+  async function copyDiagnostics() {
+    const text = JSON.stringify(collectDiagnostics(doc, win.location.href), null, 2);
+    diagnosticsFallback.value = '';
+    diagnosticsFallback.hidden = true;
+    diagnosticsStatus.textContent = '';
+    try {
+      if (!win.navigator?.clipboard?.writeText) throw new Error('Clipboard API unavailable');
+      await win.navigator.clipboard.writeText(text);
+      diagnosticsStatus.textContent = 'Diagnostics copied to clipboard.';
+    } catch {
+      diagnosticsFallback.value = text;
+      diagnosticsFallback.hidden = false;
+      diagnosticsStatus.textContent = 'Clipboard access failed. Select and copy the diagnostics below.';
+      diagnosticsFallback.focus();
+      diagnosticsFallback.select();
+    }
+  }
   function syncHeaders() {
     const currentIds = new Set(sections.map(section => section.id));
     for (const [id, header] of headers) if (!currentIds.has(id)) { header.remove(); headers.delete(id); }
@@ -224,7 +260,7 @@ export function createCaptureControls(doc = document, win = window) {
     for (const node of section.nodes) {
       const candidates = [];
       for (let ancestor = node.parentElement; ancestor && ancestor !== doc.body && ancestor !== doc.documentElement; ancestor = ancestor.parentElement) {
-        if (!ancestor.matches('article, [data-testid^="conversation-turn-"], [data-turn-id], [data-message-id]')) continue;
+        if (!ancestor.matches('article, [data-testid^="conversation-turn-"], [data-turn-id], [data-message-id], [class~="turn"], [class*="assistant-turn"], [class*="agent-turn"]')) continue;
         if (foreignNodes.some(foreign => ancestor.contains(foreign))) continue;
         if (ancestor.querySelector('textarea, input, [contenteditable="true"], [role="textbox"]')) continue;
         candidates.push(ancestor);
@@ -235,7 +271,11 @@ export function createCaptureControls(doc = document, win = window) {
   }
   function applyCollapse() {
     for (const section of sections) for (const node of collapseTargets(section)) {
-      if (!classStates.has(node)) classStates.set(node, node.classList.contains(COLLAPSED_CLASS));
+      if (!classStates.has(node)) {
+        const hadClass = node.classList.contains(COLLAPSED_CLASS);
+        classStates.set(node, hadClass);
+        node.setAttribute('data-idea-capture-collapse-state', String(hadClass));
+      }
       node.classList.toggle(COLLAPSED_CLASS, collapsed.get(section.id) === true);
     }
   }
@@ -243,33 +283,52 @@ export function createCaptureControls(doc = document, win = window) {
     const sorted = values.filter(Number.isFinite).sort((a, b) => a - b);
     return sorted.length ? sorted[Math.floor(sorted.length / 2)] : null;
   }
+  function isChatGptPage() {
+    return /(^|\.)(chatgpt\.com|chat\.openai\.com)$/i.test(new URL(win.location.href).hostname);
+  }
+  function conversationGeometryRoot() {
+    if (geometryRoot?.isConnected) return geometryRoot;
+    geometryRoot = isChatGptPage()
+      ? chatGptConversationRoot(doc)
+      : doc.querySelector('[role="main"]') || doc.querySelector('main');
+    return geometryRoot;
+  }
+  function isNestedScrollRoot(node) {
+    if (!node) return false;
+    if (node.matches?.('#thread')) return true;
+    const style = win.getComputedStyle?.(node);
+    const overflow = `${style?.overflow || ''} ${style?.overflowX || ''} ${style?.overflowY || ''}`;
+    return /(auto|scroll|overlay)/.test(overflow) && node.scrollHeight > node.clientHeight;
+  }
   function contentBounds() {
     const viewport = win.innerWidth || doc.documentElement.clientWidth;
     const maxWidth = viewport * 0.92;
-    const main = doc.querySelector('main, [role="main"]');
-    if (main) {
-      const rect = main.getBoundingClientRect();
-      if (rect.width > 0 && rect.width <= maxWidth) {
-        cachedContentBounds = { left: rect.left, right: rect.right };
-        return cachedContentBounds;
-      }
-    }
     const rects = [];
-    for (const section of sections) for (const node of section.nodes) {
+    const section = sections.find(candidate => candidate.id === activeSectionId) || sectionAtViewportCenter();
+    for (const node of section?.nodes.slice(0, 3) || []) {
       if (!node.isConnected) continue;
-      const descendants = node.querySelectorAll?.('p, [class*="markdown"], [data-testid], [data-message-author-role], user-query, model-response') || [];
-      for (const candidate of [node, ...descendants]) {
-        const rect = candidate.getBoundingClientRect();
-        if (rect.width >= 160 && rect.width <= maxWidth && rect.height > 0) rects.push(rect);
+      const layout = node.closest?.('article, [data-testid^="conversation-turn-"], [data-turn-id], [data-message-id], [class~="turn"], [class*="assistant-turn"], [class*="agent-turn"]');
+      const rect = layout?.getBoundingClientRect() || node.getBoundingClientRect();
+      if (rect.width >= 160 && rect.width <= maxWidth && rect.height > 0 && !layout?.querySelector('textarea, input, [contenteditable="true"], [role="textbox"]')) rects.push(rect);
+      if (!rects.length) {
+        const content = node.querySelector?.('p, [class*="markdown"], [data-testid], [data-message-author-role], user-query, model-response');
+        const contentRect = content?.getBoundingClientRect();
+        if (contentRect?.width >= 160 && contentRect.width <= maxWidth && contentRect.height > 0) rects.push(contentRect);
       }
     }
     if (rects.length) {
       cachedContentBounds = { left: median(rects.map(rect => rect.left)), right: median(rects.map(rect => rect.right)) };
       return cachedContentBounds;
     }
-    const headerRects = [...headers.values()].map(header => header.getBoundingClientRect()).filter(rect => rect.width >= 116 && rect.width <= maxWidth && rect.height > 0);
-    if (headerRects.length) {
-      cachedContentBounds = { left: median(headerRects.map(rect => rect.left)), right: median(headerRects.map(rect => rect.right)) };
+    const root = isChatGptPage() ? conversationGeometryRoot() : null;
+    const rootRect = isNestedScrollRoot(root) ? root.getBoundingClientRect() : null;
+    if (rootRect?.width >= 160 && rootRect.width <= maxWidth && rootRect.height > 0) {
+      cachedContentBounds = { left: rootRect.left, right: rootRect.right };
+      return cachedContentBounds;
+    }
+    const headerRect = headers.get(section?.id)?.getBoundingClientRect();
+    if (headerRect?.width >= 116 && headerRect.width <= maxWidth && headerRect.height > 0) {
+      cachedContentBounds = { left: headerRect.left, right: headerRect.right };
       return cachedContentBounds;
     }
     return cachedContentBounds;
@@ -286,6 +345,91 @@ export function createCaptureControls(doc = document, win = window) {
     }
     return current || sections[0] || null;
   }
+  function sectionAtMarginPoint(event) {
+    if (event.button !== undefined && event.button !== 0) return null;
+    const x = event.clientX;
+    const y = event.clientY;
+    const viewportWidth = win.innerWidth || doc.documentElement.clientWidth;
+    const viewportHeight = win.innerHeight || doc.documentElement.clientHeight;
+    if (!Number.isFinite(x) || !Number.isFinite(y) || x < 0 || y < 0 || x > viewportWidth || y > viewportHeight) return null;
+    const target = event.target?.nodeType === 1 ? event.target : event.target?.parentElement;
+    if (!target || target === host || host.contains(target) || target.closest?.(`.${HEADER_CLASS},[${OWNED}],a,button,input,textarea,select,[role="button"],[role="link"],[role="textbox"],[role="banner"],[contenteditable="true"],form,header,nav,aside,[role="navigation"],[role="complementary"],#sidebar,#left-sidebar,#right-sidebar,.sidebar,.app-sidebar,.conversation-sidebar,.sidebar-panel,.sidebar-container,[aria-label*="sidebar" i],[data-testid*="sidebar" i],[class*="toolbar" i],[data-testid*="toolbar" i]`)) return null;
+
+    const root = isChatGptPage() ? conversationGeometryRoot() : null;
+    const viewportRect = { left: 0, right: viewportWidth, top: 0, bottom: viewportHeight };
+    const clippedRect = node => {
+      if (!node?.isConnected) return null;
+      const raw = node.getBoundingClientRect();
+      let left = Math.max(raw.left, viewportRect.left);
+      let right = Math.min(raw.right, viewportRect.right);
+      let top = Math.max(raw.top, viewportRect.top);
+      let bottom = Math.min(raw.bottom, viewportRect.bottom);
+      for (let ancestor = node.parentElement; ancestor; ancestor = ancestor.parentElement) {
+        const style = win.getComputedStyle?.(ancestor);
+        const overflowX = style?.overflowX || style?.overflow || '';
+        const overflowY = style?.overflowY || style?.overflow || '';
+        if (/(hidden|clip|auto|scroll|overlay)/.test(overflowX) || /(hidden|clip|auto|scroll|overlay)/.test(overflowY)) {
+          const clip = ancestor.getBoundingClientRect();
+          if (/(hidden|clip|auto|scroll|overlay)/.test(overflowX)) { left = Math.max(left, clip.left); right = Math.min(right, clip.right); }
+          if (/(hidden|clip|auto|scroll|overlay)/.test(overflowY)) { top = Math.max(top, clip.top); bottom = Math.min(bottom, clip.bottom); }
+        }
+        if (ancestor === doc.documentElement) break;
+      }
+      return right > left && bottom > top ? { left, right, top, bottom, width: right - left, height: bottom - top } : null;
+    };
+    const rootRect = isNestedScrollRoot(root) ? clippedRect(root) : null;
+    if (rootRect && (x < rootRect.left || x > rootRect.right || y < rootRect.top || y > rootRect.bottom)) return null;
+
+    const turnSelector = 'article, [data-testid^="conversation-turn-"], [data-turn-id], [data-message-id], [class~="turn"], [class*="assistant-turn"], [class*="agent-turn"]';
+    const contentSelector = 'p, h1, h2, h3, h4, h5, h6, a, img, video, audio, iframe, object, embed, canvas, svg, pre, code, table, blockquote, li, [class*="markdown"], [class*="prose"], [class*="gallery"]';
+    const safeTurn = (node, section) => {
+      let candidate = null;
+      for (let ancestor = node.parentElement; ancestor && ancestor !== doc.body && ancestor !== doc.documentElement; ancestor = ancestor.parentElement) {
+        if (!ancestor.matches(turnSelector)) continue;
+        const foreignNodes = sections.filter(other => other.id !== section.id).flatMap(other => other.nodes);
+        if (foreignNodes.some(foreign => ancestor.contains(foreign))) continue;
+        if (ancestor.querySelector('textarea, input, [contenteditable="true"], [role="textbox"]')) continue;
+        candidate = ancestor;
+        break;
+      }
+      return candidate;
+    };
+
+    for (const section of sections) {
+      const rects = [];
+      const contentRects = [];
+      for (const node of section.nodes) {
+        if (!node.isConnected) continue;
+        const wrapper = safeTurn(node, section);
+        const rect = clippedRect(wrapper || node);
+        if (rect) rects.push(rect);
+        const contentRoots = new Set([node, ...(wrapper ? [wrapper] : [])]);
+        for (const contentRoot of contentRoots) {
+          if (contentRoot.matches?.(contentSelector)) {
+            const ownRect = clippedRect(contentRoot);
+            if (ownRect?.width >= 16) contentRects.push(ownRect);
+          }
+          for (const candidate of contentRoot.querySelectorAll?.(contentSelector) || []) {
+            const childRect = clippedRect(candidate);
+            if (childRect?.width >= 16) contentRects.push(childRect);
+          }
+        }
+      }
+      const headerRect = clippedRect(headers.get(section.id));
+      if (headerRect) rects.push(headerRect);
+      if (!rects.length) continue;
+      const top = Math.min(...rects.map(rect => rect.top));
+      const bottom = Math.max(...rects.map(rect => rect.bottom));
+      if (y < top || y > bottom) continue;
+      const horizontalRects = contentRects.length ? contentRects : rects;
+      const contentLeft = median(horizontalRects.map(rect => rect.left));
+      const contentRight = median(horizontalRects.map(rect => rect.right));
+      if (!Number.isFinite(contentLeft) || !Number.isFinite(contentRight)) continue;
+      if (contentRects.some(rect => x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom)) return null;
+      if (x < contentLeft - 8 || x > contentRight + 8) return section;
+    }
+    return null;
+  }
   function syncRail() {
     if (!sections.length) { rail.hidden = true; return; }
     const section = sections.find(candidate => candidate.id === activeSectionId) || sectionAtViewportCenter();
@@ -294,17 +438,23 @@ export function createCaptureControls(doc = document, win = window) {
     const bounds = contentBounds();
     const viewport = win.innerWidth || doc.documentElement.clientWidth;
     if (!bounds) { rail.hidden = true; return; }
-    const leftSpace = Math.max(0, bounds.left);
-    const rightSpace = Math.max(0, viewport - bounds.right);
+    const root = isChatGptPage() ? conversationGeometryRoot() : null;
+    const rootRect = root?.getBoundingClientRect();
+    const clampToRoot = isNestedScrollRoot(root) && rootRect?.width > 0;
+    const rootLeft = clampToRoot ? Math.max(0, rootRect.left) : 0;
+    const rootRight = clampToRoot ? Math.min(viewport, rootRect.right) : viewport;
+    const leftSpace = Math.max(0, bounds.left - rootLeft);
+    const rightSpace = Math.max(0, rootRight - bounds.right);
+    if (Math.max(leftSpace, rightSpace) < 48) { rail.hidden = true; return; }
     const useLeft = leftSpace >= rightSpace;
     const space = useLeft ? leftSpace : rightSpace;
     const compact = space < 128;
-    const railWidth = space < 48 ? 40 : compact ? Math.min(48, space - 8) : Math.min(196, space - 12);
+    const railWidth = compact ? Math.min(48, space - 8) : Math.min(196, space - 12);
     rail.hidden = false;
     rail.style.width = `${railWidth}px`;
     rail.dataset.compact = String(compact || space < 48);
-    rail.style.left = space < 48 ? 'auto' : useLeft ? 'auto' : `${Math.max(6, bounds.right + 8)}px`;
-    rail.style.right = space < 48 ? '8px' : useLeft ? `${Math.max(6, viewport - bounds.left + 8)}px` : 'auto';
+    rail.style.left = useLeft ? 'auto' : `${Math.max(6, bounds.right + 8)}px`;
+    rail.style.right = useLeft ? `${Math.max(6, viewport - bounds.left + 8)}px` : 'auto';
     railInput.dataset.ideaSectionId = section.id;
     railInput.checked = selected.get(section.id) !== false;
     railInput.setAttribute('aria-label', `Include section: ${section.label}`);
@@ -346,7 +496,10 @@ export function createCaptureControls(doc = document, win = window) {
     else scheduleActiveSection();
   }
   function restoreClasses() {
-    for (const [node, hadClass] of classStates) node.classList.toggle(COLLAPSED_CLASS, hadClass);
+    for (const [node, hadClass] of classStates) {
+      node.classList.toggle(COLLAPSED_CLASS, hadClass);
+      node.removeAttribute('data-idea-capture-collapse-state');
+    }
     classStates.clear();
   }
   function refresh() {
@@ -357,10 +510,11 @@ export function createCaptureControls(doc = document, win = window) {
       if (route !== nextRoute) {
         restoreClasses();
         for (const header of headers.values()) header.remove(); headers.clear();
-        selected.clear(); collapsed.clear(); sections = []; activeSectionId = null; preserveActiveSection = false; cachedContentBounds = null; route = nextRoute;
+        selected.clear(); collapsed.clear(); sections = []; activeSectionId = null; preserveActiveSection = false; cachedContentBounds = null; geometryRoot = null; route = nextRoute;
       }
       const previous = sections;
       const discovery = extractConversation(doc, nextRoute, { includeNodes: true, includeMarkdown: false });
+      geometryRoot = isChatGptPage() ? chatGptConversationRoot(doc) : doc.querySelector('[role="main"]') || doc.querySelector('main');
       emptyMessage = 'No conversation messages found yet. If the conversation is still loading, retry in a moment.';
       const usedFallback = new Set();
       sections = discovery.sections.map(section => {
@@ -391,7 +545,7 @@ export function createCaptureControls(doc = document, win = window) {
         if (!collapsed.has(section.id)) collapsed.set(section.id, false);
       }
       const activeNodes = new Set(sections.flatMap(section => collapseTargets(section)));
-      for (const [node, hadClass] of classStates) if (!activeNodes.has(node)) { node.classList.toggle(COLLAPSED_CLASS, hadClass); classStates.delete(node); }
+      for (const [node, hadClass] of classStates) if (!activeNodes.has(node)) { node.classList.toggle(COLLAPSED_CLASS, hadClass); node.removeAttribute('data-idea-capture-collapse-state'); classStates.delete(node); }
       render();
     } catch (error) {
       restoreClasses();
@@ -450,7 +604,7 @@ export function createCaptureControls(doc = document, win = window) {
     destroyed = true;
     observer.disconnect(); win.clearTimeout(timer); win.clearInterval(routePoll);
     win.removeEventListener('popstate', onRoute); win.removeEventListener('hashchange', onRoute);
-    doc.removeEventListener('change', onDocChange); doc.removeEventListener('click', onDocClick);
+    doc.removeEventListener('change', onDocChange); doc.removeEventListener('click', onDocClick, true);
     doc.removeEventListener('scroll', scheduleActiveSection, true); win.removeEventListener('resize', onResize);
     doc.removeEventListener('wheel', onUserScrollIntent, true); doc.removeEventListener('touchstart', onUserScrollIntent, true);
     doc.removeEventListener('keydown', onScrollKeyDown, true);

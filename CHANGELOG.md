@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.1 — 2026-10-14
+
+- Broadened ChatGPT detection to class-based message layouts and improved conversation-root selection.
+- Added left and right gutter click targets for collapsing the adjacent prompt/reply section.
+- Added structural diagnostics to the empty-state widget for investigating unrecognized live layouts.
+- Added nested-scroll and class-based provider browser regression coverage.
+
 ## 0.3.0 — 2026-10-14
 
 - Recognize alternate ChatGPT turn markup, including project conversations, without capturing sidebar content.

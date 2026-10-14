@@ -1,0 +1,155 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { JSDOM } from 'jsdom';
+import { createCaptureControls } from '../src/controls.js';
+
+function setRect(node, { left, right, top, bottom }) {
+  node.getBoundingClientRect = () => ({ left, right, top, bottom, width: right - left, height: bottom - top, x: left, y: top, toJSON() {} });
+}
+
+function clickAt(win, target, x, y) {
+  const event = new win.MouseEvent('click', { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0 });
+  target.dispatchEvent(event);
+  return event;
+}
+
+test('either conversation gutter toggles the section whose visible vertical span contains the click', t => {
+  const dom = new JSDOM(`<!doctype html><html><body><main>
+    <div data-message-author-role="user">First prompt</div><div data-message-author-role="assistant">First answer</div>
+    <div data-message-author-role="user">Second prompt</div><div data-message-author-role="assistant">Second answer</div>
+  </main></body></html>`, { url: 'https://chatgpt.com/c/1', pretendToBeVisual: true });
+  const { document } = dom.window;
+  const controls = createCaptureControls(document, dom.window);
+  t.after(() => { controls.destroy(); dom.window.close(); });
+
+  const main = document.querySelector('main');
+  setRect(main, { left: 180, right: 820, top: 0, bottom: 700 });
+  const [firstUser, firstAssistant, secondUser, secondAssistant] = document.querySelectorAll('[data-message-author-role]');
+  setRect(firstUser, { left: 320, right: 680, top: 100, bottom: 150 });
+  setRect(firstAssistant, { left: 320, right: 680, top: 160, bottom: 300 });
+  setRect(secondUser, { left: 320, right: 680, top: 360, bottom: 410 });
+  setRect(secondAssistant, { left: 320, right: 680, top: 420, bottom: 560 });
+
+  const leftClick = clickAt(dom.window, main, 250, 120);
+  assert.equal(leftClick.defaultPrevented, true, 'a blank left gutter click is handled by the extension');
+  assert.ok(firstUser.classList.contains('idea-capture-section-collapsed'));
+  assert.ok(firstAssistant.classList.contains('idea-capture-section-collapsed'), 'the user prompt and following assistant reply collapse together');
+  assert.ok(!secondUser.classList.contains('idea-capture-section-collapsed'));
+
+  clickAt(dom.window, main, 750, 470);
+  assert.ok(secondUser.classList.contains('idea-capture-section-collapsed'), 'the right gutter maps to the second section by its vertical position');
+  assert.ok(secondAssistant.classList.contains('idea-capture-section-collapsed'));
+
+  clickAt(dom.window, main, 250, 120);
+  assert.ok(!firstUser.classList.contains('idea-capture-section-collapsed'), 'the same gutter toggles the section back open');
+  clickAt(dom.window, main, 750, 470);
+  assert.ok(!secondUser.classList.contains('idea-capture-section-collapsed'));
+});
+
+test('gutter clicks ignore inter-section gaps, provider sidebars, and content links', t => {
+  const dom = new JSDOM(`<!doctype html><html><body><aside><div>Provider navigation</div></aside><main>
+    <div data-message-author-role="user"><a href="#">First prompt link</a></div><div data-message-author-role="assistant">First answer</div>
+    <div data-message-author-role="user">Second prompt</div><div data-message-author-role="assistant">Second answer</div>
+  </main></body></html>`, { url: 'https://chatgpt.com/c/1', pretendToBeVisual: true });
+  const { document } = dom.window;
+  const controls = createCaptureControls(document, dom.window);
+  t.after(() => { controls.destroy(); dom.window.close(); });
+
+  const main = document.querySelector('main');
+  const aside = document.querySelector('aside');
+  setRect(main, { left: 0, right: 1000, top: 0, bottom: 700 });
+  const [firstUser, firstAssistant, secondUser, secondAssistant] = document.querySelectorAll('[data-message-author-role]');
+  setRect(firstUser, { left: 320, right: 680, top: 100, bottom: 150 });
+  setRect(firstAssistant, { left: 320, right: 680, top: 160, bottom: 300 });
+  setRect(secondUser, { left: 320, right: 680, top: 360, bottom: 410 });
+  setRect(secondAssistant, { left: 320, right: 680, top: 420, bottom: 560 });
+
+  const gapClick = clickAt(dom.window, main, 250, 330);
+  assert.equal(gapClick.defaultPrevented, false, 'blank space between sections remains ordinary page space');
+  clickAt(dom.window, aside, 120, 120);
+  clickAt(dom.window, document.querySelector('a'), 250, 120);
+  assert.ok(!firstUser.classList.contains('idea-capture-section-collapsed'));
+  assert.ok(!firstAssistant.classList.contains('idea-capture-section-collapsed'));
+});
+
+test('blank padding inside full-width role wrappers toggles while gallery media remains protected', t => {
+  const dom = new JSDOM(`<!doctype html><html><body><main><section id="thread">
+    <div data-message-author-role="user"><p>Prompt</p></div>
+    <div class="assistant-turn" data-message-author-role="assistant"><div class="markdown"><p>Answer</p></div><div class="image-gallery"><img src="https://cdn.example/chart.png" alt="Chart"></div></div>
+  </section></main></body></html>`, { url: 'https://chatgpt.com/c/1', pretendToBeVisual: true });
+  const { document } = dom.window;
+  const controls = createCaptureControls(document, dom.window);
+  t.after(() => { controls.destroy(); dom.window.close(); });
+
+  const thread = document.querySelector('#thread');
+  const user = document.querySelector('[data-message-author-role="user"]');
+  const assistant = document.querySelector('.assistant-turn');
+  const prompt = user.querySelector('p');
+  const prose = assistant.querySelector('p');
+  const image = assistant.querySelector('img');
+  setRect(thread, { left: 0, right: 1000, top: 0, bottom: 700 });
+  setRect(user, { left: 0, right: 1000, top: 100, bottom: 150 });
+  setRect(prompt, { left: 300, right: 700, top: 110, bottom: 140 });
+  setRect(assistant, { left: 0, right: 1000, top: 160, bottom: 320 });
+  setRect(prose, { left: 300, right: 700, top: 170, bottom: 220 });
+  setRect(image, { left: 730, right: 920, top: 230, bottom: 300 });
+
+  const blankWrapperPadding = clickAt(dom.window, assistant, 150, 250);
+  assert.equal(blankWrapperPadding.defaultPrevented, true);
+  assert.ok(user.classList.contains('idea-capture-section-collapsed'));
+  assert.ok(assistant.classList.contains('idea-capture-section-collapsed'));
+  clickAt(dom.window, image, 800, 260);
+  assert.ok(assistant.classList.contains('idea-capture-section-collapsed'), 'a gallery image click does not expand or collapse the section');
+  assert.equal(clickAt(dom.window, assistant, 150, 250).defaultPrevented, true);
+  assert.ok(!assistant.classList.contains('idea-capture-section-collapsed'));
+});
+
+test('gutter hit regions are clipped by scroll containers and the viewport', t => {
+  const dom = new JSDOM(`<!doctype html><html><body><main><section id="thread" style="overflow-y:hidden">
+    <div data-message-author-role="user"><p>Prompt</p></div><div data-message-author-role="assistant"><p>Answer</p></div>
+  </section></main></body></html>`, { url: 'https://chatgpt.com/c/1', pretendToBeVisual: true });
+  const { document } = dom.window;
+  const controls = createCaptureControls(document, dom.window);
+  t.after(() => { controls.destroy(); dom.window.close(); });
+  const thread = document.querySelector('#thread');
+  const [user, assistant] = document.querySelectorAll('[data-message-author-role]');
+  setRect(thread, { left: 0, right: 1000, top: 100, bottom: 220 });
+  setRect(user, { left: 0, right: 1000, top: 40, bottom: 90 });
+  setRect(user.querySelector('p'), { left: 300, right: 700, top: 45, bottom: 80 });
+  setRect(assistant, { left: 0, right: 1000, top: 100, bottom: 260 });
+  setRect(assistant.querySelector('p'), { left: 300, right: 700, top: 120, bottom: 180 });
+
+  const aboveClip = clickAt(dom.window, thread, 150, 60);
+  assert.equal(aboveClip.defaultPrevented, false);
+  assert.ok(!user.classList.contains('idea-capture-section-collapsed'));
+  const insideClip = clickAt(dom.window, thread, 150, 150);
+  assert.equal(insideClip.defaultPrevented, true);
+  assert.ok(user.classList.contains('idea-capture-section-collapsed'));
+  assert.ok(assistant.classList.contains('idea-capture-section-collapsed'));
+});
+
+test('empty state copies structural diagnostics and exposes a readonly fallback when clipboard access fails', async t => {
+  const dom = new JSDOM('<!doctype html><html><body><main><p>Private transcript text</p></main></body></html>', {
+    url: 'https://chatgpt.com/c/private-conversation-id', pretendToBeVisual: true,
+  });
+  const { document } = dom.window;
+  Object.defineProperty(dom.window.navigator, 'clipboard', {
+    configurable: true,
+    value: { writeText: async () => { throw new Error('Clipboard denied'); } },
+  });
+  const controls = createCaptureControls(document, dom.window);
+  t.after(() => { controls.destroy(); dom.window.close(); });
+  const shadow = document.querySelector('[data-idea-capture-owned="host"]').shadowRoot;
+  assert.equal(shadow.querySelector('.panel-body').hidden, true, 'diagnostics do not open the panel automatically');
+  shadow.querySelector('[data-action="toggle-panel"]').click();
+  shadow.querySelector('[data-action="copy-diagnostics"]').click();
+  await new Promise(resolve => setTimeout(resolve, 0));
+
+  const fallback = shadow.querySelector('[data-diagnostics-fallback]');
+  assert.equal(fallback.hidden, false);
+  assert.match(shadow.querySelector('[data-diagnostics-status]').textContent, /Select and copy/);
+  const diagnostics = JSON.parse(fallback.value);
+  assert.match(diagnostics.version, /^\d+\.\d+\.\d+$/);
+  assert.equal(diagnostics.provider, 'ChatGPT');
+  assert.doesNotMatch(fallback.value, /Private transcript text|private-conversation-id/);
+});

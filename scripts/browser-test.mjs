@@ -91,6 +91,37 @@ try {
   await context.route('https://chatgpt.com/**', route => {
     const path = new URL(route.request().url()).pathname;
     if (path.endsWith('/project')) return route.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><title>Empty project · ChatGPT</title><main><p>Project conversations will appear here.</p></main>' });
+    if (path.endsWith('/c/role-wrapper-layout')) return route.fulfill({ status: 200, contentType: 'text/html', body: `<!doctype html><title>Gallery planning · ChatGPT</title><style>
+      *{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;font:15px/1.6 system-ui,sans-serif;color:#202522;background:#f6f7f6}
+      main#thread{height:100vh;width:100vw;overflow:auto;overscroll-behavior:contain;padding:22px 0}
+      [data-message-author-role]{width:100%;padding:12px 20px}.prose-column{width:min(620px,calc(100% - 24px));margin:0 auto}
+      .prose{padding:14px 18px;border-radius:12px;background:white}.prompt{width:max-content;max-width:100%;margin-left:auto;padding:10px 14px;border-radius:14px;background:#e7eee9}
+      .image-gallery{position:relative;left:50%;transform:translateX(-50%);display:flex;gap:10px;justify-content:flex-end;margin:18px auto;padding:10px 40px;width:100vw;border-radius:12px;background:#e9ece9}
+      .gallery-card{width:150px;height:92px;padding:12px;border-radius:8px;background:linear-gradient(135deg,#e5eee8,#f4e6d4);font-size:12px}
+      .composer{height:100px;padding:16px;background:#fff}.composer [contenteditable=true]{width:min(620px,100%);height:54px;margin:auto;padding:12px;border:1px solid #ccd4ce;border-radius:16px}
+      </style><main id="thread">
+        <div data-message-author-role="user"><div class="prose-column"><div class="prompt"><p>Choose a visual direction for the pilot.</p></div></div></div>
+        <div data-message-author-role="assistant"><div class="prose-column"><div class="prose"><p>Compare the field notes, survey summary, and location map in the gallery.</p></div><div class="image-gallery" id="gallery"><figure class="gallery-card">Field notes</figure><figure class="gallery-card">Survey summary</figure><figure class="gallery-card">Location map</figure></div></div></div>
+        <div data-message-author-role="user"><div class="prose-column"><div class="prompt"><p>Which concept should we test first?</p></div></div></div>
+        <div data-message-author-role="assistant"><div class="prose-column"><div class="prose"><p>Test the map with interview participants.</p></div></div></div>
+        <div class="composer"><div contenteditable="true" aria-label="Message composer">Ask anything</div></div>
+      </main>` });
+    if (path.endsWith('/c/actual-layout')) return route.fulfill({ status: 200, contentType: 'text/html', body: `<!doctype html><title>Planning · ChatGPT</title><style>
+      *{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;font:15px/1.6 system-ui,sans-serif;color:#202522;background:#f6f7f6}
+      main.sidebar{position:fixed;inset:0 auto 0 0;width:220px;padding:22px;background:#ecefeb;border-right:1px solid #d7ddd8;z-index:2}
+      main.sidebar a{display:block;padding:10px;color:#24543b}.fullwidth-wrapper{position:fixed;inset:0 0 0 220px;width:calc(100% - 220px);display:flex;flex-direction:column;align-items:stretch}
+      .toolbar{height:54px;flex:none;padding:14px 24px;border-bottom:1px solid #e1e5e2;background:white}.conversation-frame{flex:1;min-height:0;display:flex;flex-direction:column}
+      #thread{height:100%;overflow:auto;overscroll-behavior:contain;padding:18px 24px 24px;scrollbar-gutter:stable}
+      .thread-inner{width:min(620px,100%);margin:0 auto}.turn{margin:0 0 28px}.user-message-bubble{width:max-content;max-width:88%;margin-left:auto;padding:12px 16px;border-radius:16px;background:#e7eee9}
+      .markdown{max-width:100%;padding:12px 16px;background:white;border-radius:12px}.markdown p{margin:0 0 12px}.markdown p:last-child{margin-bottom:0}.composer{height:88px;flex:none;padding:14px 20px 18px;background:#fff;border-top:1px solid #dfe4e0}
+      .image-gallery{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:14px 0}.gallery-card{min-height:78px;padding:10px;border-radius:8px;background:linear-gradient(135deg,#e5eee8,#f4e6d4);font-size:12px}
+      .composer [contenteditable=true]{width:min(620px,100%);height:52px;margin:auto;padding:12px 16px;border:1px solid #ccd4ce;border-radius:16px;background:#fff}
+      </style><main class="sidebar"><strong>Workspace</strong><a href="#project-link" id="project-link">Project home</a><a href="#help-link" id="help-link">Help</a></main>
+      <div class="fullwidth-wrapper"><div class="toolbar">Planning conversation</div><section class="conversation-frame"><div id="thread"><div class="thread-inner">
+        <div class="turn"><div class="user-message-bubble"><p>Compare the community interview and survey plans.</p></div><div class="markdown"><p>Interviews explain local context and motivations.</p><div class="image-gallery"><figure class="gallery-card">Interview notes</figure><figure class="gallery-card">Survey chart</figure><figure class="gallery-card">Field map</figure></div>${longResearch}<p><a href="${appUrl}/media/brief.pdf">Open the research brief</a></p></div></div>
+        <div class="turn"><div class="user-message-bubble"><p>How should we scope the pilot?</p></div><div class="markdown"><p>Start with three interviews and a short survey.</p>${longConsent}</div></div>
+        <div class="turn"><div class="user-message-bubble"><p>What will the team learn?</p></div><div class="markdown"><p>Compare how each method changes the next decision.</p></div></div>
+      </div></div><form class="composer"><div contenteditable="true" aria-label="Message composer">Ask anything</div></form></section></div>` });
     return route.fulfill({ status: 200, contentType: 'text/html', body: `<!doctype html><title>Planning · ChatGPT</title><style>body{margin:0;font:16px/1.6 system-ui,sans-serif}main.chat{max-width:700px;margin:0 auto;padding:32px 24px;min-height:100vh}article{display:block;margin:18px 0;padding:16px 20px;background:white}</style><main class="chat">
       <article data-testid="conversation-turn-1"><h2 class="sr-only">You said:</h2><div class="markdown"><p>Compare two research approaches.</p></div></article>
       <article data-testid="conversation-turn-2"><h2 class="sr-only">ChatGPT said:</h2><div class="markdown"><p>Interviews give context; surveys give breadth.</p><p>Before the images.</p><img id="inline-png" alt="PNG evidence"><img id="inline-webp" alt="WebP evidence"><p>After the images.</p><p><a href="${appUrl}/media/brief.pdf" download="brief.pdf">Read the linked PDF brief</a></p></div></article>
@@ -145,10 +176,111 @@ try {
   const referencedKinds = [...mediaMessage.matchAll(/\{\{idea-media:([^}]+)\}\}/g)].map(match => mediaById.get(match[1])?.kind);
   assert.deepEqual(referencedKinds, ['image', 'image', 'file'], 'placeholders keep the images between surrounding text and the PDF after them');
   assert.equal(projectCapture.conversation.media.find(item => item.filename === 'brief.pdf')?.kind, 'file');
+
+  // Exercise the screenshot's provider structure: no role, test ID, or article
+  // labels; a nested scrolling #thread; a narrow first <main>; and centered
+  // message content inside a full-width layout with sidebar and composer.
+  const actualLayout = await context.newPage();
+  await actualLayout.setViewportSize({ width: 1440, height: 900 });
+  await actualLayout.goto('https://chatgpt.com/g/g-p-demo/c/actual-layout');
+  await actualLayout.locator('.idea-capture-section-header').first().waitFor();
+  assert.equal(await actualLayout.locator('.idea-capture-section-header').count(), 3, 'class-based provider markup creates one section for each prompt');
+  assert.equal(await actualLayout.locator('[data-message-author-role], [data-role], [data-turn-role], [data-testid], [role], article').count(), 0, 'the provider fixture contains no role, test ID, or article hints');
+  const actualTabId = await worker.evaluate(async () => (await chrome.tabs.query({ url: 'https://chatgpt.com/g/g-p-demo/c/actual-layout' }))[0].id);
+  const actualCapture = await send({ type: 'capture', tabId: actualTabId });
+  assert.equal(actualCapture.ok, true, actualCapture.error);
+  assert.equal(actualCapture.conversation.messages.length, 6, 'all class-detected prompts and replies are captured');
+  assert.equal(actualCapture.conversation.sections.length, 3);
+  assert.match(actualCapture.conversation.messages[0].markdown, /community interview and survey plans/);
+  assert.match(actualCapture.conversation.messages[1].markdown, /local context and motivations/);
+  assert.ok(actualCapture.conversation.media.some(item => item.filename === 'brief.pdf'), 'the linked research brief remains attached to its response');
+  const actualThread = actualLayout.locator('#thread');
+  const actualHeader = actualLayout.locator('.idea-capture-section-header');
+  const actualThreadBefore = await actualThread.evaluate(node => ({ scrollTop: node.scrollTop, windowScrollY: window.scrollY }));
+  await actualHeader.nth(0).locator('button[data-idea-section-id]').click();
+  await actualLayout.waitForFunction(() => getComputedStyle(document.querySelector('.idea-capture-section-collapsed')).display === 'none');
+  assert.equal(await actualLayout.locator('.user-message-bubble').nth(0).isVisible(), false, 'the prompt-side header toggle collapses its whole prompt and response group');
+  assert.equal(await actualLayout.locator('.user-message-bubble').nth(1).isVisible(), true, 'the next prompt stays visible');
+  await actualHeader.nth(0).locator('button[data-idea-section-id]').click();
+  await actualLayout.waitForFunction(() => !document.querySelector('.idea-capture-section-collapsed'));
+  const actualGutters = await actualLayout.evaluate(() => {
+    const thread = document.querySelector('#thread');
+    const message = thread.querySelector('.turn');
+    const content = message.querySelector('.user-message-bubble');
+    const rect = content.getBoundingClientRect();
+    const scrollRect = thread.getBoundingClientRect();
+    const random = () => 0.2 + Math.random() * 0.6;
+    return { leftX: 235 + Math.round(random() * 65), rightX: 1170 + Math.round(random() * Math.max(1, innerWidth - 1200)), y: Math.max(scrollRect.top + 24, Math.min(rect.top + rect.height * random(), scrollRect.bottom - 24)) };
+  });
+  assert.ok(actualGutters.leftX < await actualLayout.locator('.user-message-bubble').first().evaluate(node => node.getBoundingClientRect().left), 'the left click coordinate sits in the blank gutter');
+  await actualLayout.mouse.click(actualGutters.leftX, actualGutters.y);
+  await actualLayout.waitForFunction(() => document.querySelector('.idea-capture-section-header')?.nextElementSibling?.classList.contains('idea-capture-section-collapsed'), null, { timeout: 2000 }).catch(() => {});
+  assert.ok(await actualHeader.nth(0).evaluate(node => node.nextElementSibling?.classList.contains('idea-capture-section-collapsed')), 'a left gutter click collapses the section beside that prompt');
+  assert.equal(await actualLayout.locator('.user-message-bubble').nth(1).isVisible(), true, 'a left gutter click leaves the neighboring section visible');
+  const firstRestoreY = await actualHeader.nth(0).evaluate(node => { const rect = node.getBoundingClientRect(); return rect.top + rect.height / 2; });
+  await actualLayout.mouse.click(actualGutters.rightX, firstRestoreY);
+  assert.equal(await actualLayout.locator('.idea-capture-section-collapsed').count(), 0, 'a right gutter click restores the same section');
+  const threadMetrics = await actualThread.evaluate(node => ({ scrollTop: node.scrollTop, windowScrollY: window.scrollY, scrollHeight: node.scrollHeight, clientHeight: node.clientHeight }));
+  assert.equal(threadMetrics.scrollTop, actualThreadBefore.scrollTop, 'gutter and prompt toggles preserve the nested thread scroll position');
+  assert.equal(threadMetrics.windowScrollY, actualThreadBefore.windowScrollY, 'nested scrolling does not move the outer page');
+  assert.ok(threadMetrics.scrollHeight > threadMetrics.clientHeight, 'the conversation uses a genuinely scrollable nested thread');
+  await actualThread.evaluate(node => {
+    const bubble = node.querySelectorAll('.user-message-bubble')[1];
+    node.scrollTop = Math.max(0, node.scrollTop + bubble.getBoundingClientRect().top - node.getBoundingClientRect().top - 120);
+  });
+  await actualLayout.waitForFunction(() => document.querySelector('#thread').scrollTop > 0);
+  const secondGutter = await actualLayout.evaluate(() => {
+    const thread = document.querySelector('#thread');
+    const response = thread.querySelectorAll('.markdown')[1];
+    const rect = response.getBoundingClientRect();
+    const scrollRect = thread.getBoundingClientRect();
+    const random = () => 0.2 + Math.random() * 0.6;
+    return { leftX: 235 + Math.round(random() * 65), rightX: 1170 + Math.round(random() * Math.max(1, innerWidth - 1200)), y: Math.max(scrollRect.top + 24, Math.min(rect.top + rect.height * random(), scrollRect.bottom - 24)) };
+  });
+  await actualLayout.mouse.click(secondGutter.rightX, secondGutter.y);
+  assert.ok(await actualHeader.nth(1).evaluate(node => node.nextElementSibling?.classList.contains('idea-capture-section-collapsed')), 'a right gutter click at a scrolled position collapses the correct second section');
+  assert.equal(await actualLayout.locator('.user-message-bubble').nth(0).isVisible(), true, 'the scrolled right gutter click leaves the first section visible');
+  const secondRestoreY = await actualHeader.nth(1).evaluate(node => { const rect = node.getBoundingClientRect(); return rect.top + rect.height / 2; });
+  await actualLayout.mouse.click(secondGutter.leftX, secondRestoreY);
+  assert.equal(await actualLayout.locator('.idea-capture-section-collapsed').count(), 0, 'a left gutter click restores the scrolled section');
+  assert.equal(await actualLayout.locator('#project-link').getAttribute('href'), '#project-link', 'sidebar navigation remains intact');
+  assert.equal(await actualLayout.locator('.composer [contenteditable="true"]').textContent(), 'Ask anything', 'the composer remains intact');
+  assert.equal(await actualLayout.locator('.markdown a').count(), 1, 'links in provider message content remain intact');
+  await actualLayout.screenshot({ path: 'artifacts/provider-layout-sections.png', fullPage: true });
+  const roleWrapperPage = await context.newPage();
+  await roleWrapperPage.setViewportSize({ width: 1440, height: 900 });
+  await roleWrapperPage.goto('https://chatgpt.com/g/g-p-demo/c/role-wrapper-layout');
+  const roleHeaders = roleWrapperPage.locator('.idea-capture-section-header');
+  await roleHeaders.first().waitFor();
+  assert.equal(await roleHeaders.count(), 2, 'full-width role wrappers create two prompt sections');
+  const galleryCardBounds = await roleWrapperPage.locator('#gallery .gallery-card').last().boundingBox();
+  assert.ok(galleryCardBounds && galleryCardBounds.x > 1100, 'the assistant gallery extends into the right blank gutter');
+  await roleWrapperPage.mouse.click(galleryCardBounds.x + galleryCardBounds.width / 2, galleryCardBounds.y + galleryCardBounds.height / 2);
+  assert.equal(await roleWrapperPage.locator('.idea-capture-section-collapsed').count(), 0, 'clicking a gallery sibling does not trigger gutter collapse');
+  const promptBounds = await roleWrapperPage.locator('.prompt').first().boundingBox();
+  assert.ok(promptBounds && promptBounds.x > 300, 'the role wrapper spans the page while its prompt prose stays centered');
+  const roleLeftX = 54;
+  const rolePromptY = promptBounds.y + promptBounds.height / 2;
+  assert.ok(roleLeftX < promptBounds.x, 'the click target is the blank gutter inside the full-width role wrapper');
+  await roleWrapperPage.mouse.click(roleLeftX, rolePromptY);
+  assert.ok(await roleHeaders.nth(0).evaluate(node => node.nextElementSibling?.classList.contains('idea-capture-section-collapsed')), 'a gutter click on a full-width role wrapper collapses its matching section');
+  assert.equal(await roleWrapperPage.locator('.prompt').nth(1).isVisible(), true, 'the adjacent role-wrapper section remains visible');
+  const roleRestoreY = await roleHeaders.nth(0).evaluate(node => { const rect = node.getBoundingClientRect(); return rect.top + rect.height / 2; });
+  await roleWrapperPage.mouse.click(1380, roleRestoreY);
+  assert.equal(await roleWrapperPage.locator('.idea-capture-section-collapsed').count(), 0, 'the opposite gutter restores the collapsed role-wrapper section');
+  await roleWrapperPage.screenshot({ path: 'artifacts/fullwidth-role-wrapper.png', fullPage: true });
   await project.waitForFunction(() => {
     const shadow = document.querySelector('[data-idea-capture-owned="host"]')?.shadowRoot;
     const button = shadow?.querySelector('[data-action="toggle-panel"]');
     return button?.getAttribute('aria-expanded') === 'false' && shadow?.querySelector('#idea-capture-margin-controls:not([hidden])');
+  }, null, { timeout: 5000 }).catch(async error => {
+    const state = await project.evaluate(() => {
+      const shadow = document.querySelector('[data-idea-capture-owned="host"]')?.shadowRoot;
+      const rail = shadow?.querySelector('#idea-capture-margin-controls');
+      const root = document.querySelector('main');
+      return { expanded: shadow?.querySelector('[data-action="toggle-panel"]')?.getAttribute('aria-expanded'), railHidden: rail?.hidden, railRect: rail?.getBoundingClientRect().toJSON(), mainRect: root?.getBoundingClientRect().toJSON(), headers: document.querySelectorAll('.idea-capture-section-header').length };
+    });
+    throw new Error(`Project rail did not appear: ${JSON.stringify(state)} (${error.message})`);
   });
   await mkdir('artifacts', { recursive: true });
   await project.setViewportSize({ width: 1280, height: 900 });
@@ -246,7 +378,7 @@ try {
     display: getComputedStyle(node).display,
     position: getComputedStyle(node).position,
     rail: node.getBoundingClientRect().toJSON(),
-    content: document.querySelector('main.chat').getBoundingClientRect().toJSON(),
+    content: document.querySelector('main.chat [data-message-author-role]').getBoundingClientRect().toJSON(),
   }));
   assert.equal(railStyle.display, 'grid', 'rail styles must survive the fixture content security policy');
   assert.equal(railStyle.position, 'fixed');

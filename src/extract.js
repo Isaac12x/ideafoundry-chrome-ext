@@ -34,6 +34,12 @@ function hasMeaningfulContent(node) {
   return !!copy.textContent.trim() || !!copy.querySelector('img[src],img[srcset],video[src],audio[src],video source[src],audio source[src],iframe[src],object[data],embed[src],canvas') || labeledSvg;
 }
 
+const sidebarSelector = 'nav, aside, [role="navigation"], [role="complementary"], #sidebar, #left-sidebar, #right-sidebar, .sidebar, .app-sidebar, .conversation-sidebar, .sidebar-panel, .sidebar-container, [aria-label*="sidebar" i], [data-testid*="sidebar" i]';
+
+function isInSidebar(node) {
+  return !!node.closest?.(sidebarSelector);
+}
+
 function chatGptRole(node) {
   const labeled = node.matches('[data-message-author-role], [data-role], [data-turn-role]')
     ? node
@@ -55,10 +61,59 @@ function chatGptRole(node) {
   return null;
 }
 
-function chatGptConversationRoot(doc) {
-  return doc.querySelector('main [data-testid^="conversation-turn-"], [role="main"] [data-testid^="conversation-turn-"]')?.closest('main, [role="main"]')
-    || doc.querySelector('main, [role="main"]')
-    || doc;
+export function chatGptConversationRoot(doc) {
+  const roots = [...doc.querySelectorAll('#thread, main, [role="main"]')].filter(node => !isInSidebar(node));
+  const visible = node => {
+    for (let current = node; current?.nodeType === 1; current = current.parentElement) {
+      if (current.hidden || current.getAttribute('aria-hidden') === 'true') return false;
+      if (/display\s*:\s*none|visibility\s*:\s*(hidden|collapse)/i.test(current.getAttribute('style') || '')) return false;
+      if (current.classList.contains('idea-capture-section-collapsed')) continue;
+      const style = doc.defaultView?.getComputedStyle?.(current);
+      if (style?.display === 'none' || style?.visibility === 'hidden' || style?.visibility === 'collapse') return false;
+    }
+    return true;
+  };
+  const count = (node, selector) => [...node.querySelectorAll(selector)]
+    .filter(candidate => !isInSidebar(candidate) && visible(candidate)).length;
+  const score = node => {
+    const roles = count(node, '[data-message-author-role], [data-role="user"], [data-role="assistant"]');
+    const turns = count(node, '[data-testid^="conversation-turn-"], [data-turn-id]');
+    const bubbles = count(node, '.user-message-bubble, [class*="user-message-bubble"]');
+    const prose = count(node, '.markdown, .prose');
+    const result = roles * 8 + turns * 6 + bubbles * 7 + prose * 3;
+    return result > 0 && node.id === 'thread' ? result + 2 : result;
+  };
+  return roots.sort((a, b) => score(b) - score(a) || (a.contains(b) ? 1 : b.contains(a) ? -1 : 0))[0] || doc;
+}
+
+function chatGptClassTurns(root) {
+  const result = [];
+  const add = (selector, role) => {
+    for (const node of root.querySelectorAll(selector)) {
+      if (isInSidebar(node)) continue;
+      if (role === 'assistant' && node.closest('.user-message-bubble, [class*="user-message-bubble"], [data-message-author-role="user"], [data-role="user"]')) continue;
+      if (role === 'assistant') {
+        let ancestor = node.parentElement;
+        let coveredByLabeledTurn = false;
+        while (ancestor && ancestor !== root) {
+          if (ancestor.matches('[data-testid^="conversation-turn-"], article[data-turn-id], article') && chatGptRole(ancestor)) {
+            coveredByLabeledTurn = true;
+            break;
+          }
+          ancestor = ancestor.parentElement;
+        }
+        if (coveredByLabeledTurn) continue;
+      }
+      result.push({ node, role });
+    }
+  };
+  // Current ChatGPT renders user text inside a user-message-bubble and
+  // assistant prose inside markdown/prose containers. These classes remain
+  // useful when the older role attributes and conversation-turn test IDs are
+  // absent. Restrict prose candidates to a real conversation root chosen above.
+  add('.user-message-bubble, [class*="user-message-bubble"]', 'user');
+  add('.markdown, .prose', 'assistant');
+  return result;
 }
 
 export function extractConversation(doc = document, url = location.href, options = {}) {
@@ -186,11 +241,11 @@ export function extractConversation(doc = document, url = location.href, options
     provider = 'ChatGPT';
     const root = chatGptConversationRoot(doc);
     candidates = [...root.querySelectorAll('[data-message-author-role]')]
-      .filter(node => !node.closest('nav,aside,[role="navigation"]'))
+      .filter(node => !isInSidebar(node))
       .filter(node => hasMeaningfulContent(node))
       .map(node => ({ node, role: node.dataset.messageAuthorRole }));
     const turns = [...root.querySelectorAll('[data-testid^="conversation-turn-"], article[data-turn-id], article')]
-      .filter(node => !node.closest('nav,aside,[role="navigation"]'))
+      .filter(node => !isInSidebar(node))
       .filter(node => node.matches('[data-testid^="conversation-turn-"], article[data-turn-id]') || !!chatGptRole(node))
       .filter(node => !node.parentElement?.closest('[data-testid^="conversation-turn-"], article[data-turn-id], article'));
     const unrecognizedTurns = [];
@@ -201,9 +256,17 @@ export function extractConversation(doc = document, url = location.href, options
       if (role) candidates.push({ node, role });
       else unrecognizedTurns.push(node);
     }
+    for (const candidate of chatGptClassTurns(root)) {
+      // Semantic role attributes and labeled turn articles take precedence
+      // over generic prose classes, which can also occur inside user turns.
+      if (!candidates.some(existing => existing.node === candidate.node || existing.node.contains(candidate.node))) {
+        candidates.push(candidate);
+      }
+    }
+    const uncoveredTurns = unrecognizedTurns.filter(node => !candidates.some(candidate => node.contains(candidate.node)));
     const isConversationRoute = /\/c\/[^/]+/.test(new URL(url).pathname);
-    if (unrecognizedTurns.length && isConversationRoute && candidates.length) {
-      candidates.push(...unrecognizedTurns.map(node => ({ node, role: 'message' })));
+    if (uncoveredTurns.length && isConversationRoute && candidates.length) {
+      candidates.push(...uncoveredTurns.map(node => ({ node, role: 'message' })));
       unlabeledChatGptTurns = true;
     } else if (!candidates.length && root.matches?.('main, [role="main"]') && isConversationRoute) {
       for (const node of turns) if (hasMeaningfulContent(node)) candidates.push({ node, role: 'message' });
@@ -226,11 +289,10 @@ export function extractConversation(doc = document, url = location.href, options
   const messages = candidates.map(({ node, role }, messageIndex) => {
     let contentNode = node;
     if (provider === 'ChatGPT') {
-      const wrapper = node.closest('[data-testid^="conversation-turn-"], article');
+      const wrapper = node.closest('[data-testid^="conversation-turn-"], article, [data-turn-id], [data-message-id], [class*="assistant-turn"], [class*="agent-turn"]');
       if (wrapper && wrapper !== node) {
-        const nestedCandidates = [...wrapper.querySelectorAll('[data-message-author-role]')]
-          .filter(candidate => !candidates.some(other => other.node !== candidate && other.node.contains(candidate)));
-        if (nestedCandidates.length === 1 && nestedCandidates[0] === node) contentNode = wrapper;
+        const nestedCandidates = candidates.filter(candidate => wrapper.contains(candidate.node));
+        if (nestedCandidates.length === 1 && nestedCandidates[0].node === node) contentNode = wrapper;
       }
     }
     const markdown = convert(contentNode, ({ user: 'User', assistant: 'Assistant', system: 'System' })[role] || 'Message', messageIndex);

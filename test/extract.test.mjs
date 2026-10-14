@@ -82,6 +82,44 @@ test('ChatGPT discovers heading-labeled plain articles inside main and ignores u
   assert.doesNotMatch(result.messages.map(message => message.markdown).join('\n'), /sidebar|Unrelated article/);
   dom.window.close();
 });
+test('ChatGPT detects user bubbles and assistant prose in the current thread layout and retains its gallery', () => {
+  const dom = new JSDOM(`<!doctype html><main><div>Unrelated page content</div><section id="thread">
+    <div class="conversation-row"><div class="user-message-bubble"><div class="whitespace-pre-wrap">Please analyze this image.</div></div></div>
+    <div class="assistant-turn" data-message-id="answer-1"><div class="markdown prose"><p>Here is the analysis.</p></div><div class="image-gallery"><img src="https://cdn.example/gallery.png" alt="Generated chart"></div></div>
+  </section></main><aside><div class="user-message-bubble">Sidebar copy</div></aside>`, { url: 'https://chatgpt.com/g/g-p-formulations/c/123' });
+  const result = extractConversation(dom.window.document, dom.window.location.href);
+  assert.deepEqual(result.messages.map(message => message.role), ['User', 'Assistant']);
+  assert.deepEqual(result.sections.map(section => section.label), ['Please analyze this image.']);
+  assert.match(result.messages[0].markdown, /Please analyze this image/);
+  assert.match(result.messages[1].markdown, /Here is the analysis/);
+  assert.doesNotMatch(result.messages.map(message => message.markdown).join('\n'), /Sidebar copy|Unrelated page content/);
+  assert.equal(result.media.length, 1);
+  assert.equal(result.media[0].url, 'https://cdn.example/gallery.png');
+  dom.window.close();
+});
+test('ChatGPT excludes sidebar landmarks from root scoring and message candidates', () => {
+  const dom = new JSDOM(`<body class="sidebar-open"><main><section aria-label="History sidebar"><article data-testid="conversation-turn-99"><h2>You said:</h2><p>Sidebar prompt</p></article><div class="markdown">Sidebar answer</div></section><section id="thread"><article data-testid="conversation-turn-1"><h2>You said:</h2><p>Actual prompt</p></article><article data-testid="conversation-turn-2"><h2>ChatGPT said:</h2><p>Actual answer</p></article></section></main><main id="sidebar" aria-label="Sidebar"><div class="markdown">Wrong root</div></main></body>`, { url: 'https://chatgpt.com/c/123' });
+  const result = extractConversation(dom.window.document, dom.window.location.href);
+  assert.deepEqual(result.messages.map(message => message.role), ['User', 'Assistant']);
+  assert.doesNotMatch(result.messages.map(message => message.markdown).join('\n'), /Sidebar prompt|Sidebar answer|Wrong root/);
+  dom.window.close();
+});
+test('ChatGPT does not reinterpret prose nested inside a user bubble as an assistant reply', () => {
+  const dom = new JSDOM(`<main><section id="thread"><div class="user-message-bubble"><div class="prose">User prompt</div></div></section></main>`, { url: 'https://chatgpt.com/c/123' });
+  const result = extractConversation(dom.window.document, dom.window.location.href);
+  assert.deepEqual(result.messages.map(message => message.role), ['User']);
+  assert.deepEqual(result.sections.map(section => section.label), ['User prompt']);
+  dom.window.close();
+});
+test('ChatGPT uses labeled article roles before nested generic markdown classes', () => {
+  const dom = new JSDOM(`<main><article><h2 class="sr-only">You said:</h2><div class="markdown">User prompt</div></article><article><h2 class="sr-only">ChatGPT said:</h2><div class="markdown">Assistant reply</div></article></main>`, { url: 'https://chatgpt.com/g/g-p-demo/c/123' });
+  const result = extractConversation(dom.window.document, dom.window.location.href);
+  assert.deepEqual(result.messages.map(message => message.role), ['User', 'Assistant']);
+  assert.deepEqual(result.sections.map(section => section.label), ['User prompt']);
+  assert.match(result.messages[0].markdown, /User prompt/);
+  assert.match(result.messages[1].markdown, /Assistant reply/);
+  dom.window.close();
+});
 test('nested same-role provider wrappers do not duplicate messages and Gemini boundaries remain distinct', () => {
   const chatgpt = extract('<article><div data-message-author-role="assistant"><div data-message-author-role="assistant">One answer</div></div></article>');
   assert.equal(chatgpt.messages.length, 1);
