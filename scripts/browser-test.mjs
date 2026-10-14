@@ -10,10 +10,15 @@ const token = 'browser-test-token-at-least-32-characters';
 const uploads = [];
 const longResearch = Array.from({ length: 18 }, (_, i) => `<p>Research note ${i + 1}: interview evidence needs careful coding, participant context, and a clear link to the decision being made.</p>`).join('');
 const longConsent = Array.from({ length: 14 }, (_, i) => `<p>Consent detail ${i + 1}: explain the purpose, storage period, access rules, and withdrawal process in plain language.</p>`).join('');
+const pdfFixture = Buffer.from('%PDF-1.4\n% browser media fixture\n%%EOF\n', 'latin1');
 const fixtureCss = 'body{margin:0;background:#f5f5f2;color:#242824;font:16px/1.6 Georgia,serif}main.chat{max-width:700px;margin:0 auto;padding:32px 24px;min-height:100vh}[data-message-author-role]{display:block;margin:18px 0;padding:16px 20px;border-radius:12px;background:white;box-shadow:0 1px 3px #0001}[data-message-author-role="user"]{margin-left:90px;background:#e9eee9;font-family:system-ui,sans-serif}.long-answer p{margin:0 0 18px}';
 let locked = false;
 const app = createServer(async (req, res) => {
-  if (new URL(req.url, 'http://fixture').pathname === '/fixture.css') {
+  const path = new URL(req.url, 'http://fixture').pathname;
+  if (path === '/media/brief.pdf') {
+    res.writeHead(200, { 'Content-Type': 'application/pdf', 'Content-Length': pdfFixture.length }); return res.end(pdfFixture);
+  }
+  if (path === '/fixture.css') {
     res.writeHead(200, { 'Content-Type': 'text/css' }); return res.end(fixtureCss);
   }
   if (new URL(req.url, 'http://fixture').pathname === '/chat') {
@@ -79,6 +84,117 @@ try {
     await chrome.runtime.sendMessage({ type: 'settings' });
   }, { appUrl, queueUrl, token });
   const send = message => ui.evaluate(message => chrome.runtime.sendMessage(message), message);
+
+  // Exercise ChatGPT's real origin and project routes with the current role-free
+  // turn-article structure. The empty project page must still expose the closed
+  // launcher so a user can get to retry/help before messages have loaded.
+  await context.route('https://chatgpt.com/**', route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path.endsWith('/project')) return route.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><title>Empty project · ChatGPT</title><main><p>Project conversations will appear here.</p></main>' });
+    return route.fulfill({ status: 200, contentType: 'text/html', body: `<!doctype html><title>Planning · ChatGPT</title><style>body{margin:0;font:16px/1.6 system-ui,sans-serif}main.chat{max-width:700px;margin:0 auto;padding:32px 24px;min-height:100vh}article{display:block;margin:18px 0;padding:16px 20px;background:white}</style><main class="chat">
+      <article data-testid="conversation-turn-1"><h2 class="sr-only">You said:</h2><div class="markdown"><p>Compare two research approaches.</p></div></article>
+      <article data-testid="conversation-turn-2"><h2 class="sr-only">ChatGPT said:</h2><div class="markdown"><p>Interviews give context; surveys give breadth.</p><p>Before the images.</p><img id="inline-png" alt="PNG evidence"><img id="inline-webp" alt="WebP evidence"><p>After the images.</p><p><a href="${appUrl}/media/brief.pdf" download="brief.pdf">Read the linked PDF brief</a></p></div></article>
+      <article data-testid="conversation-turn-3"><h2 class="sr-only">You said:</h2><div class="markdown"><p>What should the pilot include?</p></div></article>
+      <article data-testid="conversation-turn-4"><h2 class="sr-only">ChatGPT said:</h2><div class="markdown"><p>Test the interview guide with three participants.</p></div></article>
+    </main>` });
+  });
+  const project = await context.newPage();
+  await project.goto('https://chatgpt.com/g/g-p-demo/project');
+  const projectHost = project.locator('[data-idea-capture-owned="host"]');
+  await projectHost.waitFor({ state: 'attached' });
+  await project.waitForFunction(() => {
+    const shadow = document.querySelector('[data-idea-capture-owned="host"]')?.shadowRoot;
+    return shadow?.querySelector('[data-action="toggle-panel"]');
+  });
+  const emptyLauncher = await project.evaluate(() => {
+    const shadow = document.querySelector('[data-idea-capture-owned="host"]')?.shadowRoot;
+    const button = shadow?.querySelector('[data-action="toggle-panel"]');
+    return { visible: !!button && button.getBoundingClientRect().width > 0, expanded: button?.getAttribute('aria-expanded'), panelHidden: shadow?.querySelector('#idea-capture-panel')?.hidden };
+  });
+  assert.deepEqual(emptyLauncher, { visible: true, expanded: 'false', panelHidden: false }, `empty ChatGPT project keeps its closed launcher available: ${JSON.stringify(emptyLauncher)}`);
+  await project.evaluate(() => document.querySelector('[data-idea-capture-owned="host"]')?.shadowRoot?.querySelector('[data-action="toggle-panel"]')?.click());
+  assert.equal(await project.evaluate(() => {
+    const shadow = document.querySelector('[data-idea-capture-owned="host"]')?.shadowRoot;
+    return shadow?.querySelector('.panel-body [data-action="retry"]')?.textContent;
+  }), 'Retry detection', 'the expanded empty state offers a retry action');
+  await project.evaluate(() => document.querySelector('[data-idea-capture-owned="host"]')?.shadowRoot?.querySelector('[data-action="toggle-panel"]')?.click());
+  assert.equal(await project.evaluate(() => document.querySelector('[data-idea-capture-owned="host"]')?.shadowRoot?.querySelector('[data-action="toggle-panel"]')?.getAttribute('aria-expanded')), 'false');
+  await project.goto('https://chatgpt.com/g/g-p-demo/c/123');
+  const projectTabId = await worker.evaluate(async () => (await chrome.tabs.query({ url: 'https://chatgpt.com/g/g-p-demo/c/123' }))[0].id);
+  await project.evaluate(() => {
+    const canvas = document.createElement('canvas'); canvas.width = 96; canvas.height = 64;
+    const context = canvas.getContext('2d'); context.fillStyle = '#e8f0eb'; context.fillRect(0, 0, 96, 64); context.fillStyle = '#247a52'; context.fillRect(8, 8, 80, 48);
+    document.querySelector('#inline-png').src = canvas.toDataURL('image/png');
+    document.querySelector('#inline-webp').src = canvas.toDataURL('image/webp');
+  });
+  await project.locator('.idea-capture-section-header').first().waitFor();
+  const projectCapture = await send({ type: 'capture', tabId: projectTabId });
+  assert.equal(projectCapture.ok, true, projectCapture.error);
+  assert.equal(projectCapture.conversation.provider, 'ChatGPT');
+  assert.equal(projectCapture.conversation.messages.length, 4);
+  assert.equal(projectCapture.conversation.sections.length, 2);
+  assert.match(projectCapture.conversation.messages[0].markdown, /two research approaches/);
+  assert.match(projectCapture.conversation.messages[1].markdown, /surveys give breadth/);
+  assert.equal(projectCapture.conversation.media.length, 3, 'inline PNG, WebP, and linked PDF are captured as media companions');
+  const mediaMessage = projectCapture.conversation.messages[1].markdown;
+  const mediaMarkers = [...mediaMessage.matchAll(/\{\{idea-media:/g)].map(match => match.index);
+  assert.equal(mediaMarkers.length, 3);
+  assert.ok(mediaMessage.indexOf('Before the images.') < mediaMarkers[0], 'text before inline media stays before its placeholder');
+  assert.ok(mediaMarkers[1] < mediaMessage.indexOf('After the images.') && mediaMessage.indexOf('After the images.') < mediaMarkers[2], 'text after inline images stays before the linked PDF placeholder');
+  const mediaById = new Map(projectCapture.conversation.media.map(item => [item.id, item]));
+  const referencedKinds = [...mediaMessage.matchAll(/\{\{idea-media:([^}]+)\}\}/g)].map(match => mediaById.get(match[1])?.kind);
+  assert.deepEqual(referencedKinds, ['image', 'image', 'file'], 'placeholders keep the images between surrounding text and the PDF after them');
+  assert.equal(projectCapture.conversation.media.find(item => item.filename === 'brief.pdf')?.kind, 'file');
+  await project.waitForFunction(() => {
+    const shadow = document.querySelector('[data-idea-capture-owned="host"]')?.shadowRoot;
+    const button = shadow?.querySelector('[data-action="toggle-panel"]');
+    return button?.getAttribute('aria-expanded') === 'false' && shadow?.querySelector('#idea-capture-margin-controls:not([hidden])');
+  });
+  await mkdir('artifacts', { recursive: true });
+  await project.setViewportSize({ width: 1280, height: 900 });
+  await project.screenshot({ path: 'artifacts/chatgpt-project-collapsed-launcher.png' });
+  const projectRailAction = await project.evaluate(() => document.querySelector('[data-idea-capture-owned="host"]')?.shadowRoot?.querySelector('#idea-capture-margin-controls button[data-idea-section-id]'));
+  assert.ok(projectRailAction, 'side rail remains available while the section launcher is closed');
+  await project.evaluate(() => document.querySelector('[data-idea-capture-owned="host"]')?.shadowRoot?.querySelector('#idea-capture-margin-controls button[data-idea-section-id]')?.click());
+  const collapsedProjectCapture = await send({ type: 'capture', tabId: projectTabId, mode: 'export' });
+  assert.equal(collapsedProjectCapture.ok, true, collapsedProjectCapture.error);
+  assert.equal(collapsedProjectCapture.conversation.messages.length, 4, 'collapsed role-free article content remains exportable');
+  assert.match(collapsedProjectCapture.conversation.messages[1].markdown, /surveys give breadth/);
+  assert.equal(await project.evaluate(() => document.querySelector('[data-idea-capture-owned="host"]')?.shadowRoot?.querySelector('#idea-capture-margin-controls:not([hidden])') !== null), true);
+
+  const mediaMarkdown = await send({ type: 'export', destination: 'kb', format: 'md', conversation: projectCapture.conversation });
+  assert.equal(mediaMarkdown.ok, true, mediaMarkdown.error);
+  const mediaUpload = uploads.at(-1).toString('latin1');
+  const uploadedNames = [...mediaUpload.matchAll(/name="files\[\]"; filename="([^\"]+)"/g)].map(match => match[1]);
+  assert.equal(uploadedNames.length, 4, 'KB receives the Markdown file plus three media companions');
+  const markdownName = uploadedNames.find(name => name.endsWith('.md'));
+  const pngName = uploadedNames.find(name => name.endsWith('.png'));
+  const webpName = uploadedNames.find(name => name.endsWith('.webp'));
+  const linkedPdfName = uploadedNames.find(name => name.endsWith('brief.pdf'));
+  assert.ok(markdownName && pngName && webpName && linkedPdfName, `KB files[] include Markdown, PNG, WebP, and the linked PDF: ${uploadedNames.join(', ')}`);
+  const markdownPart = mediaUpload.indexOf(`filename="${markdownName}"`);
+  const markdownStart = mediaUpload.indexOf('\r\n\r\n', markdownPart) + 4;
+  const markdownEnd = mediaUpload.indexOf('\r\n--', markdownStart);
+  const uploadedMarkdown = mediaUpload.slice(markdownStart, markdownEnd);
+  const servedFiles = [...uploadedMarkdown.matchAll(/https?:\/\/[^\s)]+\/knowledge-base\/serve\?[^\s)]+/g)]
+    .map(match => new URL(match[0]).searchParams.get('file'));
+  assert.deepEqual(new Set(servedFiles), new Set([pngName, webpName, linkedPdfName]), 'KB Markdown links each companion through the app file-serving route');
+
+  const mediaPdf = await ui.evaluate(async conversation => chrome.runtime.sendMessage({ target: 'offscreen', conversation, format: 'pdf', download: false }), projectCapture.conversation);
+  assert.equal(mediaPdf.ok, true, mediaPdf.error);
+  const pdfBytes = Buffer.from(mediaPdf.files[0].base64, 'base64');
+  assert.equal(pdfBytes.subarray(0, 5).toString(), '%PDF-');
+  assert.match(pdfBytes.toString('latin1'), /\/Subtype\s*\/Image/, 'the generated PDF embeds image XObjects for inline PNG and WebP');
+
+  const localMarkdown = await ui.evaluate(async conversation => chrome.runtime.sendMessage({ target: 'offscreen', conversation, format: 'md', download: true }), projectCapture.conversation);
+  assert.equal(localMarkdown.ok, true, localMarkdown.error);
+  assert.equal(localMarkdown.mime, 'application/zip', 'local Markdown with media downloads as a ZIP');
+  const zipBytes = Buffer.from(await ui.evaluate(async url => Array.from(new Uint8Array(await (await fetch(url)).arrayBuffer())), localMarkdown.url));
+  const zipListing = zipBytes.toString('latin1');
+  assert.match(zipListing, /media\/[^\x00]+\.png/);
+  assert.match(zipListing, /media\/[^\x00]+\.webp/);
+  assert.match(zipListing, /media\/[^/\x00]+brief\.pdf/);
+  await ui.evaluate(url => chrome.runtime.sendMessage({ target: 'offscreen', type: 'release', url }), localMarkdown.url);
   const captured = await send({ type: 'capture', tabId });
   console.log('Capture response:', captured.ok, captured.error || '');
   assert.equal(captured.ok, true, captured.error); assert.equal(captured.conversation.messages.length, 7);
@@ -241,9 +357,9 @@ try {
   await target.waitForTimeout(500);
   const emptyState = await target.evaluate(() => {
     const shadow = document.querySelector('#idea-capture-controls')?.shadowRoot;
-    return { hidden: shadow?.querySelector('#idea-capture-panel')?.hidden, headers: document.querySelectorAll('.idea-capture-section-header').length, railHidden: shadow?.querySelector('#idea-capture-margin-controls')?.hidden };
+    return { hidden: shadow?.querySelector('#idea-capture-panel')?.hidden, bodyHidden: shadow?.querySelector('.panel-body')?.hidden, expanded: shadow?.querySelector('[data-action="toggle-panel"]')?.getAttribute('aria-expanded'), headers: document.querySelectorAll('.idea-capture-section-header').length, railHidden: shadow?.querySelector('#idea-capture-margin-controls')?.hidden };
   });
-  assert.deepEqual(emptyState, { hidden: true, headers: 0, railHidden: true }, `panel and inline controls hide without sections: ${JSON.stringify(emptyState)}`);
+  assert.deepEqual(emptyState, { hidden: false, bodyHidden: false, expanded: 'true', headers: 0, railHidden: true }, `an already-open launcher remains available while its empty state clears inline controls and the side rail: ${JSON.stringify(emptyState)}`);
   await target.evaluate(() => {
     document.querySelector('main').innerHTML = '<div data-message-author-role="user">A fresh conversation begins.</div><div data-message-author-role="assistant">Its sections should reset.</div>';
   });
@@ -257,7 +373,7 @@ try {
   }
   locked = true;
   const rejected = await send({ type: 'export', destination: 'kb', format: 'md', conversation: captured.conversation });
-  assert.equal(rejected.ok, false); assert.match(rejected.error, /unlock/i); assert.equal(uploads.length, 4);
+  assert.equal(rejected.ok, false); assert.match(rejected.error, /unlock/i); assert.equal(uploads.length, 5);
   locked = false;
   const queueRequest = (path, body) => fetch(queueUrl + path, { method: body ? 'POST' : 'GET', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
   const job = await (await queueRequest('/jobs', { url: `${appUrl}/chat?thread=next`, format: 'md' })).json();
@@ -269,7 +385,7 @@ try {
     await new Promise(r => setTimeout(r, 500));
   }
   console.log('Remote queue:', result.state);
-  assert.equal(result.state, 'completed', result.error || JSON.stringify(result)); assert.equal(uploads.length, 5);
+  assert.equal(result.state, 'completed', result.error || JSON.stringify(result)); assert.equal(uploads.length, 6);
   const remoteUpload = uploads.at(-1).toString();
   assert.match(remoteUpload, /first research approaches/);
   assert.match(remoteUpload, /consent plan/);
@@ -284,7 +400,7 @@ try {
     if (result.state === 'failed') break;
     await new Promise(r => setTimeout(r, 200));
   }
-  assert.equal(result.state, 'failed'); assert.match(result.error, /not allowed/); assert.equal(uploads.length, 5);
+  assert.equal(result.state, 'failed'); assert.match(result.error, /not allowed/); assert.equal(uploads.length, 6);
   // Blob downloads exercise the offscreen renderer directly without a native Save dialog.
   const file = await ui.evaluate(async conversation => chrome.runtime.sendMessage({ target: 'offscreen', conversation, format: 'pdf', download: true }), captured.conversation);
   assert.equal(file.ok, true, file.error);

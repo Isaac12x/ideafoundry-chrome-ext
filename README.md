@@ -22,11 +22,13 @@ Open `chrome://extensions`, enable **Developer mode**, choose **Load unpacked**,
 
 ChatGPT, Claude, and Gemini have dedicated extractors. Other sites with message-role attributes preserve speaker labels; other pages with a main/article region get a generic page preview. Arbitrary site layouts cannot be guaranteed. Generic page captures require manual review and are rejected for remote jobs. Sites that change their markup may require an extractor update.
 
-Only messages currently present in the page DOM are captured. Older virtualized messages, hidden branches, attachments, canvas/artifact contents, images, and audio are not fetched. Markdown preserves code fences, links, lists, and tables. PDFs paginate the transcript and retain Markdown notation inside messages; they are text documents, not screenshots of the chat interface. Bundled Roboto supports Latin, Greek, and Cyrillic; use Markdown for scripts/emoji without font coverage.
+Only messages currently present in the page DOM are captured. Load older messages before exporting. The extension preserves cited webpage links and captures visible image/media references and linked downloadable documents. Images keep their position in the transcript, including in PDF. Audio, video, and documents are represented by links and companion files; PDF does not play media. Unavailable resources receive an in-place note. Hidden branches and inaccessible artifacts cannot be recovered. Markdown preserves code fences, links, lists, and tables; PDFs retain Markdown notation for text. Bundled Roboto supports Latin, Greek, and Cyrillic; use Markdown for scripts/emoji without font coverage.
+
+Exports with companion files download as a ZIP containing the requested `.md` or `.pdf` plus a `media/` folder. Extract the ZIP before opening the Markdown so relative image links resolve. KB exports upload the document and companion files together, using IdeaFoundry file-serving links so images display in its Markdown preview. Local exports keep portable relative paths. External media sites may require an access grant when you click Export. Remote jobs use previously granted access and report unavailable resources in the document. Media retrieval is limited to 50 resources, 8 MB per resource, and 20 MB total. Select fewer sections if the resource count is exceeded; resources exceeding byte limits are marked unavailable.
 
 ## Collapse and select conversation sections
 
-On ChatGPT, Claude, and Gemini, controls appear automatically when a conversation loads. Refresh already-open chat tabs after installing or reloading the extension. On other sites with identifiable message roles, open the extension once to activate the controls. Generic page captures without speaker boundaries remain whole-page previews.
+All paths on ChatGPT, Claude, and Gemini are eligible for automatic controls, including ChatGPT project conversations (`/g/.../c/...`). The closed launcher stays visible even when no messages have been recognized; open it to retry detection. Refresh already-open chat tabs after installing or reloading the extension. On other sites with identifiable message roles, open the extension once to activate the controls. Generic page captures without speaker boundaries remain whole-page previews.
 
 Each turn has a checkbox and expand/collapse control. A compact control in the conversation’s side margin follows the section you are reading, so you can collapse a long response without returning to its prompt. Collapsed sections keep a visible placeholder for expanding them again. The floating widget starts closed; click it to open the bulk selection and collapse controls. All sections start selected and expanded. Collapse affects only the page display: **checked sections are exported even when collapsed**. Unchecked sections are omitted from both Markdown and PDF, including KB uploads. Selecting nothing prevents an export rather than silently exporting everything.
 
@@ -38,11 +40,11 @@ Remote queue jobs use the full loaded conversation in their own tab. They do not
 
 Open the extension's **Settings**:
 
-- **IdeaFoundry address**: the exact origin you use in Chrome, for example `http://localhost:3000`. Use HTTPS outside localhost.
+- **IdeaFoundry address**: the exact origin you use in Chrome, for example `https://ideas.local:8443`. Use HTTPS outside localhost.
 - **KB source index**: zero-based source number (`src` in the app's KB URL).
 - **Folder within source**: an existing relative folder, or blank for the source root.
 
-Save and grant access to the app origin. Open/unlock IdeaFoundry before uploading. The extension uses the app tab's session and CSRF token, then posts multipart `files[]`, `src`, and `dir` to `/knowledge-base/fs/upload`. It reuses an existing app tab, or briefly opens an inactive one. It does not bypass the app's typing/recovery locks. No changes to `idea-app` are required.
+The default address is `https://ideas.local:8443`. The previous bundled `http://localhost:3000` value is upgraded to this address; custom addresses are preserved. Save and grant access to the app origin. Open/unlock IdeaFoundry before uploading. The extension uses the app tab's session and CSRF token, then posts multipart `files[]`, `src`, and `dir` to `/knowledge-base/fs/upload`. It reuses an existing app tab, or briefly opens an inactive one. It does not bypass the app's typing/recovery locks. No changes to `idea-app` are required.
 
 The integration matches `KbController#fs_upload` and its JSON error / unfollowed redirect success contract as inspected on 2026-10-14. The app chooses a unique filename when one already exists. A network interruption after an upload can make its outcome uncertain: check the KB before retrying.
 

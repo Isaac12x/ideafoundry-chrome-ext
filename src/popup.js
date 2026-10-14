@@ -1,4 +1,5 @@
 import { markdown } from './shared.js';
+import { mediaOrigins } from './media.js';
 const $ = id => document.getElementById(id);
 let conversation;
 let tabId;
@@ -29,8 +30,20 @@ async function save(destination) {
   $('send').disabled = $('download').disabled = true;
   $('status').textContent = destination === 'kb' ? 'Sending to your knowledge base…' : 'Preparing your file…';
   try {
+    // Start optional host access while the export click still carries its user gesture.
+    const knownHosts = mediaOrigins(conversation);
+    const knownAccess = knownHosts.length ? chrome.permissions.request({ origins: knownHosts }) : Promise.resolve(true);
     const format = document.querySelector('[name="format"]:checked').value;
     ({ conversation } = await request({ type: 'capture', tabId, mode: 'export' }));
+    const mediaHosts = mediaOrigins(conversation);
+    await knownAccess;
+    const missingHosts = [];
+    for (const origin of mediaHosts) if (!(await chrome.permissions.contains({ origins: [origin] }))) missingHosts.push(origin);
+    const newlyDiscovered = missingHosts.filter(origin => !knownHosts.includes(origin));
+    if (newlyDiscovered.length) {
+      $('status').textContent = `Requesting access to ${newlyDiscovered.length} newly discovered media site${newlyDiscovered.length === 1 ? '' : 's'}…`;
+      await chrome.permissions.request({ origins: newlyDiscovered });
+    }
     const result = await request({ type: 'export', conversation, format, destination });
     $('status').textContent = destination === 'kb' ? `Saved to KB: ${result.name}` : 'File is ready. Complete the download in Chrome.';
   } catch (error) { $('status').textContent = error.message; }

@@ -30,6 +30,7 @@ export function createCaptureControls(doc = document, win = window) {
   let railFrame = 0;
   let cachedContentBounds = null;
   let preserveActiveSection = false;
+  let emptyMessage = 'No conversation messages found yet. Open a conversation, then retry.';
   let host = doc.querySelector(`[${OWNED}="host"]`);
   if (!host) {
     host = doc.createElement('div');
@@ -44,7 +45,7 @@ export function createCaptureControls(doc = document, win = window) {
         *{box-sizing:border-box}
         #idea-capture-panel{position:fixed;right:16px;bottom:16px;z-index:2147483647;width:min(340px,calc(100vw - 32px));max-height:min(70vh,620px);display:flex;flex-direction:column;background:#fff;color:#18221d;border:1px solid #b9c6be;border-radius:12px;box-shadow:0 8px 32px #10251c33;font:13px/1.4 system-ui,sans-serif}
         [hidden]{display:none!important}
-        #idea-capture-panel>header{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid #e0e8e3;font-weight:700}button{font:inherit;cursor:pointer;border:1px solid #ccd8d0;border-radius:6px;background:#f7faf8;color:inherit;padding:5px 8px}button:focus-visible,input:focus-visible{outline:2px solid #19704c;outline-offset:2px}.tools{display:flex;gap:6px;flex-wrap:wrap;padding:9px 12px 4px}.count{padding:2px 14px 8px;color:#506158}.list{overflow:auto;padding:0 8px 10px}.row{display:grid;grid-template-columns:auto 1fr auto;align-items:start;gap:8px;padding:8px 6px;border-top:1px solid #edf1ee}.row input{margin:2px 0 0}.label{overflow-wrap:anywhere}.label small{display:block;color:#65746b;margin-top:2px}.collapse{white-space:nowrap}.empty{padding:8px 14px;color:#506158}
+        #idea-capture-panel>header{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid #e0e8e3;font-weight:700}button{font:inherit;cursor:pointer;border:1px solid #ccd8d0;border-radius:6px;background:#f7faf8;color:inherit;padding:5px 8px}button:focus-visible,input:focus-visible{outline:2px solid #19704c;outline-offset:2px}.tools{display:flex;gap:6px;flex-wrap:wrap;padding:9px 12px 4px}.count{padding:2px 14px 8px;color:#506158}.list{overflow:auto;padding:0 8px 10px}.row{display:grid;grid-template-columns:auto 1fr auto;align-items:start;gap:8px;padding:8px 6px;border-top:1px solid #edf1ee}.row input{margin:2px 0 0}.label{overflow-wrap:anywhere}.label small{display:block;color:#65746b;margin-top:2px}.collapse{white-space:nowrap}.empty{padding:8px 14px;color:#506158}.empty p{margin:0 0 10px}
         #idea-capture-margin-controls{position:fixed;top:50%;z-index:2147483646;transform:translateY(-50%);display:grid;gap:6px;padding:9px;background:#fff;color:#18221d;border:1px solid #b9c6be;border-radius:9px;box-shadow:0 4px 18px #10251c22;font:12px/1.35 system-ui,sans-serif}
         #idea-capture-margin-controls .idea-capture-margin-label{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#506158}
         #idea-capture-margin-controls .idea-capture-margin-select{display:flex;align-items:center;gap:6px;min-width:0}
@@ -59,7 +60,7 @@ export function createCaptureControls(doc = document, win = window) {
       </style>
       <section id="idea-capture-panel" data-idea-panel aria-label="Conversation sections" hidden>
         <header><span>Choose sections to capture</span><button type="button" data-action="toggle-panel" aria-expanded="false">Open</button></header>
-        <div class="panel-body" hidden><div class="tools"><button type="button" data-action="select-all">Select all</button><button type="button" data-action="select-none">Select none</button><button type="button" data-action="collapse-all">Collapse all</button><button type="button" data-action="expand-all">Expand all</button></div><div class="count" aria-live="polite"></div><div class="list"></div></div>
+        <div class="panel-body" hidden><div class="tools"><button type="button" data-action="select-all">Select all</button><button type="button" data-action="select-none">Select none</button><button type="button" data-action="collapse-all">Collapse all</button><button type="button" data-action="expand-all">Expand all</button></div><div class="count" aria-live="polite"></div><div class="empty" hidden><p data-empty-message></p><button type="button" data-action="retry">Retry detection</button></div><div class="list"></div></div>
       </section>
       <aside id="idea-capture-margin-controls" aria-label="Current conversation section" hidden>
         <label class="idea-capture-margin-select"><input type="checkbox" data-idea-section-id aria-label="Include current section"><span>Include</span></label>
@@ -77,6 +78,8 @@ export function createCaptureControls(doc = document, win = window) {
   const tools = shadow.querySelector('.tools');
   const list = shadow.querySelector('.list');
   const count = shadow.querySelector('.count');
+  const empty = shadow.querySelector('.empty');
+  const emptyText = shadow.querySelector('[data-empty-message]');
   const onTogglePanel = () => {
     const open = toggleButton.getAttribute('aria-expanded') !== 'true';
     toggleButton.setAttribute('aria-expanded', String(open));
@@ -99,9 +102,13 @@ export function createCaptureControls(doc = document, win = window) {
   const onToolsClick = event => {
     const action = event.target.closest('button')?.dataset.action;
     if (!action) return;
+    if (action === 'retry') { refresh(); return; }
     if (action === 'select-all' || action === 'select-none') for (const section of sections) selected.set(section.id, action === 'select-all');
     if (action === 'collapse-all' || action === 'expand-all') for (const section of sections) collapsed.set(section.id, action === 'collapse-all');
     render();
+  };
+  const onEmptyClick = event => {
+    if (event.target.closest('button')?.dataset.action === 'retry') refresh();
   };
   const onListChange = event => {
     const input = event.target.closest('input[data-section-id]');
@@ -137,6 +144,7 @@ export function createCaptureControls(doc = document, win = window) {
   rail.addEventListener('change', onRailChange);
   rail.addEventListener('click', onRailClick);
   tools.addEventListener('click', onToolsClick);
+  empty.addEventListener('click', onEmptyClick);
   list.addEventListener('change', onListChange);
   list.addEventListener('click', onListClick);
   doc.addEventListener('change', onDocChange);
@@ -144,7 +152,12 @@ export function createCaptureControls(doc = document, win = window) {
 
   function render() {
     count.textContent = `${sections.filter(section => selected.get(section.id) !== false).length} of ${sections.length} sections selected`;
-    panel.hidden = sections.length === 0;
+    panel.hidden = false;
+    empty.hidden = sections.length > 0;
+    emptyText.textContent = emptyMessage;
+    tools.hidden = sections.length === 0;
+    count.hidden = sections.length === 0;
+    list.hidden = sections.length === 0;
     const active = shadow.activeElement;
     const activeSection = active?.dataset?.sectionId;
     const activeKind = active?.matches?.('input') ? 'input' : active?.matches?.('button[data-section-id]') ? 'button' : null;
@@ -348,6 +361,7 @@ export function createCaptureControls(doc = document, win = window) {
       }
       const previous = sections;
       const discovery = extractConversation(doc, nextRoute, { includeNodes: true, includeMarkdown: false });
+      emptyMessage = 'No conversation messages found yet. If the conversation is still loading, retry in a moment.';
       const usedFallback = new Set();
       sections = discovery.sections.map(section => {
         const anchor = section.identityNode || section.nodes[0];
@@ -379,10 +393,11 @@ export function createCaptureControls(doc = document, win = window) {
       const activeNodes = new Set(sections.flatMap(section => collapseTargets(section)));
       for (const [node, hadClass] of classStates) if (!activeNodes.has(node)) { node.classList.toggle(COLLAPSED_CLASS, hadClass); classStates.delete(node); }
       render();
-    } catch {
+    } catch (error) {
       restoreClasses();
       sections = [];
       activeSectionId = null;
+      emptyMessage = error?.message || 'No conversation messages found yet. Retry detection after the page finishes loading.';
       render();
     } finally { refreshing = false; }
   }
@@ -425,6 +440,8 @@ export function createCaptureControls(doc = document, win = window) {
     const all = mode === 'all';
     conversation.messages = conversation.messages.filter(message => all || selected.get(message.sectionId) !== false);
     if (mode === 'export' && conversation.messages.length === 0) throw new Error('Select at least one section before exporting.');
+    const includedMessageIndexes = new Set(conversation.messages.map(message => message.messageIndex));
+    conversation.media = (conversation.media || []).filter(item => includedMessageIndexes.has(item.messageIndex));
     delete conversation.nodes;
     return conversation;
   }
@@ -441,6 +458,7 @@ export function createCaptureControls(doc = document, win = window) {
     if (railFrame) win.cancelAnimationFrame(railFrame);
     rail.removeEventListener('change', onRailChange); rail.removeEventListener('click', onRailClick);
     toggleButton.removeEventListener('click', onTogglePanel); tools.removeEventListener('click', onToolsClick);
+    empty.removeEventListener('click', onEmptyClick);
     list.removeEventListener('change', onListChange); list.removeEventListener('click', onListClick);
     restoreClasses();
     for (const header of headers.values()) header.remove(); headers.clear();

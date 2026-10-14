@@ -8,11 +8,15 @@ export async function uploadInApp(file, settings) {
   const doc = new DOMParser().parseFromString(await page.text(), 'text/html');
   const csrf = doc.querySelector('meta[name="csrf-token"]')?.content;
   if (!csrf) throw new Error('The app did not provide a CSRF token. Unlock the workspace and retry.');
-  const bytes = Uint8Array.from(atob(file.base64), c => c.charCodeAt(0));
   const body = new FormData();
   body.append('src', String(settings.source));
   body.append('dir', settings.directory);
-  body.append('files[]', new Blob([bytes], { type: file.mime }), file.name);
+  const files = file.files?.length ? file.files : [{ name: file.name, mime: file.mime, base64: file.base64 }];
+  if (!files.length || files.length > 51) throw new Error('The export has an unsupported number of files.');
+  for (const entry of files) {
+    const bytes = Uint8Array.from(atob(entry.base64), c => c.charCodeAt(0));
+    body.append('files[]', new Blob([bytes], { type: entry.mime }), entry.name);
+  }
   // JSON requests get explicit 4xx errors from fs_error and lock checks.
   // Do not follow the success redirect: KB has an HTML view, not a JSON view.
   const response = await fetch('/knowledge-base/fs/upload', {

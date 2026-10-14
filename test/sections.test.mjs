@@ -9,6 +9,62 @@ const page = () => new JSDOM(`<!doctype html><html><head><title>Topic - ChatGPT<
   <div data-message-author-role="user">Continue</div><div data-message-author-role="assistant">Second answer</div>
 </main></body></html>`, { url: 'https://chatgpt.com/c/1', pretendToBeVisual: true });
 
+test('empty discovery keeps a closed launcher visible and Retry finds messages after load', t => {
+  const dom = new JSDOM('<!doctype html><html><body><main><p>Loading conversation…</p></main></body></html>', { url: 'https://chatgpt.com/g/g-p-demo/c/123', pretendToBeVisual: true });
+  const { document } = dom.window;
+  const controls = createCaptureControls(document, dom.window);
+  t.after(() => { controls.destroy(); dom.window.close(); });
+  const shadow = document.querySelector('[data-idea-capture-owned="host"]').shadowRoot;
+  const panel = shadow.querySelector('[data-idea-panel]');
+  const open = shadow.querySelector('[data-action="toggle-panel"]');
+  assert.equal(panel.hidden, false, 'the launcher stays visible when no turns are found');
+  assert.equal(shadow.querySelector('.panel-body').hidden, true, 'the launcher starts closed');
+  open.click();
+  assert.match(shadow.querySelector('[data-empty-message]').textContent, /No conversation found/);
+
+  document.querySelector('main').innerHTML = '<article data-testid="conversation-turn-0"><h5>You said:</h5><p>Loaded question</p></article><article data-testid="conversation-turn-1"><h6>ChatGPT said:</h6><p>Loaded answer</p></article>';
+  shadow.querySelector('[data-action="retry"]').click();
+  assert.equal(shadow.querySelector('.empty').hidden, true);
+  assert.equal(shadow.querySelectorAll('.row').length, 1);
+});
+
+test('generic page fallback keeps its media attached when selection filters media by message index', () => {
+  const dom = new JSDOM('<main><h1>Notes</h1><p>Chart <img src="https://cdn.example/chart.png" alt="chart"></p></main>', { url: 'https://example.com/notes', pretendToBeVisual: true });
+  const controls = createCaptureControls(dom.window.document, dom.window);
+  try {
+    const captured = controls.capture('export');
+    assert.equal(captured.messages[0].role, 'Page content');
+    assert.equal(captured.messages[0].messageIndex, 0);
+    assert.equal(captured.media.length, 1);
+    assert.match(captured.messages[0].markdown, /\{\{idea-media:media-0-0\}\}/);
+  } finally {
+    controls.destroy();
+    dom.window.close();
+  }
+});
+
+test('section selection removes excluded media and its placeholder with the excluded messages', () => {
+  const dom = new JSDOM(`<main>
+    <div data-message-author-role="user">Question <img src="https://cdn.example/old.png" alt="old"></div>
+    <div data-message-author-role="assistant">Answer</div>
+    <div data-message-author-role="user">Keep this question</div>
+    <div data-message-author-role="assistant">Keep this answer</div>
+  </main>`, { url: 'https://chatgpt.com/c/1', pretendToBeVisual: true });
+  const controls = createCaptureControls(dom.window.document, dom.window);
+  try {
+    const checkbox = dom.window.document.querySelector('.idea-capture-section-header input');
+    checkbox.checked = false;
+    checkbox.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+    const captured = controls.capture('export');
+    assert.deepEqual(captured.media, []);
+    assert.equal(captured.messages.length, 2);
+    assert.doesNotMatch(captured.messages.map(message => message.markdown).join('\n'), /idea-media|old\.png/);
+  } finally {
+    controls.destroy();
+    dom.window.close();
+  }
+});
+
 test('groups each user prompt with following replies and gives duplicate prompts distinct stable IDs', () => {
   const dom = page();
   const result = extractConversation(dom.window.document, dom.window.location.href);

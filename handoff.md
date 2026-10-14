@@ -74,3 +74,24 @@ This branch is `feat/collapsible-conversation-sections`. No Git remote is config
 - Root visually reviewed the middle-of-conversation expanded/collapsed screenshots and reviewed the code after the independent Luna review. The captured side control is outside the centered conversation column; the closed widget exposes only its launcher/header.
 
 After updating, reload the extension at `chrome://extensions` and refresh existing chat tabs to replace their previously injected controls.
+
+## 2026-10-14 — 0.3.0 provider detection and media capture
+
+The user supplied a screenshot of a loaded ChatGPT project conversation whose popup reported no conversation. They also corrected the app port to 8443, requested that the closed launcher remain visible, and requested referenced documents and inline/nontext media in exports.
+
+The manifest already matched every path on the supported origins. This change expands ChatGPT DOM discovery beyond author-role attributes to turn articles and accessible speaker labels, preserving ordering and excluding navigation. The closed launcher remains available with Retry when discovery is empty. The bundled app address is now `https://ideas.local:8443`, verified against the neighboring app README and a read-only HTTP response. The exact previous default migrates; other addresses remain unchanged.
+
+Media metadata is retained at its original message position and filtered by selected sections. Same-origin authenticated media and page-owned blobs are read through the page; external resources require host access. Markdown with assets and PDFs with companion documents/media download as ZIP bundles. PDFs embed decodable images and identify unavailable resources in place. KB uploads use the existing multipart files[] endpoint. The actual app Markdown renderer was inspected: it does not rewrite relative media URLs, so KB documents use the existing `/knowledge-base/serve` endpoint while local bundles keep relative paths. Ordinary cited webpages stay links; linked downloadable documents are captured. No idea-app source changes were made.
+
+Luna agents implemented detection, media export, and browser regressions. An independent Luna review ran next; root reproduced findings and reviewed the implementation, then delegated a fresh Luna fix pass for missed media-only/plain-article turns, filename handling, retrieval bounds, and KB asset addressing. Browser fixtures include a routed `https://chatgpt.com/g/.../c/...` page with alternate turn markup, a persistent collapsed launcher, side controls, and PNG/WebP/document exports. Root inspected the resulting launcher screenshot.
+
+Live authenticated ChatGPT/Claude sessions were not available for inspection (browser-use CLI is absent). The fixture checks are not proof of compatibility with every live provider layout. Only loaded and accessible content can be captured; unsupported/denied media retains a note and source. Refresh existing tabs after reloading the rebuilt extension. Re-save Settings to grant the corrected IdeaFoundry origin if it was not previously permitted.
+
+### Final verification and delivery
+
+- Root final `npm test`: 39/39 passed.
+- Final `npm run build`: passed; `dist/` contains version 0.3.0.
+- Luna final `npm run test:browser`: passed against the final build, including ChatGPT project paths, persistent launcher, collapse/selection, real PDF image resources, KB serve URLs matching uploaded companion names, local ZIP paths, remote queue, lock errors, and popup recapture.
+- Root reviewed source after the independent Luna review, reproduced its detection findings, checked the actual IdeaFoundry Markdown serving contract, and inspected the ChatGPT launcher screenshot. A fresh Luna agent fixed the resulting issues and added targeted tests.
+- `git diff --check`: passed.
+- No Git remote is configured; PR publication and comment monitoring are unavailable. Work remains on `feat/collapsible-conversation-sections`.

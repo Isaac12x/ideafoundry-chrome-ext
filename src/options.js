@@ -1,8 +1,8 @@
-import { defaults, validateSettings } from './shared.js';
+import { defaults, withDefaults, validateSettings } from './shared.js';
 const $ = id => document.getElementById(id);
 const keys = ['appUrl', 'source', 'directory', 'queueUrl', 'queueToken'];
 const { settings = defaults } = await chrome.storage.local.get('settings');
-const config = { ...defaults, ...settings };
+const config = withDefaults(settings);
 for (const key of keys) $(key).value = config[key];
 $('remoteEnabled').checked = config.remoteEnabled;
 $('allowedOrigins').value = config.allowedOrigins.join('\n');

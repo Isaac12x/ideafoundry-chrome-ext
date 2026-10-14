@@ -1,8 +1,14 @@
 export const defaults = {
-  appUrl: 'http://localhost:3000', source: 0, directory: '',
+  appUrl: 'https://ideas.local:8443', source: 0, directory: '',
   queueUrl: 'http://localhost:4318', queueToken: '', remoteEnabled: false,
   allowedOrigins: ['https://chatgpt.com', 'https://claude.ai'],
 };
+// Upgrade the previous bundled default; preserve all custom service addresses.
+export function withDefaults(settings = {}) {
+  const value = { ...defaults, ...settings };
+  if (value.appUrl === 'http://localhost:3000') value.appUrl = defaults.appUrl;
+  return value;
+}
 export function httpUrl(value) {
   const url = new URL(value);
   if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) throw new Error('Use an HTTP(S) URL without embedded credentials.');
@@ -15,7 +21,7 @@ export function serviceOrigin(value) {
   return url.origin;
 }
 export function validateSettings(input) {
-  const value = { ...defaults, ...input };
+  const value = withDefaults(input);
   value.appUrl = serviceOrigin(value.appUrl);
   value.queueUrl = serviceOrigin(value.queueUrl);
   value.source = Number(value.source);
@@ -40,7 +46,18 @@ export function filename(title, format, date = new Date()) {
   return `${stem} - ${date.toISOString().replace(/[:.]/g, '-')}.${format}`;
 }
 export function markdown(conversation) {
-  return `# ${conversation.title.replace(/[\r\n]/g, ' ')}\n\nSource: <${conversation.url.replace(/[<>\r\n]/g, '')}>\n\nProvider: ${conversation.provider}\n\nCaptured: ${conversation.capturedAt}\n\n${conversation.warning ? `> ${conversation.warning}\n\n` : ''}---\n\n` + conversation.messages.map(m => `## ${m.role}\n\n${m.markdown.trim()}\n`).join('\n---\n\n');
+  const media = new Map((conversation.media || []).map(item => [item.id, item]));
+  const messages = conversation.messages.map(message => ({
+    ...message,
+    markdown: message.markdown.replace(/\{\{idea-media:([a-zA-Z0-9_-]{1,100})\}\}/g, (_placeholder, id) => {
+      const item = media.get(id);
+      if (!item) return `[Media reference ${id} unavailable]`;
+      const label = String(item.alt || item.title || item.filename || 'Referenced media').replace(/[\[\]<>\r\n]/g, ' ');
+      const target = String(item.url || conversation.url).replace(/[<>\r\n]/g, '');
+      return item.kind === 'image' ? `![${label}](${target})` : `[${label}](${target})`;
+    }),
+  }));
+  return `# ${conversation.title.replace(/[\r\n]/g, ' ')}\n\nSource: <${conversation.url.replace(/[<>\r\n]/g, '')}>\n\nProvider: ${conversation.provider}\n\nCaptured: ${conversation.capturedAt}\n\n${conversation.warning ? `> ${conversation.warning}\n\n` : ''}---\n\n` + messages.map(m => `## ${m.role}\n\n${m.markdown.trim()}\n`).join('\n---\n\n');
 }
 export function bytesToBase64(bytes) {
   let binary = '';

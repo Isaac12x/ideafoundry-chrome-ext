@@ -22,6 +22,66 @@ test('ChatGPT keeps separate roles inside one article instead of merging the tur
   assert.match(result.messages[1].markdown, /Answer/);
   assert.doesNotMatch(result.messages[1].markdown, /Question/);
 });
+test('ChatGPT discovers role-free turn articles on GPT project conversation routes and ignores sidebar cards', () => {
+  const dom = new JSDOM(`<!doctype html><title>Project thread - ChatGPT</title><aside><article data-testid="conversation-turn-99"><h2>You said:</h2><p>Sidebar copy</p></article></aside><main>
+    <article data-testid="conversation-turn-0"><h5 class="sr-only">You said:</h5><div><p>What is the plan?</p></div></article>
+    <article data-testid="conversation-turn-1"><h6 class="sr-only">ChatGPT said:</h6><div><p>First answer.</p></div></article>
+    <article data-testid="conversation-turn-2"><h5 class="sr-only">You said:</h5><div><p>Follow up?</p></div></article>
+  </main>`, { url: 'https://chatgpt.com/g/g-p-demo/c/123' });
+  const result = extractConversation(dom.window.document, dom.window.location.href);
+  assert.deepEqual(result.messages.map(message => message.role), ['User', 'Assistant', 'User']);
+  assert.deepEqual(result.sections.map(section => section.label), ['What is the plan?', 'Follow up?']);
+  assert.doesNotMatch(result.messages.map(message => message.markdown).join('\n'), /Sidebar copy/);
+  dom.window.close();
+});
+test('ChatGPT role-free conversation articles remain ordered when some turns omit labels', () => {
+  const dom = new JSDOM(`<main>
+    <article data-testid="conversation-turn-0"><h5>You said:</h5><p>Question</p></article>
+    <article data-testid="conversation-turn-1"><p>Unlabeled streamed answer</p></article>
+    <article data-testid="conversation-turn-2"><h6>ChatGPT said:</h6><p>Answer continued</p></article>
+  </main>`, { url: 'https://chatgpt.com/c/123' });
+  const result = extractConversation(dom.window.document, dom.window.location.href);
+  assert.deepEqual(result.messages.map(message => message.role), ['User', 'Message', 'Assistant']);
+  assert.match(result.warning, /speaker label/);
+  assert.deepEqual(result.messages.map(message => message.markdown.match(/Question|Unlabeled streamed answer|Answer continued/)?.[0]), ['Question', 'Unlabeled streamed answer', 'Answer continued']);
+  dom.window.close();
+});
+test('ChatGPT captures media-only turns, including button-wrapped images and srcset images', () => {
+  const dom = new JSDOM(`<main>
+    <article><h5>You said:</h5><button aria-label="Open image"><img src="https://cdn.example/chart.png" alt="chart"></button></article>
+    <article><h6>ChatGPT said:</h6><img srcset="https://cdn.example/answer.webp 2x" alt="answer"></article>
+  </main>`, { url: 'https://chatgpt.com/c/123' });
+  const result = extractConversation(dom.window.document, dom.window.location.href);
+  assert.deepEqual(result.messages.map(message => message.role), ['User', 'Assistant']);
+  assert.equal(result.media.length, 2);
+  assert.deepEqual(result.media.map(item => item.url), ['https://cdn.example/chart.png', 'https://cdn.example/answer.webp']);
+  assert.match(result.messages[0].markdown, /\{\{idea-media:media-0-0\}\}/);
+  dom.window.close();
+});
+test('ChatGPT retains a labeled standalone SVG image and ignores an icon-only SVG button', () => {
+  const dom = new JSDOM(`<main>
+    <article><h5 class="sr-only">You said:</h5><svg aria-label="Chart"><circle cx="2" cy="2" r="1"></circle></svg></article>
+    <article><h6 class="sr-only">ChatGPT said:</h6><button aria-label="Copy"><svg aria-label="Copy"><path d="M0 0"></path></svg></button></article>
+  </main>`, { url: 'https://chatgpt.com/c/123' });
+  const result = extractConversation(dom.window.document, dom.window.location.href);
+  assert.equal(result.messages.length, 1);
+  assert.equal(result.media.length, 1);
+  assert.equal(result.media[0].mime, 'image/svg+xml');
+  dom.window.close();
+});
+test('ChatGPT discovers heading-labeled plain articles inside main and ignores unlabeled articles and sidebar copies', () => {
+  const dom = new JSDOM(`<aside><article><h5>You said:</h5><p>sidebar</p></article></aside><main>
+    <article><h5>You said:</h5><p>Question one</p></article>
+    <article><h6>ChatGPT said:</h6><p>Answer one</p></article>
+    <article><p>Unrelated article</p></article>
+    <article><h5>You said:</h5><p>Question two</p></article>
+  </main>`, { url: 'https://chatgpt.com/c/123' });
+  const result = extractConversation(dom.window.document, dom.window.location.href);
+  assert.deepEqual(result.messages.map(message => message.role), ['User', 'Assistant', 'User']);
+  assert.match(result.messages[0].markdown, /Question one/);
+  assert.doesNotMatch(result.messages.map(message => message.markdown).join('\n'), /sidebar|Unrelated article/);
+  dom.window.close();
+});
 test('nested same-role provider wrappers do not duplicate messages and Gemini boundaries remain distinct', () => {
   const chatgpt = extract('<article><div data-message-author-role="assistant"><div data-message-author-role="assistant">One answer</div></div></article>');
   assert.equal(chatgpt.messages.length, 1);
@@ -56,6 +116,6 @@ test('settings and remote jobs restrict origins and unsafe destinations', () => 
   assert.throws(() => validateSettings({ remoteEnabled: true }), /token/);
   assert.throws(() => validateJob({ id: '1', url: 'https://evil.com', format: 'md' }, ['https://claude.ai']), /not allowed/);
   assert.throws(() => validateJob({ id: '../x', url: 'https://claude.ai', format: 'md' }, ['https://claude.ai']), /ID/);
-  assert.equal(validateSettings({}).appUrl, 'http://localhost:3000');
+  assert.equal(validateSettings({}).appUrl, 'https://ideas.local:8443');
   assert.doesNotMatch(filename('../bad/name:thing', 'md'), /[/:]/);
 });
