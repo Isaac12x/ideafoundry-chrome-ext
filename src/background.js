@@ -18,15 +18,15 @@ async function render(conversation, format, download) {
   if (!result?.ok) throw new Error(result?.error || 'File generation failed.');
   return result;
 }
-async function capture(tabId) {
+async function capture(tabId, mode = 'preview') {
   const tab = await chrome.tabs.get(tabId);
   httpUrl(tab.url);
   await chrome.scripting.executeScript({ target: { tabId }, files: ['content.js'] });
-  const [{ result }] = await chrome.scripting.executeScript({ target: { tabId }, func: () => {
-    const result = globalThis.__ideaCapture;
-    delete globalThis.__ideaCapture;
-    return result;
-  } });
+  const [{ result }] = await chrome.scripting.executeScript({ target: { tabId }, func: mode => {
+    if (!globalThis.__ideaCapture?.ok || !globalThis.__ideaCaptureController) return { ok: false, error: globalThis.__ideaCapture?.error || 'Could not initialize section controls.' };
+    try { return { ok: true, conversation: globalThis.__ideaCaptureController.capture(mode) }; }
+    catch (error) { return { ok: false, error: error.message }; }
+  }, args: [mode] });
   if (!result?.ok) throw new Error(result?.error || 'Could not read this page.');
   if (JSON.stringify(result.conversation).length > 4_000_000) throw new Error('Conversation exceeds the 4 MB capture limit.');
   return result.conversation;
@@ -106,7 +106,7 @@ async function poll() {
         await pause(2000);
         const currentTab = await chrome.tabs.get(tabId);
         if (httpUrl(currentTab.url).origin !== httpUrl(job.url).origin) throw new Error('Conversation redirected to another origin. Sign in and retry.');
-        try { conversation = await capture(tabId); } catch { continue; }
+        try { conversation = await capture(tabId, 'all'); } catch { continue; }
         const fingerprint = JSON.stringify(conversation.messages);
         stable = fingerprint === previous ? stable + 1 : 0;
         previous = fingerprint;
@@ -139,7 +139,7 @@ chrome.alarms.onAlarm.addListener(a => { if (a.name === 'remote-capture') void p
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
   if (sender.id !== chrome.runtime.id || !sender.url?.startsWith(chrome.runtime.getURL('')) || message.target === 'offscreen') return;
   (async () => {
-    if (message.type === 'capture') return { conversation: await capture(message.tabId) };
+    if (message.type === 'capture') return { conversation: await capture(message.tabId, message.mode || 'preview') };
     if (message.type === 'export') {
       if (message.destination === 'kb') return sendToKB(message.conversation, message.format);
       const file = await render(message.conversation, message.format, true);

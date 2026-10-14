@@ -1,4 +1,11 @@
-import { extractConversation } from './extract.js';
-// The injected bundle returns a serializable result to executeScript.
-try { globalThis.__ideaCapture = { ok: true, conversation: extractConversation() }; }
-catch (error) { globalThis.__ideaCapture = { ok: false, error: error.message }; }
+import { createCaptureControls, installCollapseStyle } from './controls.js';
+
+try {
+  if (!globalThis.__ideaCaptureController) {
+    installCollapseStyle(document);
+    globalThis.__ideaCaptureController = createCaptureControls(document, window);
+  }
+  globalThis.__ideaCapture = { ok: true };
+} catch (error) {
+  globalThis.__ideaCapture = { ok: false, error: error.message };
+}
