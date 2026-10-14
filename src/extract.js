@@ -127,21 +127,76 @@ function chatGptCommonAncestor(nodes) {
   return nodes.length === 1 ? nodes[0].parentElement : null;
 }
 
-const inferredExcludedSelector = `${chatGptUserBubbleSelector}, script,style,nav,aside,header,footer,form,textarea,input,select,[contenteditable="true"],[role="navigation"],[role="complementary"],[role="toolbar"],[class*="sidebar" i],[class*="toolbar" i],[class*="composer" i],[data-testid*="composer" i],[data-testid*="header" i],[aria-label*="composer" i],[hidden],[aria-hidden="true"],.sr-only,[data-idea-capture-control],[data-idea-capture-owned]`;
+// These nodes mark real boundaries in the page. Presentation-only nodes such
+// as buttons and screen-reader labels are removed from the export clone, but
+// they must not split one reply into a pile of inferred messages.
+const inferredBarrierSelector = `${chatGptUserBubbleSelector},script,style,nav,aside,header,footer,form,textarea,input,select,[contenteditable="true"],[role="navigation"],[role="complementary"],[role="toolbar"],[class*="sidebar" i],[class*="composer" i],[data-testid*="composer" i],[data-testid*="header" i],[aria-label*="composer" i],[hidden],[aria-hidden="true"],[data-idea-capture-control],[data-idea-capture-owned]`;
+const collapseUnsafeSelector = `nav,aside,header,footer,form,textarea,input:not([data-idea-section-id]),select,[contenteditable="true"],[role="navigation"],[role="complementary"],[role="textbox"],[class*="sidebar" i],[class*="composer" i],[data-testid*="composer" i],[aria-label*="composer" i]`;
+const exportExcludedSelector = `script,style,nav,aside,header,footer,form,textarea,input,select,[contenteditable="true"],[role="navigation"],[role="complementary"],[role="toolbar"],[class*="sidebar" i],[class*="toolbar" i],[class*="composer" i],[data-testid*="composer" i],[data-testid*="header" i],[aria-label*="composer" i],[hidden],[aria-hidden="true"],.sr-only,[data-idea-capture-control],[data-idea-capture-owned]`;
 
 function inferredContentNodes(source) {
-  if (source.matches?.(inferredExcludedSelector)) return [];
-  const collectSafeChildren = node => {
-    const safe = [];
-    for (const child of node.children) {
-      if (child.matches(inferredExcludedSelector)) continue;
-      if (child.querySelector(inferredExcludedSelector)) safe.push(...collectSafeChildren(child));
-      else if (hasMeaningfulContent(child)) safe.push(child);
-    }
-    return safe;
-  };
-  if (source.querySelector(inferredExcludedSelector)) return collectSafeChildren(source);
+  if (source.matches?.(inferredBarrierSelector)) return [];
+  // Keep the structural reply wrapper as one message. The converter removes
+  // nested page chrome and controls, preserving surrounding text, citations,
+  // and media without turning each surviving child into a separate message.
   return hasMeaningfulContent(source) ? [source] : [];
+}
+
+function sectionCollapseNodes(section, root, sections) {
+  if (!section.identityNode || !root.contains(section.identityNode)) return [...new Set(section.nodes)];
+  const sources = [...new Set([section.identityNode, ...section.nodes])].filter(node => root.contains(node));
+  const foreignBubbles = sections.filter(other => other !== section).map(other => other.identityNode).filter(Boolean);
+  const nextIdentity = sections.slice(sections.indexOf(section) + 1).map(other => other.identityNode)
+    .find(node => node && root.contains(node));
+  const presentationHint = /action|toolbar|control|reaction|gallery|reference|citation|source/i;
+  const isPresentationBranch = node => {
+    if (node.matches?.(collapseUnsafeSelector) || node.querySelector?.(collapseUnsafeSelector)) return false;
+    if (foreignBubbles.some(foreign => node === foreign || node.contains(foreign))) return false;
+    const hint = `${node.id || ''} ${node.className?.baseVal || node.className || ''} ${node.getAttribute?.('data-testid') || ''} ${node.getAttribute?.('aria-label') || ''}`
+      .split(/\s+/).some(value => presentationHint.test(value));
+    if (hint) return true;
+    if (hasMeaningfulContent(node)) return false;
+    return node.matches?.('button,[aria-hidden="true"],[hidden],.sr-only,[role="toolbar"],[role="presentation"]') ||
+      node.querySelector?.('button,[aria-hidden="true"],[hidden],.sr-only,[role="toolbar"],[role="presentation"]') || false;
+  };
+  const safeWrapper = node => {
+    if (node.matches?.(collapseUnsafeSelector)) return null;
+    let best = node;
+    for (let ancestor = node.parentElement; ancestor && ancestor !== root; ancestor = ancestor.parentElement) {
+      if (ancestor.matches(collapseUnsafeSelector)) break;
+      if (foreignBubbles.some(foreign => ancestor === foreign || ancestor.contains(foreign))) break;
+      if (ancestor.querySelector(collapseUnsafeSelector)) break;
+      best = ancestor;
+    }
+    return best;
+  };
+  const safePieces = node => {
+    if (node.matches?.(collapseUnsafeSelector)) return [];
+    if (node.querySelector(collapseUnsafeSelector)) {
+      return [...node.children].flatMap(child => safePieces(child));
+    }
+    return [safeWrapper(node)].filter(Boolean);
+  };
+  const targets = [...new Set(sources.flatMap(safePieces))];
+  // Also collapse presentation branches that sit beside a captured message
+  // inside its prompt-to-prompt interval. Some ChatGPT layouts put actions,
+  // references, or empty gallery shells after the reply wrapper as siblings.
+  for (const source of sources) {
+    if (nextIdentity && (source === nextIdentity || nextIdentity.contains(source) ||
+        (source.compareDocumentPosition(nextIdentity) & 2))) continue;
+    let pathNode = source;
+    for (let parent = source.parentElement; parent && root.contains(parent); pathNode = parent, parent = parent.parentElement) {
+      for (const sibling of parent.children) {
+        if (sibling === pathNode || !(pathNode.compareDocumentPosition(sibling) & 4)) continue;
+        if (nextIdentity && (sibling === nextIdentity || sibling.contains(nextIdentity) ||
+            (sibling.compareDocumentPosition(nextIdentity) & 2))) continue;
+        if (isPresentationBranch(sibling)) targets.push(...safePieces(sibling));
+      }
+      if (parent === root) break;
+    }
+  }
+  const uniqueTargets = [...new Set(targets)];
+  return uniqueTargets.filter(target => !uniqueTargets.some(ancestor => ancestor !== target && ancestor.contains(target)));
 }
 
 function chatGptSiblingContent(anchor, stopAt, bubbles, existingCandidates) {
@@ -207,6 +262,7 @@ export function extractConversation(doc = document, url = location.href, options
   const host = new URL(url).hostname;
   const includeMarkdown = options.includeMarkdown !== false;
   const media = [];
+  const mediaOrdinals = new Map();
   let td;
   const convert = (node, messageRole, messageIndex) => {
     if (!includeMarkdown) return '';
@@ -227,9 +283,9 @@ export function extractConversation(doc = document, url = location.href, options
     }
     const copy = doc.createElement('div');
     copy.append(node.cloneNode(true));
-    copy.querySelectorAll('script,style,nav,textarea,input,[aria-hidden="true"],[hidden],.sr-only,[data-idea-capture-control],[data-idea-capture-owned]').forEach(n => n.remove());
+    copy.querySelectorAll(exportExcludedSelector).forEach(n => n.remove());
 
-    let mediaOrdinal = 0;
+    let mediaOrdinal = mediaOrdinals.get(messageIndex) || 0;
     const addMedia = (element, kind, mediaUrl, error = '') => {
       if (!mediaUrl && !error) return null;
       const id = `media-${messageIndex}-${mediaOrdinal++}`;
@@ -250,6 +306,7 @@ export function extractConversation(doc = document, url = location.href, options
         ...(error ? { error } : {}),
       };
       media.push(item);
+      mediaOrdinals.set(messageIndex, mediaOrdinal);
       const placeholder = doc.createTextNode(`{{idea-media:${id}}}`);
       element.parentNode?.insertBefore(placeholder, element);
       element.remove();
@@ -383,17 +440,35 @@ export function extractConversation(doc = document, url = location.href, options
   // Drop only nested wrappers that repeat a role. A containing message with a
   // different role is a separate speaker and must remain in the transcript.
   candidates = candidates.filter(({ node, role }) => !candidates.some(other => other.node !== node && other.role === role && other.node.contains(node)));
-  const messages = candidates.map(({ node, role, contentNode: inferredNode }, messageIndex) => {
-    let contentNode = inferredNode || node;
+  // A neutral branch can be split by nested action controls or presentation
+  // labels. Treat adjacent inferred fragments as one logical reply.
+  const logicalCandidates = [];
+  for (const candidate of candidates) {
+    const previous = logicalCandidates.at(-1);
+    const explicitTurn = node => node?.closest?.('[data-testid^="conversation-turn-"], article[data-turn-id]');
+    const previousTurn = explicitTurn(previous?.node);
+    const candidateTurn = explicitTurn(candidate.node);
+    const sameInferredTurn = !previousTurn && !candidateTurn || previousTurn && candidateTurn && previousTurn === candidateTurn;
+    if (candidate.role === 'message' && previous?.role === 'message' && sameInferredTurn && candidate.contentNode) {
+      previous.nodes.push(...(candidate.nodes || [candidate.node]));
+      previous.contentNodes.push(...(candidate.contentNodes || [candidate.contentNode || candidate.node]));
+    } else {
+      logicalCandidates.push({ ...candidate, nodes: candidate.nodes || [candidate.node], contentNodes: candidate.contentNodes || [candidate.contentNode || candidate.node] });
+    }
+  }
+  const messages = logicalCandidates.map(({ node, role, contentNode: inferredNode, nodes, contentNodes }, messageIndex) => {
+    let contentNode = contentNodes.length === 1 ? (inferredNode || contentNodes[0]) : contentNodes;
     if (provider === 'ChatGPT' && !inferredNode) {
       const wrapper = node.closest('[data-testid^="conversation-turn-"], article, [data-turn-id], [data-message-id], [class*="assistant-turn"], [class*="agent-turn"]');
       if (wrapper && wrapper !== node) {
-        const nestedCandidates = candidates.filter(candidate => wrapper.contains(candidate.node));
+        const nestedCandidates = logicalCandidates.filter(candidate => wrapper.contains(candidate.node));
         if (nestedCandidates.length === 1 && nestedCandidates[0].node === node) contentNode = wrapper;
       }
     }
-    const markdown = convert(contentNode, ({ user: 'User', assistant: 'Assistant', system: 'System' })[role] || 'Message', messageIndex);
-    return { node, contentNode, providerId: messageId(node), messageIndex, role: ({ user: 'User', assistant: 'Assistant', system: 'System' })[role] || 'Message', markdown };
+    const markdown = (Array.isArray(contentNode) ? contentNode : [contentNode])
+      .map(part => convert(part, ({ user: 'User', assistant: 'Assistant', system: 'System' })[role] || 'Message', messageIndex))
+      .filter(Boolean).join('\n\n').trim();
+    return { node, nodes, contentNode, providerId: messageId(node), messageIndex, role: ({ user: 'User', assistant: 'Assistant', system: 'System' })[role] || 'Message', markdown };
   }).filter(message => !includeMarkdown || message.markdown);
   let warning = 'Captures messages currently loaded on the page. Load older messages before exporting; detected media is included when available, and hidden branches are not included.';
   if (unlabeledChatGptTurns) warning = 'Some ChatGPT messages did not expose a speaker label. Their order was inferred from visible turn structure; review the preview before saving. Only loaded content is included.';
@@ -424,13 +499,14 @@ export function extractConversation(doc = document, url = location.href, options
     }
     message.sectionId = current.id;
     current.messages.push(message);
-    current.nodes.push(message.node);
+    current.nodes.push(...(message.nodes || [message.node]));
   }
-  const publicSections = sections.map(({ id, label, messages: sectionMessages, nodes, identityNode }) => ({
+  if (provider === 'ChatGPT') for (const section of sections) section.collapseNodes = sectionCollapseNodes(section, chatGptConversationRoot(doc), sections);
+  const publicSections = sections.map(({ id, label, messages: sectionMessages, nodes, identityNode, collapseNodes }) => ({
     id, label, messageCount: sectionMessages.length,
-    ...(options.includeNodes ? { nodes, identityNode } : {}),
+    ...(options.includeNodes ? { nodes, identityNode, collapseNodes: collapseNodes || nodes } : {}),
   }));
-  const publicMessages = messages.map(({ node, contentNode, providerId, ...message }) => message);
+  const publicMessages = messages.map(({ node, nodes, contentNode, providerId, ...message }) => message);
   const streaming = !!doc.querySelector('[data-is-streaming="true"], [data-testid="stop-button"], button[aria-label="Stop response"]');
   return { title: doc.title.replace(/\s*[-|–]\s*(ChatGPT|Claude|Gemini)\s*$/i, '').trim() || 'Conversation', url, provider, capturedAt: new Date().toISOString(), warning, messages: publicMessages, sections: publicSections, media, streaming };
 }

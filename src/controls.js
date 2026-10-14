@@ -49,34 +49,23 @@ export function createCaptureControls(doc = document, win = window) {
         #idea-capture-panel{position:fixed;right:16px;bottom:16px;z-index:2147483647;width:min(340px,calc(100vw - 32px));max-height:min(70vh,620px);display:flex;flex-direction:column;background:#fff;color:#18221d;border:1px solid #b9c6be;border-radius:12px;box-shadow:0 8px 32px #10251c33;font:13px/1.4 system-ui,sans-serif}
         [hidden]{display:none!important}
         #idea-capture-panel>header{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid #e0e8e3;font-weight:700}button{font:inherit;cursor:pointer;border:1px solid #ccd8d0;border-radius:6px;background:#f7faf8;color:inherit;padding:5px 8px}button:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px solid #19704c;outline-offset:2px}.tools{display:flex;gap:6px;flex-wrap:wrap;padding:9px 12px 4px}.count{padding:2px 14px 8px;color:#506158}.list{overflow:auto;padding:0 8px 10px}.row{display:grid;grid-template-columns:auto 1fr auto;align-items:start;gap:8px;padding:8px 6px;border-top:1px solid #edf1ee}.row input{margin:2px 0 0}.label{overflow-wrap:anywhere}.label small{display:block;color:#65746b;margin-top:2px}.collapse{white-space:nowrap}.empty{padding:8px 14px;color:#506158}.empty p{margin:0 0 10px}.empty textarea,.diagnostics textarea{display:block;width:100%;min-height:150px;margin-top:8px;font:11px/1.4 ui-monospace,monospace;resize:vertical}
-        #idea-capture-margin-controls{position:fixed;top:50%;z-index:2147483646;transform:translateY(-50%);display:grid;gap:6px;padding:9px;background:#fff;color:#18221d;border:1px solid #b9c6be;border-radius:9px;box-shadow:0 4px 18px #10251c22;font:12px/1.35 system-ui,sans-serif}
-        #idea-capture-margin-controls .idea-capture-margin-label{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#506158}
-        #idea-capture-margin-controls .idea-capture-margin-select{display:flex;align-items:center;gap:6px;min-width:0}
-        #idea-capture-margin-controls input{margin:0;flex:0 0 auto}
-        #idea-capture-margin-controls button{width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-        #idea-capture-margin-controls[data-compact="true"]{width:44px!important;padding:5px;justify-items:center}
-        #idea-capture-margin-controls[data-compact="true"] .idea-capture-margin-label,#idea-capture-margin-controls[data-compact="true"] .idea-capture-margin-select span{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
-        #idea-capture-margin-controls[data-compact="true"] .idea-capture-margin-select{height:22px}
-        #idea-capture-margin-controls[data-compact="true"] button{width:30px;height:30px;padding:0;font-size:0}
-        #idea-capture-margin-controls[data-compact="true"] button::before{font-size:18px;line-height:1;content:"−"}
-        #idea-capture-margin-controls[data-compact="true"] button[aria-expanded="false"]::before{content:"+"}
+        #idea-capture-margin-controls{position:fixed;top:50%;z-index:2147483646;transform:translateY(-50%);display:block;width:38px;height:38px;padding:1px;background:transparent;color:#18221d;border:0;border-radius:50%;box-shadow:none;font:12px/1.35 system-ui,sans-serif}
+        #idea-capture-margin-controls button{display:grid;place-items:center;width:36px;height:36px;padding:0;border:1px solid #b9c6be;border-radius:50%;background:#fff;color:#18221d;box-shadow:0 3px 12px #10251c2b;font-size:21px;line-height:1}
+        #idea-capture-margin-controls button:hover{background:#eef5f0}
+        #idea-capture-margin-controls button:active{transform:scale(.96)}
       </style>
       <section id="idea-capture-panel" data-idea-panel aria-label="Conversation sections" hidden>
         <header><span>Choose sections to capture</span><button type="button" data-action="toggle-panel" aria-expanded="false">Open</button></header>
         <div class="panel-body" hidden><div class="tools"><button type="button" data-action="select-all">Select all</button><button type="button" data-action="select-none">Select none</button><button type="button" data-action="collapse-all">Collapse all</button><button type="button" data-action="expand-all">Expand all</button><button type="button" data-action="copy-diagnostics">Copy diagnostics</button></div><div class="count" aria-live="polite"></div><div class="empty" hidden><p data-empty-message></p><button type="button" data-action="retry">Retry detection</button><button type="button" data-action="copy-diagnostics">Copy diagnostics</button></div><div class="diagnostics"><p data-diagnostics-status aria-live="polite"></p><textarea data-diagnostics-fallback readonly hidden aria-label="Diagnostics to copy manually"></textarea></div><div class="list"></div></div>
       </section>
-      <aside id="idea-capture-margin-controls" aria-label="Current conversation section" hidden>
-        <label class="idea-capture-margin-select"><input type="checkbox" data-idea-section-id aria-label="Include current section"><span>Include</span></label>
-        <span class="idea-capture-margin-label"></span>
-        <button type="button" data-idea-section-id aria-expanded="true">Collapse</button>
+      <aside id="idea-capture-margin-controls" aria-label="Conversation section controls" hidden>
+        <button type="button" data-idea-section-id aria-expanded="true" aria-label="Collapse current section">›</button>
       </aside>`;
   }
   const panel = shadow.querySelector('[data-idea-panel]');
   const body = shadow.querySelector('.panel-body');
   const toggleButton = shadow.querySelector('[data-action="toggle-panel"]');
   const rail = shadow.querySelector('#idea-capture-margin-controls');
-  const railInput = rail.querySelector('input[data-idea-section-id]');
-  const railLabel = rail.querySelector('.idea-capture-margin-label');
   const railButton = rail.querySelector('button[data-idea-section-id]');
   const tools = shadow.querySelector('.tools');
   const list = shadow.querySelector('.list');
@@ -90,11 +79,6 @@ export function createCaptureControls(doc = document, win = window) {
     toggleButton.setAttribute('aria-expanded', String(open));
     toggleButton.textContent = open ? 'Close' : 'Open';
     body.hidden = !open;
-  };
-  const onRailChange = event => {
-    if (event.target !== railInput || !railInput.dataset.ideaSectionId) return;
-    selected.set(railInput.dataset.ideaSectionId, railInput.checked);
-    render();
   };
   const onRailClick = event => {
     if (event.target !== railButton || !railButton.dataset.ideaSectionId) return;
@@ -162,7 +146,6 @@ export function createCaptureControls(doc = document, win = window) {
     render();
   };
   toggleButton.addEventListener('click', onTogglePanel);
-  rail.addEventListener('change', onRailChange);
   rail.addEventListener('click', onRailClick);
   tools.addEventListener('click', onToolsClick);
   empty.addEventListener('click', onEmptyClick);
@@ -257,20 +240,28 @@ export function createCaptureControls(doc = document, win = window) {
     }
   }
   function collapseTargets(section) {
-    const foreignNodes = sections.filter(candidate => candidate.id !== section.id).flatMap(candidate => candidate.nodes);
+    const foreignNodes = sections.filter(candidate => candidate.id !== section.id)
+      .flatMap(candidate => [...candidate.nodes, ...(candidate.collapseNodes || [])]);
+    const safeCollapseNode = node => node?.isConnected
+      && node !== doc.body && node !== doc.documentElement
+      && !node.matches?.('main, [role="main"], footer, [role="contentinfo"], nav, [role="navigation"], aside, [role="complementary"]')
+      && !foreignNodes.some(foreign => node.contains(foreign))
+      && !node.querySelector?.('textarea, input:not([data-idea-section-id]), [contenteditable="true"], [role="textbox"]');
+    if (section.collapseNodes?.length) {
+      const targets = section.collapseNodes.filter(safeCollapseNode);
+      return targets.filter(target => !targets.some(ancestor => ancestor !== target && ancestor.contains(target)));
+    }
     const targets = new Set();
     for (const node of section.nodes) {
       if (node.matches?.('article, [data-testid^="conversation-turn-"], [data-turn-id], [data-message-id], [class~="turn"], [class*="assistant-turn"], [class*="agent-turn"]')
-        && !foreignNodes.some(foreign => node.contains(foreign))
-        && !node.querySelector('textarea, input, [contenteditable="true"], [role="textbox"]')) {
+        && safeCollapseNode(node)) {
         targets.add(node);
         continue;
       }
       const candidates = [];
       for (let ancestor = node.parentElement; ancestor && ancestor !== doc.body && ancestor !== doc.documentElement; ancestor = ancestor.parentElement) {
         if (!ancestor.matches('article, [data-testid^="conversation-turn-"], [data-turn-id], [data-message-id], [class~="turn"], [class*="assistant-turn"], [class*="agent-turn"]')) continue;
-        if (foreignNodes.some(foreign => ancestor.contains(foreign))) continue;
-        if (ancestor.querySelector('textarea, input, [contenteditable="true"], [role="textbox"]')) continue;
+        if (!safeCollapseNode(ancestor)) continue;
         candidates.push(ancestor);
       }
       targets.add(candidates.at(-1) || node);
@@ -456,7 +447,7 @@ export function createCaptureControls(doc = document, win = window) {
   function syncRail() {
     if (!sections.length) { rail.hidden = true; return; }
     const section = sections.find(candidate => candidate.id === activeSectionId) || sectionAtViewportCenter();
-    if (!section) { rail.hidden = true; return; }
+    if (!section || collapsed.get(section.id) === true) { rail.hidden = true; return; }
     activeSectionId = section.id;
     const bounds = contentBounds();
     const viewport = win.innerWidth || doc.documentElement.clientWidth;
@@ -471,24 +462,18 @@ export function createCaptureControls(doc = document, win = window) {
     if (Math.max(leftSpace, rightSpace) < 48) { rail.hidden = true; return; }
     const useLeft = leftSpace >= rightSpace;
     const space = useLeft ? leftSpace : rightSpace;
-    const compact = space < 128;
-    const railWidth = compact ? Math.min(48, space - 8) : Math.min(196, space - 12);
+    const railWidth = 38;
+    if (space < railWidth + 8) { rail.hidden = true; return; }
     rail.hidden = false;
     rail.style.width = `${railWidth}px`;
-    rail.dataset.compact = String(compact || space < 48);
-    rail.style.left = useLeft ? 'auto' : `${Math.max(6, bounds.right + 8)}px`;
-    rail.style.right = useLeft ? `${Math.max(6, viewport - bounds.left + 8)}px` : 'auto';
-    railInput.dataset.ideaSectionId = section.id;
-    railInput.checked = selected.get(section.id) !== false;
-    railInput.setAttribute('aria-label', `Include section: ${section.label}`);
-    railLabel.textContent = section.label;
-    railLabel.title = section.label;
-    rail.setAttribute('aria-label', `Current section: ${section.label}`);
-    const isCollapsed = collapsed.get(section.id) === true;
+    rail.style.left = useLeft ? 'auto' : `${Math.max(6, bounds.right + 4)}px`;
+    rail.style.right = useLeft ? `${Math.max(6, viewport - bounds.left + 4)}px` : 'auto';
     railButton.dataset.ideaSectionId = section.id;
-    railButton.textContent = isCollapsed ? 'Expand' : 'Collapse';
-    railButton.setAttribute('aria-expanded', String(!isCollapsed));
-    railButton.setAttribute('aria-label', `${isCollapsed ? 'Expand' : 'Collapse'} section: ${section.label}`);
+    rail.setAttribute('aria-label', `Current section: ${section.label}`);
+    railButton.textContent = useLeft ? '›' : '‹';
+    railButton.setAttribute('aria-expanded', 'true');
+    railButton.setAttribute('aria-label', `Collapse section: ${section.label}`);
+    railButton.title = `Collapse section: ${section.label}`;
   }
   function updateActiveSection() {
     if (destroyed || !sections.length) return;
@@ -648,7 +633,7 @@ export function createCaptureControls(doc = document, win = window) {
     doc.removeEventListener('keydown', onScrollKeyDown, true);
     doc.removeEventListener('pointerdown', onPointerDown, true);
     if (railFrame) win.cancelAnimationFrame(railFrame);
-    rail.removeEventListener('change', onRailChange); rail.removeEventListener('click', onRailClick);
+    rail.removeEventListener('click', onRailClick);
     toggleButton.removeEventListener('click', onTogglePanel); tools.removeEventListener('click', onToolsClick);
     empty.removeEventListener('click', onEmptyClick);
     list.removeEventListener('change', onListChange); list.removeEventListener('click', onListClick);
@@ -667,7 +652,7 @@ export function installCollapseStyle(doc = document) {
     style = doc.createElement('style');
     if (!doc.getElementById(STYLE_ID)) style.id = STYLE_ID;
     style.setAttribute(OWNED, 'style');
-    style.textContent = `.${COLLAPSED_CLASS}{display:none!important}.idea-capture-section-header{display:flex;align-items:center;gap:8px;padding:7px 10px;margin:5px 0;background:#eef5f0;border:1px solid #c9d9ce;border-radius:7px;color:#1b3326;font:12px/1.4 system-ui,sans-serif;position:relative;z-index:10}.idea-capture-section-header input{margin:0}.idea-capture-section-label{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.idea-capture-section-header button{font:inherit;cursor:pointer;border:1px solid #b9cbbf;border-radius:5px;background:white;color:inherit;padding:3px 7px}`;
+    style.textContent = `.${COLLAPSED_CLASS}{display:none!important}.idea-capture-section-header{display:flex;align-items:center;gap:8px;padding:7px 10px;margin:5px 0;background:#eef5f0;border:1px solid #c9d9ce;border-radius:7px;color:#1b3326;font:12px/1.4 system-ui,sans-serif;position:relative;z-index:10}.idea-capture-section-header input{appearance:auto!important;-webkit-appearance:checkbox!important;display:inline-block!important;visibility:visible!important;opacity:1!important;width:16px!important;height:16px!important;min-width:16px!important;min-height:16px!important;margin:0!important;accent-color:#19704c;flex:0 0 16px}.idea-capture-section-label{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.idea-capture-section-header button{font:inherit;cursor:pointer;border:1px solid #b9cbbf;border-radius:5px;background:white;color:inherit;padding:3px 7px}`;
     (doc.head || doc.documentElement).append(style);
   }
   styles.set(doc, style);

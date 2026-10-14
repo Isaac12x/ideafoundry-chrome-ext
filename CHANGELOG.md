@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.3 — 2026-10-14
+
+- Collapse complete reply layouts, including gallery cards, reference controls, and action rows.
+- Group inferred reply fragments as logical messages while preserving media and section selection.
+- Replace the floating section card with a compact side chevron that hides for collapsed sections.
+- Keep inline selection checkboxes visible under provider styling.
+
 ## 0.3.2 — 2026-10-14
 
 - Added ChatGPT `bg-user-message` support based on supplied live-page diagnostics.

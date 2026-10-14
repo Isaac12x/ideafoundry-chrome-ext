@@ -46,6 +46,15 @@ test('ChatGPT role-free conversation articles remain ordered when some turns omi
   assert.deepEqual(result.messages.map(message => message.markdown.match(/Question|Unlabeled streamed answer|Answer continued/)?.[0]), ['Question', 'Unlabeled streamed answer', 'Answer continued']);
   dom.window.close();
 });
+test('ChatGPT keeps distinct unlabeled provider turns separate even when both are neutral messages', () => {
+  const dom = new JSDOM(`<main><article data-testid="conversation-turn-0"><h5 class="sr-only">You said:</h5><p>Question</p></article>
+    <article data-testid="conversation-turn-1"><p>First neutral turn</p></article>
+    <article data-testid="conversation-turn-2"><p>Second neutral turn</p></article></main>`, { url: 'https://chatgpt.com/c/123' });
+  const result = extractConversation(dom.window.document, dom.window.location.href);
+  assert.deepEqual(result.messages.map(message => message.role), ['User', 'Message', 'Message']);
+  assert.deepEqual(result.messages.map(message => message.markdown), ['Question', 'First neutral turn', 'Second neutral turn']);
+  dom.window.close();
+});
 test('ChatGPT captures media-only turns, including button-wrapped images and srcset images', () => {
   const dom = new JSDOM(`<main>
     <article><h5>You said:</h5><button aria-label="Open image"><img src="https://cdn.example/chart.png" alt="chart"></button></article>
@@ -110,6 +119,30 @@ test('ChatGPT bounds inferred replies to reported user ancestry and excludes pag
   assert.deepEqual(rediscovered.messages.map(message => message.markdown), ['Q1', 'A1', 'Q2', 'A2']);
   dom.window.close();
 });
+test('ChatGPT collapses UI-only sibling rows within a prompt interval without reaching the next section or page chrome', () => {
+  const dom = new JSDOM(`<main id="thread">
+    <div class="bg-user-message">Q</div>
+    <div><p>A</p></div>
+    <div id="actions" class="action-row"><button>Copy</button><button>+1</button></div>
+    <div id="orphan-gallery" class="gallery-shell" aria-hidden="true"><div class="gallery"><figure>Empty image card</figure></div></div>
+    <div id="orphan-references" class="reference-row" aria-hidden="true"><span>Sources</span><span>+1</span></div>
+    <div class="bg-user-message">Q2</div>
+    <div><p>A2</p></div>
+    <div id="actions-2"><button>Copy</button></div>
+    <header>Page header</header><footer>Page footer</footer><form class="composer"><textarea>Draft</textarea></form>
+  </main>`, { url: 'https://chatgpt.com/c/123' });
+  const doc = dom.window.document;
+  const result = extractConversation(doc, dom.window.location.href, { includeNodes: true });
+  const firstNodes = result.sections[0].collapseNodes;
+  const secondNodes = result.sections[1].collapseNodes;
+  assert.ok(firstNodes.some(node => node === doc.querySelector('#actions') || node.contains(doc.querySelector('#actions'))));
+  assert.ok(firstNodes.some(node => node === doc.querySelector('#orphan-gallery') || node.contains(doc.querySelector('#orphan-gallery'))));
+  assert.ok(firstNodes.some(node => node === doc.querySelector('#orphan-references') || node.contains(doc.querySelector('#orphan-references'))));
+  assert.equal(firstNodes.some(node => node.contains(doc.querySelectorAll('.bg-user-message')[1])), false);
+  assert.ok(secondNodes.some(node => node === doc.querySelector('#actions-2') || node.contains(doc.querySelector('#actions-2'))));
+  assert.equal(result.sections.flatMap(section => section.collapseNodes).some(node => node.matches('header,footer,form') || node.closest('header,footer,form')), false);
+  dom.window.close();
+});
 test('ChatGPT inference keeps grouped neutral replies disjoint and splits composer branches safely', () => {
   const dom = new JSDOM(`<main id="thread">
     <div class="turn"><div class="bg-user-message">Grouped question</div><div><p>Grouped reply</p></div></div>
@@ -119,14 +152,43 @@ test('ChatGPT inference keeps grouped neutral replies disjoint and splits compos
     <footer>Footer text</footer>
   </main><aside>Sidebar text</aside>`, { url: 'https://chatgpt.com/c/123' });
   const result = extractConversation(dom.window.document, dom.window.location.href, { includeNodes: true });
-  assert.deepEqual(result.messages.map(message => message.role), ['User', 'Message', 'User', 'Message', 'Message']);
+  assert.deepEqual(result.messages.map(message => message.role), ['User', 'Message', 'User', 'Message']);
   assert.match(result.messages[1].markdown, /Grouped reply/);
   assert.match(result.messages[3].markdown, /Mixed reply/);
   assert.doesNotMatch(result.messages[3].markdown, /Private draft/);
-  assert.match(result.messages[4].markdown, /\{\{idea-media:media-4-0\}\}/);
+  assert.match(result.messages[3].markdown, /\{\{idea-media:media-3-0\}\}/);
   assert.equal(result.media[0].url, 'https://cdn.example/direct.png');
   assert.equal(result.sections.flatMap(section => section.nodes).some(node => node.matches?.('.composer') || node.closest?.('.composer')), false);
+  assert.equal(result.sections.flatMap(section => section.collapseNodes).some(node => node.matches?.('.composer') || node.closest?.('.composer')), false);
   assert.doesNotMatch(result.messages.map(message => message.markdown).join('\n'), /Footer text|Sidebar text/);
+  dom.window.close();
+});
+test('ChatGPT groups reported reply fragments, preserves references and media, and rediscovers collapsed structure', () => {
+  const dom = new JSDOM(`<main id="thread">
+    <div class="turn-branch"><div class="prompt"><div class="bg-user-message">Compare these findings.</div></div>
+      <div class="reply"><div><p>Interviews explain local context.</p><p>Surveys show how common each pattern is. <a href="https://research.example/source">Source 1</a></p>
+        <div class="gallery"><figure><img src="https://cdn.example/field.png" alt="Field notes"></figure><figure><button aria-label="Open empty result">Open result</button></figure></div>
+        <div class="actions"><button aria-label="Copy">Copy</button><button aria-label="Good response">Good response</button><span class="sr-only">Actions</span></div></div></div>
+    </div>
+    <div class="turn-branch"><div class="prompt"><div class="bg-user-message">What should we test?</div></div><div class="reply"><p>Test the interview guide first.</p><a href="https://research.example/guide">Guide</a></div></div>
+    <form class="composer"><textarea>PRIVATE_DRAFT</textarea></form><nav>PRIVATE_NAV</nav>
+  </main>`, { url: 'https://chatgpt.com/c/123' });
+  const doc = dom.window.document;
+  const first = extractConversation(doc, dom.window.location.href, { includeNodes: true });
+  assert.deepEqual(first.messages.map(message => message.role), ['User', 'Message', 'User', 'Message']);
+  assert.equal(first.sections[0].messageCount, 2);
+  assert.match(first.messages[1].markdown, /Source 1/);
+  assert.match(first.messages[1].markdown, /https:\/\/research\.example\/source/);
+  assert.match(first.messages[1].markdown, /\{\{idea-media:media-1-0\}\}/);
+  assert.doesNotMatch(first.messages.map(message => message.markdown).join('\n'), /Copy|Good response|Open result|Actions|PRIVATE_DRAFT|PRIVATE_NAV/);
+  assert.ok(first.sections[0].collapseNodes.some(node => node.contains(doc.querySelector('.bg-user-message'))));
+  assert.equal(first.sections.flatMap(section => section.collapseNodes).some(node => node.matches('form,nav') || node.closest('form,nav')), false);
+  for (const node of first.sections[0].collapseNodes) node.classList.add('idea-capture-section-collapsed');
+  const rediscovered = extractConversation(doc, dom.window.location.href, { includeNodes: true });
+  assert.deepEqual(rediscovered.messages.map(message => message.role), ['User', 'Message', 'User', 'Message']);
+  assert.deepEqual(rediscovered.sections.map(section => section.messageCount), [2, 2]);
+  assert.match(rediscovered.messages[1].markdown, /Source 1/);
+  assert.equal(rediscovered.media[0].url, 'https://cdn.example/field.png');
   dom.window.close();
 });
 test('ChatGPT excludes sidebar landmarks from root scoring and message candidates', () => {

@@ -130,13 +130,18 @@ try {
       .relative{position:relative;width:100%;min-width:0}.flex{display:flex}.flex-col{flex-direction:column}.items-end{align-items:flex-end}.gap-1{gap:4px}
       .bg-user-message{width:max-content;max-width:min(580px,100%);padding:12px 16px;border-radius:16px;background:#e7eee9}.whitespace-pre-wrap{white-space:pre-wrap}
       #thread p{margin:0 0 12px}#thread table{border-collapse:collapse;margin:10px 0}#thread td{padding:7px 10px;border:1px solid #d9dfda}
-      .gallery{display:flex;gap:10px;margin:12px 0}.gallery figure{width:150px;height:96px;margin:0;padding:8px;border-radius:8px;background:#e9eee9}.gallery img{width:100%;height:100%;object-fit:cover}
+      .reply-shell{margin:18px 0 24px;padding:16px 18px 20px;border:1px solid #e1e6e2;border-radius:14px;background:#fff;box-shadow:0 3px 12px #17271d12}
+      .gallery-shell{margin:18px 0 12px;padding:14px;border:1px solid #dce3de;border-radius:12px;background:#f3f6f3}.gallery{display:flex;gap:10px;margin:0}.gallery figure{flex:none;width:150px;height:96px;margin:0;padding:8px;border-radius:8px;background:#e9eee9;box-shadow:0 2px 8px #18251b20}.gallery img{width:100%;height:100%;object-fit:cover}
+      .reference-row,.action-row{display:flex;align-items:center;gap:8px;margin-top:12px}.reference-chip{display:inline-flex;padding:4px 9px;border:1px solid #d9e1dc;border-radius:999px;background:#fff;color:#51645a;font-size:12px}.action-row{justify-content:flex-end;margin-top:18px;padding-top:12px;border-top:1px solid #e8ece9}.action-row button{border:0;border-radius:8px;background:#f2f4f2;padding:7px 10px;color:#526057;font:12px system-ui,sans-serif}
       .composer{height:88px;flex:none;padding:14px 20px 18px;background:#fff;border-top:1px solid #dfe4e0}.composer [contenteditable=true]{width:min(700px,100%);height:52px;margin:auto;padding:12px 16px;border:1px solid #ccd4ce;border-radius:16px;background:white}
       </style><nav><a href="#workspace">Workspace</a><a href="#help">Help</a></nav><div class="frame"><div class="toolbar">Research planning</div><main id="thread">
         <div><div class="relative w-full min-w-0 text-size-chat leading-relaxed"><div class="flex flex-col items-end gap-1"><div class="bg-user-message text-user-message min-w-0 max-w-(--user-chat-width) overflow-hidden break-words"><div><div class="whitespace-pre-wrap">Compare the community interview and survey findings.</div></div></div></div></div></div>
-        <div><div class="relative w-full min-w-0"><p>Interviews explain local context; surveys show how common each pattern is.</p><table><tbody><tr><td>Interviews</td><td>Context and motivations</td></tr><tr><td>Survey</td><td>Pattern frequency</td></tr></tbody></table><div class="gallery" id="reported-gallery"><figure><img id="reported-evidence" alt="Study evidence"></figure></div></div></div>
+        <div><div class="relative w-full min-w-0"><div class="reply-shell"><p>Interviews explain local context; surveys show how common each pattern is.</p><table><tbody><tr><td>Interviews</td><td>Context and motivations</td></tr><tr><td>Survey</td><td>Pattern frequency</td></tr></tbody></table><div class="gallery-shell"><div class="gallery" id="reported-gallery"><figure class="gallery-card"><img id="reported-evidence" alt="Study evidence"></figure><figure class="gallery-card" aria-hidden="true">Field notes</figure><figure class="gallery-card" aria-hidden="true">Survey map</figure></div></div><div class="reference-row"><span class="reference-chip" aria-hidden="true">Sources</span><span class="reference-chip" aria-hidden="true">+1</span></div><div class="action-row"><button type="button" aria-label="Copy response">Copy</button><button type="button" aria-label="More response actions">•••</button></div></div></div></div>
+        <div id="reported-orphan-gallery" class="gallery-shell" aria-hidden="true"><div class="gallery"><figure class="gallery-card">Empty image card</figure><figure class="gallery-card">Empty image card</figure></div></div>
+        <div id="reported-orphan-references" class="reference-row" aria-hidden="true"><span class="reference-chip">Sources</span><span class="reference-chip">+1</span></div>
+        <div id="reported-orphan-actions" class="action-row" aria-hidden="true"><button type="button">Copy</button><button type="button">•••</button></div>
         <div><div class="relative w-full min-w-0 text-size-chat leading-relaxed"><div class="flex flex-col items-end gap-1"><div class="bg-user-message text-user-message min-w-0 max-w-(--user-chat-width) overflow-hidden break-words"><div><div class="whitespace-pre-wrap">What should the pilot test first?</div></div></div></div></div></div>
-        <div><div class="relative w-full min-w-0"><p>Test the interview guide with three participants, then revise the survey.</p><div class="gallery"><figure>Interview guide</figure><figure>Survey draft</figure></div></div></div>
+        <div><div class="relative w-full min-w-0"><div class="reply-shell"><p>Test the interview guide with three participants, then revise the survey.</p><div class="gallery-shell"><div class="gallery"><figure class="gallery-card">Interview guide</figure><figure class="gallery-card">Survey draft</figure></div></div><div class="reference-row"><span class="reference-chip" aria-hidden="true">Method notes</span></div><div class="action-row"><button type="button" aria-label="Copy response">Copy</button><button type="button" aria-label="More response actions">•••</button></div></div></div></div>
       </main><form class="composer"><div contenteditable="true" aria-label="Message composer">Ask anything</div></form></div>` });
     if (path.endsWith('/c/reported-single-layout')) return route.fulfill({ status: 200, contentType: 'text/html', body: `<!doctype html><title>Conversation · ChatGPT</title><main id="thread">
       <div><div class="relative w-full min-w-0 text-size-chat leading-relaxed"><div class="flex flex-col items-end gap-1"><div class="bg-user-message text-user-message min-w-0 max-w-(--user-chat-width) overflow-hidden break-words"><div><div class="whitespace-pre-wrap">What did the participants say?</div></div></div></div></div></div>
@@ -293,6 +298,7 @@ try {
   assert.doesNotMatch(reportedCapture.conversation.messages[3].markdown, /Compare the community interview|What should the pilot test first/);
   assert.equal(reportedCapture.conversation.media.length, 1, 'the image in the inferred reply is captured');
   assert.equal(reportedCapture.conversation.media[0].messageRole, 'Message');
+  assert.doesNotMatch(reportedCapture.conversation.messages[1].markdown, /Sources|\+1|Copy|More response actions|•••/, 'reference and action controls stay out of captured reply content');
   const refreshedReportedCapture = await send({ type: 'capture', tabId: reportedTabId });
   assert.equal(refreshedReportedCapture.ok, true, refreshedReportedCapture.error);
   assert.equal(refreshedReportedCapture.conversation.messages.length, 4, 'refreshing capture does not duplicate inferred prompts');
@@ -303,10 +309,23 @@ try {
   await reportedLayout.screenshot({ path: 'artifacts/reported-layout-before-collapse.png', fullPage: true });
   const firstReplyBounds = await reportedFirstReply.boundingBox();
   assert.ok(firstReplyBounds);
+  const reportedHeightBeforeCollapse = await reportedLayout.locator('#thread').evaluate(node => node.scrollHeight);
   await reportedLayout.mouse.click(250, firstReplyBounds.y + firstReplyBounds.height / 2);
   await reportedLayout.waitForFunction(() => document.querySelectorAll('.idea-capture-section-collapsed').length >= 2);
+  const reportedHeightAfterFirstCollapse = await reportedLayout.locator('#thread').evaluate(node => node.scrollHeight);
   assert.equal(await reportedLayout.locator('.bg-user-message').first().isVisible(), false, 'a left margin collapse hides the prompt');
   assert.equal(await reportedLayout.locator('#reported-gallery img').isVisible(), false, 'the same left margin collapse hides reply media');
+  assert.equal(await reportedLayout.locator('.reply-shell').first().isVisible(), false, 'collapse removes the complete nested response shell');
+  assert.equal(await reportedLayout.locator('.gallery-shell').first().isVisible(), false, 'collapse removes the padded gallery shell');
+  assert.equal(await reportedLayout.locator('.gallery-card').first().isVisible(), false, 'collapse removes the otherwise empty image card shells');
+  assert.equal(await reportedLayout.locator('.reference-chip').first().isVisible(), false, 'collapse removes citation chips with the reply');
+  assert.equal(await reportedLayout.locator('.action-row').first().isVisible(), false, 'collapse removes the reply action row');
+  assert.equal(await reportedLayout.locator('#reported-orphan-gallery').isVisible(), false, 'collapse removes an empty gallery shell beside the reply node');
+  assert.equal(await reportedLayout.locator('#reported-orphan-references').isVisible(), false, 'collapse removes reference chips beside the reply node');
+  assert.equal(await reportedLayout.locator('#reported-orphan-actions').isVisible(), false, 'collapse removes action controls beside the reply node');
+  assert.equal(await reportedLayout.locator('.bg-user-message').nth(1).isVisible(), true, 'the adjacent prompt remains visible');
+  assert.equal(await reportedSecondReply.isVisible(), true, 'the adjacent reply remains visible');
+  assert.ok(reportedHeightBeforeCollapse - reportedHeightAfterFirstCollapse > 180, `collapse removes reply spacing and gallery height (${reportedHeightBeforeCollapse} -> ${reportedHeightAfterFirstCollapse})`);
   const secondReplyBounds = await reportedSecondReply.boundingBox();
   assert.ok(secondReplyBounds);
   await reportedLayout.mouse.click(1380, secondReplyBounds.y + secondReplyBounds.height / 2);
@@ -319,6 +338,19 @@ try {
   assert.match(collapsedReportedExport.conversation.messages[1].markdown, /local context/);
   assert.match(collapsedReportedExport.conversation.messages[3].markdown, /three participants/);
   assert.equal(collapsedReportedExport.conversation.media.length, 1, 'collapsed reply media remains exportable');
+  const reportedHeaders = reportedLayout.locator('.idea-capture-section-header');
+  await reportedHeaders.nth(0).locator('button[data-idea-section-id]').click();
+  assert.equal(await reportedLayout.locator('.reply-shell').first().isVisible(), true, 'expanding restores the complete nested reply shell');
+  assert.equal(await reportedLayout.locator('.gallery-shell').first().isVisible(), true, 'expanding restores gallery padding and card spacing');
+  assert.equal(await reportedLayout.locator('.gallery-card').first().isVisible(), true, 'expanding restores image cards');
+  assert.equal(await reportedLayout.locator('.reference-chip').first().isVisible(), true, 'expanding restores reference chips');
+  assert.equal(await reportedLayout.locator('.action-row').first().isVisible(), true, 'expanding restores the action row');
+  assert.equal(await reportedLayout.locator('#reported-orphan-gallery').isVisible(), true, 'expanding restores the sibling empty gallery shell');
+  assert.equal(await reportedLayout.locator('#reported-orphan-references').isVisible(), true, 'expanding restores sibling reference chips');
+  assert.equal(await reportedLayout.locator('#reported-orphan-actions').isVisible(), true, 'expanding restores sibling action controls');
+  await reportedHeaders.nth(1).locator('button[data-idea-section-id]').click();
+  assert.equal(await reportedLayout.locator('.idea-capture-section-collapsed').count(), 0, 'the second section can also be restored after export');
+  assert.ok(await reportedLayout.locator('#thread').evaluate(node => node.scrollHeight) > reportedHeightAfterFirstCollapse + 180, 'expanding restores the removed vertical space');
   await reportedLayout.locator('#idea-capture-panel [data-action="toggle-panel"]').click();
   const reportedChecks = reportedLayout.locator('#idea-capture-panel input[data-section-id]');
   assert.equal(await reportedChecks.count(), 2);
@@ -384,7 +416,8 @@ try {
   assert.equal(collapsedProjectCapture.ok, true, collapsedProjectCapture.error);
   assert.equal(collapsedProjectCapture.conversation.messages.length, 4, 'collapsed role-free article content remains exportable');
   assert.match(collapsedProjectCapture.conversation.messages[1].markdown, /surveys give breadth/);
-  assert.equal(await project.evaluate(() => document.querySelector('[data-idea-capture-owned="host"]')?.shadowRoot?.querySelector('#idea-capture-margin-controls:not([hidden])') !== null), true);
+  assert.equal(await project.evaluate(() => document.querySelector('[data-idea-capture-owned="host"]')?.shadowRoot?.querySelector('#idea-capture-margin-controls')?.hidden), true, 'the compact side action hides while its active section is collapsed');
+  assert.match(await project.locator('.idea-capture-section-header').first().locator('button[data-idea-section-id]').getAttribute('aria-label'), /Expand section:/, 'the inline header provides the restore action');
 
   const mediaMarkdown = await send({ type: 'export', destination: 'kb', format: 'md', conversation: projectCapture.conversation });
   assert.equal(mediaMarkdown.ok, true, mediaMarkdown.error);
@@ -463,34 +496,40 @@ try {
     return { top: nodes[0].getBoundingClientRect().top + scrollY, bottom: nodes.at(-1).getBoundingClientRect().bottom + scrollY };
   });
   await target.evaluate(({ top, bottom }) => window.scrollTo(0, Math.max(0, (top + bottom) / 2 - innerHeight / 2)), firstSectionBounds);
-  await target.waitForFunction(() => document.querySelector('#idea-capture-controls')?.shadowRoot?.querySelector('.idea-capture-margin-label')?.textContent.includes('first research approaches'));
+  await target.waitForFunction(() => document.querySelector('#idea-capture-controls')?.shadowRoot?.querySelector('#idea-capture-margin-controls button[aria-label]')?.getAttribute('aria-label').includes('first research approaches'));
   await rail.waitFor({ state: 'visible' });
-  assert.match(await rail.locator('.idea-capture-margin-label').textContent(), /first research approaches/i);
+  const railButton = rail.locator('button[data-idea-section-id]');
+  assert.equal(await railButton.count(), 1, 'the side rail contains one compact section action');
+  assert.match(await railButton.getAttribute('aria-label'), /Collapse section: .*first research approaches/i);
+  assert.equal(await railButton.getAttribute('aria-expanded'), 'true');
+  const railButtonBounds = await railButton.boundingBox();
+  assert.ok(railButtonBounds && railButtonBounds.width <= 40 && railButtonBounds.height <= 40, `the side action stays compact: ${JSON.stringify(railButtonBounds)}`);
   const railStyle = await rail.evaluate(node => ({
     display: getComputedStyle(node).display,
+    buttonDisplay: getComputedStyle(node.querySelector('button')).display,
     position: getComputedStyle(node).position,
     rail: node.getBoundingClientRect().toJSON(),
     content: document.querySelector('main.chat [data-message-author-role]').getBoundingClientRect().toJSON(),
   }));
-  assert.equal(railStyle.display, 'grid', 'rail styles must survive the fixture content security policy');
+  assert.equal(railStyle.display, 'block', 'the compact control container styles must survive the fixture content security policy');
+  assert.equal(railStyle.buttonDisplay, 'grid', 'the compact button remains centered inside its fixed hit area');
   assert.equal(railStyle.position, 'fixed');
   assert.ok(railStyle.rail.right <= railStyle.content.left || railStyle.rail.left >= railStyle.content.right, `rail sits in a blank side margin: ${JSON.stringify(railStyle)}`);
   await target.screenshot({ path: 'artifacts/sections-middle-expanded.png' });
   const heightBeforeCollapse = await target.evaluate(() => document.documentElement.scrollHeight);
-  const railInput = rail.locator('input[data-idea-section-id]');
-  const railButton = rail.locator('button[data-idea-section-id]');
   await railButton.click();
   await target.waitForFunction(() => getComputedStyle(document.querySelector('.idea-capture-section-collapsed')).display === 'none');
   await target.screenshot({ path: 'artifacts/sections-middle-collapsed.png' });
-  assert.equal(await railButton.textContent(), 'Expand', 'the rail stays visible with an action to restore the collapsed turn');
-  const pinnedSectionId = await railInput.getAttribute('data-idea-section-id');
+  assert.equal(await rail.isHidden(), true, 'the compact side action hides while its section is collapsed');
+  const inlineExpand = headers.first().locator('button[data-idea-section-id]');
+  assert.equal(await inlineExpand.getAttribute('aria-expanded'), 'false');
+  assert.match(await inlineExpand.getAttribute('aria-label'), /Expand section: .*first research approaches/i, 'the inline header offers the restore action');
   await target.setViewportSize({ width: 1160, height: 850 });
-  await target.waitForFunction(id => {
-    const rail = document.querySelector('#idea-capture-controls')?.shadowRoot?.querySelector('#idea-capture-margin-controls');
-    const rect = rail?.getBoundingClientRect();
-    return rail && !rail.hidden && rail.querySelector('button[data-idea-section-id]')?.dataset.ideaSectionId === id
-      && rect.left >= 0 && rect.right <= innerWidth && rect.top >= 0 && rect.bottom <= innerHeight;
-  }, pinnedSectionId);
+  await target.waitForFunction(() => {
+    const button = document.querySelector('#idea-capture-controls')?.shadowRoot?.querySelector('#idea-capture-margin-controls button');
+    const rect = button?.getBoundingClientRect();
+    return button && rect.left >= 0 && rect.right <= innerWidth && rect.top >= 0 && rect.bottom <= innerHeight;
+  });
   await target.setViewportSize({ width: 1280, height: 900 });
   assert.equal(await target.locator('[data-message-author-role]').nth(0).isVisible(), false, 'the prompt hides with its replies');
   assert.equal(await target.locator('[data-message-author-role]').nth(1).isVisible(), false, 'the full nested assistant response hides');
@@ -501,20 +540,21 @@ try {
   const collapsedExport = await send({ type: 'capture', tabId, mode: 'export' });
   assert.equal(collapsedExport.ok, true, collapsedExport.error);
   assert.equal(collapsedExport.conversation.messages.length, 7, 'a selected collapsed turn still exports');
-  await railInput.uncheck();
+  const inlineSectionCheck = headers.first().locator('input[data-idea-section-id]');
+  await inlineSectionCheck.uncheck();
   assert.equal(await target.locator('.idea-capture-section-collapsed').count(), 3, 'changing selection leaves collapse state alone');
   const excludedTurn = await send({ type: 'capture', tabId, mode: 'export' });
   assert.equal(excludedTurn.ok, true, excludedTurn.error);
   assert.equal(excludedTurn.conversation.messages.length, 4);
   assert.equal(excludedTurn.conversation.messages.some(message => message.markdown.includes('first research approaches')), false);
-  await railInput.check();
+  await inlineSectionCheck.check();
   assert.equal(await target.locator('.idea-capture-section-collapsed').count(), 3, 'reselecting a collapsed turn does not expand it');
-  await railButton.click();
+  await inlineExpand.click();
   await target.waitForFunction(() => !document.querySelector('.idea-capture-section-collapsed'));
   assert.ok(await target.evaluate(() => document.documentElement.scrollHeight) > heightAfterCollapse + 1000, 'the rail restores the hidden turn content');
   await target.evaluate(() => document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })));
   await headers.nth(1).evaluate(node => node.scrollIntoView({ block: 'center' }));
-  await target.waitForFunction(() => document.querySelector('#idea-capture-controls')?.shadowRoot?.querySelector('.idea-capture-margin-label')?.textContent.includes('project timeline'));
+  await target.waitForFunction(() => document.querySelector('#idea-capture-controls')?.shadowRoot?.querySelector('#idea-capture-margin-controls button[aria-label]')?.getAttribute('aria-label').includes('project timeline'));
   await panelToggle.click();
   assert.equal(await panel.locator('.panel-body').isVisible(), true);
 

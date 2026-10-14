@@ -141,6 +141,7 @@ test('unmarked replies collapse with their prompt and direct media keeps margin 
   const header = document.querySelector('.idea-capture-section-header');
   assert.ok(header, 'the inferred prompt and unmarked reply form a section');
   const prompt = document.querySelector('.bg-user-message');
+  const promptBranch = document.querySelector('.prompt-branch');
   const reply = document.querySelector('.reply-branch');
   const paragraph = reply.querySelector('p');
   const image = reply.querySelector('img');
@@ -150,13 +151,19 @@ test('unmarked replies collapse with their prompt and direct media keeps margin 
   setRect(image, { left: 700, right: 1100, top: 230, bottom: 300 });
   controls.refresh();
 
-  header.querySelector('button').click();
-  assert.ok(prompt.classList.contains('idea-capture-section-collapsed'));
-  assert.ok(reply.classList.contains('idea-capture-section-collapsed'), 'the inferred reply branch collapses with its prompt');
   const rail = shadow.querySelector('#idea-capture-margin-controls');
   assert.equal(rail.hidden, false);
+  const railButton = rail.querySelector('button');
+  assert.equal(railButton.getAttribute('aria-label'), 'Collapse section: Question');
+  assert.equal(railButton.textContent, '›', 'the left-side rail uses a compact inward chevron');
   assert.equal(rail.style.left, 'auto');
-  assert.equal(rail.style.right, '1008px', 'the cached section bounds include media extending beyond the text');
+  assert.equal(rail.style.right, '1004px', 'the cached section bounds include media extending beyond the text');
+  assert.match(rail.querySelector('button').getAttribute('aria-label'), /Collapse section/);
+  railButton.click();
+  assert.ok(promptBranch.classList.contains('idea-capture-section-collapsed'));
+  assert.ok(reply.classList.contains('idea-capture-section-collapsed'), 'the inferred reply branch collapses with its prompt');
+  assert.equal(rail.hidden, true, 'the side button hides after collapse while the inline header offers Expand');
+  assert.equal(header.querySelector('button').textContent, 'Expand');
 });
 
 test('media in a section is retained when its shared article also contains another section', t => {
@@ -181,10 +188,11 @@ test('media in a section is retained when its shared article also contains anoth
   controls.refresh();
 
   const secondHeader = [...document.querySelectorAll('.idea-capture-section-header')][1];
-  secondHeader.querySelector('button').click();
   const rail = document.querySelector('[data-idea-capture-owned="host"]').shadowRoot.querySelector('#idea-capture-margin-controls');
   assert.equal(rail.hidden, false);
-  assert.equal(rail.style.right, '908px', 'the rail is positioned against the gallery-expanded section bounds');
+  assert.equal(rail.style.right, '904px', 'the rail is positioned against the gallery-expanded section bounds');
+  secondHeader.querySelector('button').click();
+  assert.equal(rail.hidden, true, 'collapsed sections keep their inline Expand button and hide the side chevron');
 });
 
 test('a grouped prompt and unmarked reply keep the section header visible when collapsed', t => {
