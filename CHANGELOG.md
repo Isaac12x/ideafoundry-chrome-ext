@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.5 — 2026-10-14
+
+- Consolidate Markdown/PDF selection, download, knowledge-base delivery, preview, settings, and diagnostics in the on-page capture widget.
+- Replace the toolbar popup with direct access to the widget.
+- Give the widget more room while keeping controls usable on narrow and short windows.
+
 ## 0.3.4 — 2026-10-14
 
 - Unify conversation controls, popup, and settings with warm paper colors, forest accents, and refined typography.

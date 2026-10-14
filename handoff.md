@@ -150,3 +150,15 @@ Root inspected the corrected desktop controls, short-window panel, popup, and se
 Version is 0.3.4. Reload the unpacked extension from dist/ and refresh existing conversation tabs. No Git remote is configured, so a PR cannot be published or monitored.
 
 Final root verification: `npm run check` passed (61/61 tests and production build), `npm run test:browser` passed, and `git diff --check` passed. The build output is ready in dist/; visual artifacts remain ignored in artifacts/.
+
+## 2026-10-14 — 0.3.5 unified capture widget
+
+The on-page widget now owns format selection, Markdown preview, download, knowledge-base delivery, settings access, media authorization, and diagnostics. The toolbar opens this widget; popup sources and build entries have been removed. The expanded panel is wider and remains scrollable in narrow or short windows. Selection is reread on export and reflected in the preview. Empty detection retains settings and diagnostics.
+
+Luna agents implemented source changes and browser coverage, followed by an independent Luna review and a root review. Root identified that flex shrinking could leave the section list unusably short at 360x480; a fresh Luna agent changed the body to normal scrolling flow and reserved usable list height. Root inspected the corrected screenshot showing section controls and save actions reachable in the short window, as well as desktop and narrow export screenshots.
+
+Automatic content-script widgets capture locally, so exporting does not require clicking the toolbar first to grant activeTab. The service worker handles privileged exports and restricts legacy settings/queue/export messages to extension pages. Cross-site media permission is requested explicitly through the widget's Allow media access action. Existing page-owned media limits, selection, collapse, and remote capture behavior remain in place.
+
+Root unit validation passed 61/61 and git diff --check passed. Production build is in dist/. Browser validation uses isolated fixtures, not the user's authenticated live conversations. Reload the unpacked extension and refresh conversation tabs to use 0.3.5. No Git remote is configured, so PR publication and comment monitoring are unavailable.
+
+Final browser validation passed (`npm run test:browser`): selected Markdown KB upload, PDF download action, diagnostics, settings, existing PDF/media/remote workflows, and 360x480 section selection plus reachable send action. A separate profile without explicit ChatGPT host permissions verified automatic widget capture/download. The real media permission API accepted the click gesture but left its native prompt pending in headless Chromium; the test records this and substitutes denial after 2.5 seconds. Native permission acceptance/denial itself was not automated.

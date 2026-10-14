@@ -51,6 +51,7 @@ const app = createServer(async (req, res) => {
 });
 const queue = createQueue({ token, storePath: join(temp, 'queue.json') });
 let context;
+let autoContext;
 try {
   await new Promise(r => app.listen(0, '127.0.0.1', r));
   await new Promise(r => queue.listen(0, '127.0.0.1', r));
@@ -58,6 +59,7 @@ try {
   const queueUrl = `http://127.0.0.1:${queue.address().port}`;
   const extension = join(temp, 'extension'); await cp('dist', extension, { recursive: true });
   const manifest = JSON.parse(await readFile(join(extension, 'manifest.json')));
+  assert.equal(manifest.action?.default_popup, undefined, 'the toolbar action no longer opens a popup');
   // Fixture-only access avoids OS permission dialogs in CI. Production keeps optional permissions.
   manifest.host_permissions = ['http://127.0.0.1/*', 'https://chatgpt.com/*', 'https://claude.ai/*'];
   manifest.content_scripts[0].matches.push('http://127.0.0.1/*');
@@ -116,7 +118,21 @@ try {
   assert.equal(await ui.evaluate(() => document.activeElement.id), 'appUrl', 'keyboard focus reaches the first settings field');
   const settingsFocus = await ui.locator('#appUrl').evaluate(node => getComputedStyle(node).outlineStyle);
   assert.notEqual(settingsFocus, 'none', 'the focused settings field has a visible outline');
-  const send = message => ui.evaluate(message => chrome.runtime.sendMessage(message), message);
+  const send = async message => {
+    if (message.type === 'capture') {
+      return worker.evaluate(async ({ tabId, mode }) => {
+        try {
+          await chrome.scripting.executeScript({ target: { tabId }, files: ['content.js'] });
+          const [{ result }] = await chrome.scripting.executeScript({ target: { tabId }, func: captureMode => {
+            try { return { ok: true, conversation: globalThis.__ideaCaptureController.capture(captureMode || 'preview') }; }
+            catch (error) { return { ok: false, error: error.message }; }
+          }, args: [mode || 'preview'] });
+          return result;
+        } catch (error) { return { ok: false, error: error.message }; }
+      }, { tabId: message.tabId, mode: message.mode });
+    }
+    return ui.evaluate(message => chrome.runtime.sendMessage(message), message);
+  };
 
   // Exercise ChatGPT's real origin and project routes with the current role-free
   // turn-article structure. The empty project page must still expose the closed
@@ -258,7 +274,7 @@ try {
   await actualLayout.goto('https://chatgpt.com/g/g-p-demo/c/actual-layout');
   await actualLayout.locator('.idea-capture-section-header').first().waitFor();
   assert.equal(await actualLayout.locator('.idea-capture-section-header').count(), 3, 'class-based provider markup creates one section for each prompt');
-  assert.equal(await actualLayout.locator('[data-message-author-role], [data-role], [data-turn-role], [data-testid], [role], article').count(), 0, 'the provider fixture contains no role, test ID, or article hints');
+  assert.equal(await actualLayout.locator('#thread [data-message-author-role], #thread [data-role], #thread [data-turn-role], #thread [data-testid], #thread [role], #thread article').count(), 0, 'the provider fixture contains no role, test ID, or article hints');
   const actualTabId = await worker.evaluate(async () => (await chrome.tabs.query({ url: 'https://chatgpt.com/g/g-p-demo/c/actual-layout' }))[0].id);
   const actualCapture = await send({ type: 'capture', tabId: actualTabId });
   assert.equal(actualCapture.ok, true, actualCapture.error);
@@ -326,7 +342,7 @@ try {
   await reportedLayout.locator('.idea-capture-section-header').first().waitFor();
   assert.equal(await reportedLayout.locator('.idea-capture-section-header').count(), 2, 'the reported user bubble layout creates two prompt sections');
   assert.equal(await reportedLayout.locator('.bg-user-message').count(), 2);
-  assert.equal(await reportedLayout.locator('[data-message-author-role], [data-role], [data-turn-role], [data-testid], [role], article, .markdown, .prose, .assistant-turn').count(), 0, 'the reported fixture uses no role, test ID, article, or fabricated assistant markers');
+  assert.equal(await reportedLayout.locator('#thread [data-message-author-role], #thread [data-role], #thread [data-turn-role], #thread [data-testid], #thread [role], #thread article, #thread .markdown, #thread .prose, #thread .assistant-turn').count(), 0, 'the reported fixture uses no role, test ID, article, or fabricated assistant markers');
   await reportedLayout.evaluate(() => {
     const canvas = document.createElement('canvas'); canvas.width = 96; canvas.height = 64;
     const context = canvas.getContext('2d'); context.fillStyle = '#e8f0eb'; context.fillRect(0, 0, 96, 64); context.fillStyle = '#247a52'; context.fillRect(8, 8, 80, 48);
@@ -598,6 +614,18 @@ try {
   assert.ok(stressShort.top >= 0 && stressShort.bottom <= 480, `long-label panel fits the 360x480 viewport: ${JSON.stringify(stressShort)}`);
   assert.ok(stressShort.documentWidth <= 360, `short viewport has no horizontal overflow: ${JSON.stringify(stressShort)}`);
   assert.ok(stressShort.listScrollHeight > stressShort.listHeight, `section rows remain internally scrollable in the short viewport: ${JSON.stringify(stressShort)}`);
+  assert.ok(stressShort.listHeight >= 80, `the short-viewport list keeps enough height to expose multiple rows: ${JSON.stringify(stressShort)}`);
+  const shortList = stressPanel.locator('.list');
+  const shortFirstCheckbox = shortList.locator('input[data-section-id]').first();
+  await shortFirstCheckbox.uncheck();
+  assert.equal(await shortFirstCheckbox.isChecked(), false, 'a section checkbox remains clickable at 360x480');
+  await shortFirstCheckbox.check();
+  const lastShortRow = shortList.locator('.row').last();
+  await lastShortRow.scrollIntoViewIfNeeded();
+  assert.ok(await lastShortRow.isVisible(), 'the last section row can scroll into view in the constrained list');
+  const shortSend = stressPanel.locator('[data-action="send-kb"]');
+  await shortSend.scrollIntoViewIfNeeded();
+  assert.ok(await shortSend.isVisible(), 'the send action can scroll into view below the constrained section list');
   await stress.screenshot({ path: 'artifacts/widget-long-labels-360x480.png' });
 
   // The side rail tracks the turn under the viewport center and collapses the complete group in place.
@@ -786,41 +814,116 @@ try {
   const pdf = await ui.evaluate(async url => Array.from(new Uint8Array(await (await fetch(url)).arrayBuffer())), file.url);
   assert.equal(Buffer.from(pdf).subarray(0, 5).toString(), '%PDF-');
   await writeFile('artifacts/conversation.pdf', Buffer.from(pdf));
-  // Verify the popup recaptures page selection immediately before export.
+  // Exercise export from the on-page widget. The latest page selection must be
+  // read when the user exports, so changing it after opening the widget filters
+  // the upload without a separate popup preview.
   await target.evaluate(() => {
-    document.querySelector('main').innerHTML = '<div data-message-author-role="user">Popup should keep this turn.</div><div data-message-author-role="assistant">This selected answer stays.</div><div data-message-author-role="user">Popup preview will later exclude this turn.</div><div data-message-author-role="assistant">This answer should not be uploaded.</div>';
+    document.querySelector('main').innerHTML = '<div data-message-author-role="user">Widget should keep this turn.</div><div data-message-author-role="assistant">This selected answer stays.</div><div data-message-author-role="user">Widget should exclude this turn.</div><div data-message-author-role="assistant">This answer should not be uploaded.</div>';
   });
   await target.waitForFunction(() => document.querySelectorAll('.idea-capture-section-header').length === 2 && [...document.querySelectorAll('.idea-capture-section-header input')].every(input => input.checked));
-  const popup = await context.newPage(); await popup.goto(`chrome-extension://${id}/popup.html`);
-  await worker.evaluate(async tabId => chrome.tabs.update(tabId, { active: true }), tabId);
-  await popup.reload();
-  await popup.locator('#capture').waitFor({ state: 'visible' });
-  assert.match(await popup.locator('#count').textContent(), /2 of 2 sections/);
-  assert.match(await popup.locator('#preview').textContent(), /Popup preview will later exclude this turn/);
-  await popup.setViewportSize({ width: 1280, height: 900 });
-  const popupDesktop = await popup.evaluate(() => ({ viewportWidth: innerWidth, documentWidth: document.documentElement.scrollWidth, main: document.querySelector('main').getBoundingClientRect().toJSON() }));
-  assert.ok(popupDesktop.documentWidth <= 1280, `popup has no horizontal overflow at desktop width: ${JSON.stringify(popupDesktop)}`);
-  assert.ok(popupDesktop.main.left >= 0 && popupDesktop.main.right <= 1280, `popup content fits desktop width: ${JSON.stringify(popupDesktop)}`);
-  await popup.screenshot({ path: 'artifacts/popup-desktop.png', fullPage: true });
+  const widget = target.locator('#idea-capture-panel');
+  const widgetToggle = widget.locator('[data-action="toggle-panel"]');
+  if (await widgetToggle.getAttribute('aria-expanded') !== 'true') await widgetToggle.click();
+  await widget.locator('.panel-body').waitFor({ state: 'visible' });
+  assert.equal(await widget.locator('[name="format"]:checked').inputValue(), 'md', 'the widget defaults to Markdown');
+  assert.match(await widget.locator('[data-summary]').textContent(), /2 of 2 sections/, 'widget metadata reports both detected sections');
+  assert.equal(await widget.locator('input[data-section-id]').count(), 2, 'the widget exposes a selection control for each detected turn');
   await target.locator('.idea-capture-section-header input').nth(1).uncheck();
-  await popup.locator('#send').click();
-  await popup.getByText(/Saved to KB:/).waitFor();
-  const popupUpload = uploads.at(-1).toString();
-  assert.match(popupUpload, /Popup should keep this turn/);
-  assert.match(popupUpload, /This selected answer stays/);
-  assert.doesNotMatch(popupUpload, /Popup preview will later exclude this turn|This answer should not be uploaded/);
+  await widget.locator('input[data-section-id]').nth(1).waitFor();
+  await widget.locator('input[data-section-id]').nth(1).uncheck();
+  await widget.locator('[name="format"][value="md"]').check();
+  const uploadCountBeforeWidgetSend = uploads.length;
+  await widget.locator('[data-action="send-kb"]').click();
+  await target.waitForFunction(() => /Saved to knowledge base:/i.test(document.querySelector('#idea-capture-controls')?.shadowRoot?.querySelector('[data-capture-status]')?.textContent || ''), null, { timeout: 10000 });
+  assert.equal(uploads.length, uploadCountBeforeWidgetSend + 1, 'the widget sends one fresh capture to the KB');
+  const widgetUpload = uploads.at(-1).toString();
+  assert.match(widgetUpload, /Widget should keep this turn/);
+  assert.match(widgetUpload, /This selected answer stays/);
+  assert.doesNotMatch(widgetUpload, /Widget should exclude this turn|This answer should not be uploaded/);
+
+  await widget.locator('[name="format"][value="pdf"]').check();
+  await widget.locator('[data-action="download"]').click();
+  await target.waitForFunction(() => /Download started in Chrome\./i.test(document.querySelector('#idea-capture-controls')?.shadowRoot?.querySelector('[data-capture-status]')?.textContent || ''), null, { timeout: 10000 });
+
+  await widget.locator('[data-action="copy-diagnostics"]').first().click();
+  await target.waitForFunction(() => {
+    const shadow = document.querySelector('#idea-capture-controls')?.shadowRoot;
+    return !!shadow?.querySelector('[data-diagnostics-status]')?.textContent;
+  });
+  const diagnosticsStatus = await widget.locator('[data-diagnostics-status]').textContent();
+  assert.match(diagnosticsStatus, /copied|Clipboard access failed/i, 'diagnostics provide copy feedback or an accessible manual fallback');
+  const fallback = widget.locator('[data-diagnostics-fallback]');
+  if (await fallback.count()) assert.ok(await fallback.getAttribute('aria-label'), 'manual diagnostics copy has an accessible label');
+
+  await target.setViewportSize({ width: 1280, height: 900 });
+  const widgetDesktop = await widget.evaluate(node => ({ viewportWidth: innerWidth, documentWidth: document.documentElement.scrollWidth, rect: node.getBoundingClientRect().toJSON() }));
+  assert.ok(widgetDesktop.documentWidth <= 1280, `on-page widget has no horizontal overflow at desktop width: ${JSON.stringify(widgetDesktop)}`);
+  await target.screenshot({ path: 'artifacts/widget-export-desktop.png', fullPage: true });
   for (const width of [360, 390]) {
-    await popup.setViewportSize({ width, height: 700 });
-    const popupBounds = await popup.evaluate(() => ({ viewportWidth: innerWidth, documentWidth: document.documentElement.scrollWidth, main: document.querySelector('main').getBoundingClientRect().toJSON() }));
-    assert.ok(popupBounds.documentWidth <= width, `popup has no horizontal overflow at ${width}px: ${JSON.stringify(popupBounds)}`);
-    assert.ok(popupBounds.main.left >= 0 && popupBounds.main.right <= width, `popup content fits ${width}px: ${JSON.stringify(popupBounds)}`);
-    await popup.screenshot({ path: `artifacts/popup-${width}.png`, fullPage: true });
+    await target.setViewportSize({ width, height: 700 });
+    const widgetBounds = await widget.evaluate(node => ({ viewportWidth: innerWidth, documentWidth: document.documentElement.scrollWidth, rect: node.getBoundingClientRect().toJSON() }));
+    assert.ok(widgetBounds.documentWidth <= width, `on-page widget has no horizontal overflow at ${width}px: ${JSON.stringify(widgetBounds)}`);
+    assert.ok(widgetBounds.rect.left >= 0 && widgetBounds.rect.right <= width, `on-page widget fits ${width}px: ${JSON.stringify(widgetBounds)}`);
+    await target.screenshot({ path: `artifacts/widget-export-${width}.png`, fullPage: true });
   }
+  await target.setViewportSize({ width: 1280, height: 900 });
+  const settingsPageEvent = context.waitForEvent('page', { timeout: 5000 }).catch(() => null);
+  await widget.locator('[data-action="settings"]').click();
+  await settingsPageEvent;
+  const settingsPage = context.pages().find(page => page.url().endsWith('/options.html'));
+  assert.ok(settingsPage, 'the widget settings action opens the existing settings page');
+
+  // A second extension profile has no required ChatGPT host permission. Its
+  // declared content script must still auto-inject the widget, whose own
+  // capture path can export without background executeScript access.
+  const autoExtension = join(temp, 'auto-extension'); await cp('dist', autoExtension, { recursive: true });
+  const autoManifest = JSON.parse(await readFile(join(autoExtension, 'manifest.json')));
+  autoManifest.host_permissions = [`${new URL(appUrl).origin}/*`];
+  await writeFile(join(autoExtension, 'manifest.json'), JSON.stringify(autoManifest));
+  assert.equal(autoManifest.host_permissions.some(origin => origin.includes('chatgpt.com')), false, 'auto-injection fixture has no explicit ChatGPT host permission');
+  autoContext = await chromium.launchPersistentContext(join(temp, 'auto-profile'), { channel: 'chromium', headless: true, args: ['--deny-permission-prompts', `--disable-extensions-except=${autoExtension}`, `--load-extension=${autoExtension}`] });
+  const autoWorker = autoContext.serviceWorkers()[0] || await autoContext.waitForEvent('serviceworker');
+  await autoWorker.evaluate(() => {
+    const requestPermission = chrome.permissions.request.bind(chrome.permissions);
+    chrome.permissions.request = async details => {
+      const pending = Symbol('permission prompt pending');
+      try {
+        const result = await Promise.race([requestPermission(details), new Promise(resolve => setTimeout(() => resolve(pending), 2500))]);
+        self.__browserPermissionRequest = { origins: details.origins, result: result === pending ? 'prompt-pending' : result ? 'granted' : 'denied' };
+        return result === pending ? false : result;
+      } catch (error) {
+        self.__browserPermissionRequest = { origins: details.origins, result: 'error', error: error.message };
+        throw error;
+      }
+    };
+  });
+  await autoContext.route('https://chatgpt.com/**', route => route.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><title>Automatic capture</title><main><div data-message-author-role="user">A question with automatic injection.</div><div data-message-author-role="assistant">An answer captured by the page widget.<img alt="Remote evidence" src="https://media.example/evidence.png"></div></main>' }));
+  const autoPage = await autoContext.newPage();
+  await autoPage.goto('https://chatgpt.com/c/auto-injected');
+  await autoPage.locator('[data-idea-capture-owned="host"]').waitFor({ state: 'attached' });
+  const autoWidget = autoPage.locator('#idea-capture-panel');
+  await autoWidget.locator('[data-action="toggle-panel"]').click();
+  await autoWidget.locator('[data-summary]').waitFor();
+  assert.match(await autoWidget.locator('[data-summary]').textContent(), /2 messages/);
+  const allowMedia = autoWidget.locator('[data-action="allow-media"]');
+  await allowMedia.waitFor({ state: 'visible' });
+  await allowMedia.click();
+  await autoPage.waitForFunction(() => /Media access granted\.|Media access was not granted; unavailable media will be omitted\.|gesture/i.test(document.querySelector('#idea-capture-controls')?.shadowRoot?.querySelector('[data-capture-status]')?.textContent || ''), null, { timeout: 10000 });
+  const mediaPermissionStatus = await autoWidget.locator('[data-capture-status]').textContent();
+  const permissionRequestResult = await autoWorker.evaluate(() => self.__browserPermissionRequest);
+  assert.deepEqual(permissionRequestResult.origins, ['https://media.example/*'], 'the widget click requests only the captured media origin');
+  assert.ok(['granted', 'denied', 'prompt-pending'].includes(permissionRequestResult.result), `permission request settles or reaches the headless prompt: ${JSON.stringify(permissionRequestResult)}`);
+  assert.doesNotMatch(mediaPermissionStatus, /user gesture/i, 'media permission request runs from the widget click without losing its user gesture');
+  console.log('Optional media permission:', permissionRequestResult.result);
+  await autoWidget.locator('[name="format"][value="md"]').check();
+  await autoWidget.locator('[data-action="download"]').click();
+  await autoPage.waitForFunction(() => /Download started in Chrome\./i.test(document.querySelector('#idea-capture-controls')?.shadowRoot?.querySelector('[data-capture-status]')?.textContent || ''), null, { timeout: 10000 });
   assert.equal(errors.length, 0, errors.join('\n'));
   assert.equal(cspErrors.length, 0, cspErrors.join('\n'));
-  console.log('Browser checks passed: turn sections, inline controls, selected MD/PDF export, dynamic/SPA updates, remote full capture, KB upload, and popup.');
+  console.log('Browser checks passed: turn sections, inline controls, selected MD/PDF export and download, dynamic/SPA updates, remote full capture, KB upload, diagnostics, settings, and responsive on-page widget.');
 } finally {
   await context?.close();
+  await autoContext?.close();
   await Promise.all([new Promise(r => app.close(r)), new Promise(r => queue.close(r))]);
   await rm(temp, { recursive: true, force: true });
 }

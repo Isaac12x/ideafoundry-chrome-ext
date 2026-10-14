@@ -1,5 +1,7 @@
 import { chatGptConversationRoot, extractConversation } from './extract.js';
 import { collectDiagnostics } from './diagnostics.js';
+import { markdown } from './shared.js';
+import { mediaOrigins } from './media.js';
 
 const HOST_ID = 'idea-capture-controls';
 const COLLAPSED_CLASS = 'idea-capture-section-collapsed';
@@ -50,19 +52,20 @@ export function createCaptureControls(doc = document, win = window) {
         [hidden]{display:none!important}
         button,input,textarea{font:inherit;color:inherit}
         button{cursor:pointer}
-        #idea-capture-panel{position:fixed;right:clamp(12px,2vw,24px);bottom:clamp(12px,2vw,24px);z-index:2147483647;width:min(352px,calc(100vw - 24px));max-height:min(72vh,660px);display:flex;flex-direction:column;overflow:hidden;background:var(--paper);border:1px solid #c8d3ca;border-radius:10px;box-shadow:0 14px 42px #10251c38,0 2px 8px #10251c12;font-size:13px}
+        #idea-capture-panel{position:fixed;right:clamp(12px,2vw,24px);bottom:clamp(12px,2vw,24px);z-index:2147483647;width:min(440px,calc(100vw - 24px));max-height:min(82vh,820px);display:flex;flex-direction:column;overflow:hidden;background:var(--paper);border:1px solid #c8d3ca;border-radius:10px;box-shadow:0 14px 42px #10251c38,0 2px 8px #10251c12;font-size:13px}
         #idea-capture-panel:has(.panel-body[hidden]){width:min(214px,calc(100vw - 24px));max-height:none}
-        #idea-capture-panel>header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 16px;border-bottom:1px solid var(--line);font-family:Georgia,"Iowan Old Style",serif;font-size:16px;font-weight:600;letter-spacing:-.015em}
+        #idea-capture-panel>header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 18px;border-bottom:1px solid var(--line);font-family:Georgia,"Iowan Old Style",serif;font-size:18px;font-weight:600;letter-spacing:-.015em}
         #idea-capture-panel:has(.panel-body[hidden])>header{padding:8px 10px;font-family:"Avenir Next","Trebuchet MS",sans-serif;font-size:12px;letter-spacing:0}
         button{min-height:30px;padding:5px 9px;border:1px solid #cbd6ce;border-radius:5px;background:#f5f7f2;font-family:"Avenir Next","Trebuchet MS",sans-serif;font-size:11px;font-weight:600;transition:background-color 120ms ease,border-color 120ms ease,transform 120ms ease}
         button:hover{background:#e8efe8;border-color:#aabcae}
         button:active{transform:translateY(1px)}
         button:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px solid #397650;outline-offset:2px}
-        .panel-body{display:flex;min-height:0;flex:1;flex-direction:column;overflow-y:auto;overscroll-behavior:contain}
+        .panel-body{display:block;min-height:0;flex:1;overflow-y:auto;overscroll-behavior:contain}
         .tools{display:flex;gap:6px;flex-wrap:wrap;padding:10px 12px 7px}
         .tools button{min-height:28px;padding:4px 7px;font-size:10px}
         .count{padding:2px 14px 9px;color:var(--muted);font-size:11px}
-        .list{min-height:0;flex:0 1 auto;max-height:min(38vh,360px);overflow:auto;overscroll-behavior:contain;padding:0 10px 12px}
+        .capture-meta{padding:13px 18px 5px}.capture-meta h2{margin:0 0 4px;font:500 19px/1.2 Georgia,"Iowan Old Style",serif;overflow-wrap:anywhere}.capture-meta p{margin:0;color:var(--muted);font-size:11px}.capture-tools{padding:12px 18px 14px;border-top:1px solid var(--line)}.capture-tools .format{display:flex;gap:8px;margin:0 0 10px}.capture-tools label{display:flex;align-items:center;gap:6px;padding:7px 10px;border:1px solid var(--line);background:#f7f7f0;cursor:pointer}.capture-tools label:has(:checked){border-color:var(--forest);background:var(--wash)}.capture-tools .actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}.capture-tools .actions button{min-height:38px;font-size:12px}.capture-tools .actions [data-action="send-kb"]{grid-column:1/-1;background:var(--forest);border-color:var(--forest);color:var(--paper)}.capture-tools .actions [data-action="settings"]{background:transparent}.capture-status{min-height:17px;margin:9px 0 0;color:var(--forest);font-size:11px;overflow-wrap:anywhere}.preview{margin:0 14px 12px}.preview summary{cursor:pointer;color:var(--muted);font-size:11px}.preview pre{max-height:190px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;background:#f0efe8;padding:10px;font:11px/1.5 ui-monospace,monospace}
+        .list:not(:empty){min-height:96px;max-height:min(38vh,360px);overflow:auto;overscroll-behavior:contain;padding:0 10px 12px}
         .row{display:grid;grid-template-columns:17px minmax(0,1fr) auto;align-items:start;gap:9px;padding:10px 5px;border-top:1px solid #e6ebe5}
         .row input{width:15px;height:15px;margin:2px 0 0;accent-color:var(--forest)}
         .label{min-width:0;overflow-wrap:anywhere;font-size:12px;font-weight:550;line-height:1.35}
@@ -78,12 +81,12 @@ export function createCaptureControls(doc = document, win = window) {
         #idea-capture-margin-controls button{display:grid;place-items:center;width:36px;height:36px;min-height:36px;padding:0;border:1px solid #c7d3c9;border-radius:50%;background:var(--paper);color:var(--forest);box-shadow:0 3px 12px #10251c2b;font-family:Georgia,serif;font-size:22px;line-height:1;transition:background-color 120ms ease,border-color 120ms ease,transform 120ms ease}
         #idea-capture-margin-controls button:hover{background:var(--wash);border-color:#9db5a3}
         #idea-capture-margin-controls button:active{transform:scale(.96)}
-        @media(max-width:420px){#idea-capture-panel{right:10px;bottom:10px;width:calc(100vw - 20px);max-height:68vh}#idea-capture-panel>header{padding:12px 13px}.tools{padding-inline:10px}.tools button{font-size:9px}}
+        @media(max-width:420px){#idea-capture-panel{right:10px;bottom:10px;width:calc(100vw - 20px);max-height:82vh}#idea-capture-panel>header{padding:12px 13px}.tools{padding-inline:10px}.tools button{font-size:9px}.capture-meta{padding-inline:14px}.capture-tools{padding-inline:14px}}
         @media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;transition:none!important}}
       </style>
-      <section id="idea-capture-panel" data-idea-panel aria-label="Conversation sections" hidden>
-        <header><span>Capture sections</span><button type="button" data-action="toggle-panel" aria-expanded="false">Open</button></header>
-        <div class="panel-body" hidden><div class="tools"><button type="button" data-action="select-all">Select all</button><button type="button" data-action="select-none">Select none</button><button type="button" data-action="collapse-all">Collapse all</button><button type="button" data-action="expand-all">Expand all</button><button type="button" data-action="copy-diagnostics">Copy diagnostics</button></div><div class="count" aria-live="polite"></div><div class="empty" hidden><p data-empty-message></p><button type="button" data-action="retry">Retry detection</button><button type="button" data-action="copy-diagnostics">Copy diagnostics</button></div><div class="diagnostics"><p data-diagnostics-status aria-live="polite"></p><textarea data-diagnostics-fallback readonly hidden aria-label="Diagnostics to copy manually"></textarea></div><div class="list"></div></div>
+      <section id="idea-capture-panel" data-idea-panel aria-label="Conversation capture" hidden>
+        <header><span>IdeaFoundry / Capture</span><button type="button" data-action="toggle-panel" aria-expanded="false">Open</button></header>
+        <div class="panel-body" hidden><div class="capture-meta"><h2 data-title>Conversation capture</h2><p data-summary></p><p data-warning></p></div><div class="tools"><button type="button" data-action="select-all">Select all</button><button type="button" data-action="select-none">Select none</button><button type="button" data-action="collapse-all">Collapse all</button><button type="button" data-action="expand-all">Expand all</button><button type="button" data-action="copy-diagnostics">Copy diagnostics</button></div><div class="count" aria-live="polite"></div><div class="empty" hidden><p data-empty-message></p><button type="button" data-action="retry">Retry detection</button><button type="button" data-action="copy-diagnostics">Copy diagnostics</button></div><div class="diagnostics"><p data-diagnostics-status aria-live="polite"></p><textarea data-diagnostics-fallback readonly hidden aria-label="Diagnostics to copy manually"></textarea></div><details class="preview" data-preview><summary>Review captured conversation</summary><pre data-preview-text></pre></details><div class="list"></div><div class="capture-tools"><div class="format" role="group" aria-label="File format"><label><input type="radio" name="format" value="md" checked> Markdown</label><label><input type="radio" name="format" value="pdf"> PDF</label></div><div class="actions"><button type="button" data-action="download">Download file</button><button type="button" data-action="settings">Settings</button><button type="button" data-action="send-kb">Send to knowledge base ↗</button><button type="button" data-action="allow-media" hidden>Allow media access</button></div><p class="capture-status" data-capture-status role="status" aria-live="polite"></p></div></div>
       </section>
       <aside id="idea-capture-margin-controls" aria-label="Conversation section controls" hidden>
         <button type="button" data-idea-section-id aria-expanded="true" aria-label="Collapse current section">›</button>
@@ -101,6 +104,75 @@ export function createCaptureControls(doc = document, win = window) {
   const emptyText = shadow.querySelector('[data-empty-message]');
   const diagnosticsStatus = shadow.querySelector('[data-diagnostics-status]');
   const diagnosticsFallback = shadow.querySelector('[data-diagnostics-fallback]');
+  const title = shadow.querySelector('[data-title]');
+  const summary = shadow.querySelector('[data-summary]');
+  const warning = shadow.querySelector('[data-warning]');
+  const preview = shadow.querySelector('[data-preview]');
+  const previewText = shadow.querySelector('[data-preview-text]');
+  const captureStatus = shadow.querySelector('[data-capture-status]');
+  const allowMediaButton = shadow.querySelector('[data-action="allow-media"]');
+  const captureActions = shadow.querySelector('.capture-tools');
+  let busy = false;
+  async function request(message) {
+    const result = await win.chrome?.runtime?.sendMessage(message);
+    if (!result?.ok) throw new Error(result?.error || 'IdeaFoundry did not respond.');
+    return result;
+  }
+  function updateMetadata() {
+    try {
+      const conversation = capture('preview', false);
+      title.textContent = conversation.title || 'Conversation capture';
+      summary.textContent = `${conversation.provider} · ${conversation.messages.length} messages · ${sections.filter(section => selected.get(section.id) !== false).length} of ${sections.length} sections`;
+      warning.textContent = conversation.warning || '';
+      allowMediaButton.hidden = mediaOrigins(conversation).length === 0;
+      preview.hidden = !conversation.messages.length;
+      previewText.textContent = markdown(conversation);
+    } catch (error) {
+      title.textContent = 'Conversation capture';
+      summary.textContent = 'The page is ready for another detection attempt.';
+      warning.textContent = error?.message || '';
+      preview.hidden = true;
+      previewText.textContent = '';
+    }
+  }
+  async function exportFromWidget(destination) {
+    if (busy) return;
+    busy = true;
+    for (const button of captureActions.querySelectorAll('button')) button.disabled = true;
+    try {
+      const format = shadow.querySelector('[name="format"]:checked')?.value || 'md';
+      captureStatus.textContent = destination === 'kb' ? 'Sending to your knowledge base…' : 'Preparing your file…';
+      const conversation = await capture('export');
+      if (conversation.media?.length) {
+        const resolved = await resolvePageMedia(conversation.media);
+        const byId = new Map(resolved.map(item => [item.id, item]));
+        conversation.media = conversation.media.map(item => byId.has(item.id) ? { ...item, ...byId.get(item.id) } : item);
+      }
+      const result = await request({ type: 'widget-export', destination, format, conversation });
+      captureStatus.textContent = destination === 'kb' ? `Saved to knowledge base: ${result.name}` : 'Download started in Chrome.';
+    } catch (error) { captureStatus.textContent = error.message; }
+    finally { busy = false; for (const button of captureActions.querySelectorAll('button')) button.disabled = false; }
+  }
+  async function resolvePageMedia(items) {
+    const results = [];
+    let total = 0;
+    for (const item of items) {
+      let url;
+      try { url = new URL(item.url, win.location.href); } catch { continue; }
+      if (url.username || url.password) { results.push({ id: item.id, error: 'Media URL contains embedded credentials and was omitted.' }); continue; }
+      if (!(url.protocol === 'blob:' || ((url.protocol === 'http:' || url.protocol === 'https:') && url.origin === win.location.origin))) continue;
+      try {
+        const response = await win.fetch(url.href, { credentials: 'same-origin', redirect: 'error', signal: AbortSignal.timeout(15_000) });
+        if (!response.ok) throw new Error(`Page media read failed (${response.status}).`);
+        const reader = response.body.getReader(); const chunks = []; let size = 0;
+        while (true) { const { done, value } = await reader.read(); if (done) break; size += value.byteLength; total += value.byteLength; if (size > 8 * 1024 * 1024 || total > 8 * 1024 * 1024) { await reader.cancel(); throw new Error('Page-owned media exceeds the 8 MB capture limit.'); } chunks.push(value); }
+        const blob = new win.Blob(chunks, { type: response.headers.get('content-type') || item.mime || '' });
+        const data = await new Promise((resolve, reject) => { const reader = new win.FileReader(); reader.onload = () => resolve(String(reader.result).split(',')[1]); reader.onerror = () => reject(new Error('Could not read page media.')); reader.readAsDataURL(blob); });
+        results.push({ id: item.id, data, mime: blob.type || item.mime || 'application/octet-stream' });
+      } catch (error) { results.push({ id: item.id, error: error.message }); }
+    }
+    return results;
+  }
   const onTogglePanel = () => {
     const open = toggleButton.getAttribute('aria-expanded') !== 'true';
     toggleButton.setAttribute('aria-expanded', String(open));
@@ -128,6 +200,19 @@ export function createCaptureControls(doc = document, win = window) {
     const action = event.target.closest('button')?.dataset.action;
     if (action === 'retry') refresh();
     if (action === 'copy-diagnostics') void copyDiagnostics();
+  };
+  const onCaptureClick = event => {
+    const action = event.target.closest('button')?.dataset.action;
+    if (action === 'download' || action === 'send-kb') void exportFromWidget(action === 'send-kb' ? 'kb' : 'download');
+    if (action === 'settings') void request({ type: 'open-settings' }).catch(error => { captureStatus.textContent = error.message; });
+    if (action === 'allow-media') {
+      try {
+        const conversation = capture('export');
+        void request({ type: 'widget-media-permission', conversation }).then(result => {
+          captureStatus.textContent = result.granted ? 'Media access granted.' : 'Media access was not granted; unavailable media will be omitted.';
+        }).catch(error => { captureStatus.textContent = error.message; });
+      } catch (error) { captureStatus.textContent = error.message; }
+    }
   };
   const onListChange = event => {
     const input = event.target.closest('input[data-section-id]');
@@ -176,6 +261,7 @@ export function createCaptureControls(doc = document, win = window) {
   rail.addEventListener('click', onRailClick);
   tools.addEventListener('click', onToolsClick);
   empty.addEventListener('click', onEmptyClick);
+  captureActions.addEventListener('click', onCaptureClick);
   list.addEventListener('change', onListChange);
   list.addEventListener('click', onListClick);
   doc.addEventListener('change', onDocChange);
@@ -189,6 +275,7 @@ export function createCaptureControls(doc = document, win = window) {
     tools.hidden = sections.length === 0;
     count.hidden = sections.length === 0;
     list.hidden = sections.length === 0;
+    updateMetadata();
     const active = shadow.activeElement;
     const activeSection = active?.dataset?.sectionId;
     const activeKind = active?.matches?.('input') ? 'input' : active?.matches?.('button[data-section-id]') ? 'button' : null;
@@ -631,8 +718,8 @@ export function createCaptureControls(doc = document, win = window) {
   const routePoll = win.setInterval(() => { if (route !== win.location.href) refresh(); }, 700);
   refresh();
 
-  function capture(mode = 'preview') {
-    refresh();
+  function capture(mode = 'preview', shouldRefresh = true) {
+    if (shouldRefresh) refresh();
     const conversation = extractConversation(doc, win.location.href, { includeNodes: true });
     const idByRaw = new Map();
     conversation.sections.forEach(section => {
@@ -653,7 +740,8 @@ export function createCaptureControls(doc = document, win = window) {
     delete conversation.nodes;
     return conversation;
   }
-  return { capture, refresh, destroy() {
+  function open() { toggleButton.setAttribute('aria-expanded', 'true'); toggleButton.textContent = 'Close'; body.hidden = false; panel.hidden = false; refresh(); }
+  return { capture, refresh, open, destroy() {
     if (destroyed) return;
     destroyed = true;
     observer.disconnect(); win.clearTimeout(timer); win.clearInterval(routePoll);
@@ -667,6 +755,7 @@ export function createCaptureControls(doc = document, win = window) {
     rail.removeEventListener('click', onRailClick);
     toggleButton.removeEventListener('click', onTogglePanel); tools.removeEventListener('click', onToolsClick);
     empty.removeEventListener('click', onEmptyClick);
+    captureActions.removeEventListener('click', onCaptureClick);
     list.removeEventListener('change', onListChange); list.removeEventListener('click', onListClick);
     restoreClasses();
     for (const header of headers.values()) header.remove(); headers.clear();

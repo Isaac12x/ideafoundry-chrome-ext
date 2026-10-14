@@ -165,7 +165,7 @@ async function poll() {
         if (stable >= 3 && !conversation.streaming) break;
       }
       if (!conversation || stable < 3 || conversation.streaming) throw new Error('Conversation did not finish loading. Sign in, finish generation, and retry.');
-      if (conversation.provider === 'Other' && conversation.messages[0]?.role === 'Page content') throw new Error('Remote capture requires identifiable messages. Use the popup to review generic pages.');
+      if (conversation.provider === 'Other' && conversation.messages[0]?.role === 'Page content') throw new Error('Remote capture requires identifiable messages. Review generic pages in the on-page widget.');
       conversation = await capture(tabId, 'all', true);
       // Honor disable/reconfiguration before exporting content.
       const latest = await settings();
@@ -189,18 +189,63 @@ async function alarm() {
 chrome.runtime.onInstalled.addListener(alarm);
 chrome.runtime.onStartup.addListener(alarm);
 chrome.alarms.onAlarm.addListener(a => { if (a.name === 'remote-capture') void poll(); });
+chrome.action.onClicked.addListener(async tab => {
+  try {
+    if (!tab?.id || !/^https?:\/\//i.test(tab.url || '')) throw new Error('Open an http or https page to use conversation capture.');
+    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content.js'] });
+    const [{ result }] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: () => {
+      const controller = globalThis.__ideaCaptureController;
+      if (!controller) return { ok: false, error: globalThis.__ideaCapture?.error || 'Could not start the capture widget.' };
+      controller.open(); return { ok: true };
+    } });
+    if (!result?.ok) throw new Error(result?.error || 'Could not open the capture widget.');
+    await chrome.action.setBadgeText({ tabId: tab.id, text: '' });
+    await chrome.action.setTitle({ tabId: tab.id, title: 'IdeaFoundry capture widget' });
+  } catch (error) {
+    console.warn('IdeaFoundry capture could not open:', error.message);
+    if (tab?.id) {
+      await chrome.action.setBadgeBackgroundColor({ tabId: tab.id, color: '#a64d31' });
+      await chrome.action.setBadgeText({ tabId: tab.id, text: '!' });
+      await chrome.action.setTitle({ tabId: tab.id, title: `Capture unavailable: ${error.message}` });
+    }
+  }
+});
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
-  if (sender.id !== chrome.runtime.id || !sender.url?.startsWith(chrome.runtime.getURL('')) || message.target === 'offscreen') return;
+  if (sender.id !== chrome.runtime.id || message.target === 'offscreen') return;
+  const fromExtension = sender.url?.startsWith(chrome.runtime.getURL(''));
+  if (!fromExtension && !sender.tab?.id) return;
   (async () => {
-    if (message.type === 'capture') return { conversation: await capture(message.tabId, message.mode || 'preview') };
+    if (message.type === 'open-settings') { await chrome.runtime.openOptionsPage(); return {}; }
+    if (message.type === 'widget-media-permission') {
+      if (!sender.tab?.id || !message.conversation) throw new Error('Media access must be requested from the page widget.');
+      const origins = mediaOrigins(message.conversation);
+      return { granted: origins.length > 0 && await chrome.permissions.request({ origins }) };
+    }
+    if (message.type === 'widget-export') {
+      if (!sender.tab?.id || !['download', 'kb'].includes(message.destination)) throw new Error('Capture must be started from the page widget.');
+      if (!message.conversation || !Array.isArray(message.conversation.messages)) throw new Error('No conversation is ready to save.');
+      const conversation = message.conversation;
+      if (JSON.stringify(conversation).length > 24_000_000) throw new Error('Conversation and inline media exceed the 24 MB capture limit.');
+      const filteredConversation = await permissionFilteredMedia(conversation);
+      if (message.destination === 'kb') return sendToKB(filteredConversation, message.format);
+      const file = await render(filteredConversation, message.format, true);
+      await chrome.downloads.download({ url: file.url, filename: file.name, saveAs: true });
+      return { name: file.name };
+    }
+    if (message.type === 'capture') {
+      const tabId = sender.tab?.id || (fromExtension ? message.tabId : null);
+      if (!tabId) throw new Error('Capture must be started from an open page.');
+      return { conversation: await capture(tabId, message.mode || 'preview') };
+    }
     if (message.type === 'export') {
+      if (!fromExtension) throw new Error('Use the on-page capture widget to export.');
       if (message.destination === 'kb') return sendToKB(message.conversation, message.format);
       const file = await render(await permissionFilteredMedia(message.conversation), message.format, true);
       await chrome.downloads.download({ url: file.url, filename: file.name, saveAs: true });
       return { name: file.name };
     }
-    if (message.type === 'settings') { await alarm(); return {}; }
-    if (message.type === 'poll') { void poll(); return {}; }
+    if (message.type === 'settings') { if (!fromExtension) throw new Error('Settings can only be changed from the extension.'); await alarm(); return {}; }
+    if (message.type === 'poll') { if (!fromExtension) throw new Error('Queue polling can only be started from the extension.'); void poll(); return {}; }
     throw new Error('Unknown request.');
   })().then(result => respond({ ok: true, ...result }), error => respond({ ok: false, error: error.message }));
   return true;

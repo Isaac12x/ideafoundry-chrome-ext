@@ -15,7 +15,6 @@
 }
 *{box-sizing:border-box}
 body{margin:0;background:var(--paper)}
-body.popup{width:min(430px,100vw);min-width:320px}
 header{display:flex;justify-content:space-between;align-items:center;gap:16px;border-bottom:1px solid var(--line);padding:17px 24px}
 .brand{font-size:10px;font-weight:750;letter-spacing:.14em;text-decoration:none;color:var(--ink);white-space:nowrap}
 .brand span{font-weight:450;color:var(--muted)}
@@ -64,7 +63,6 @@ button:disabled{opacity:.55;cursor:wait}
 .options .actions{flex-direction:row;align-items:center}
 .options #status{min-height:24px;margin-top:16px}
 @media(max-width:520px){
-  body.popup{min-width:0}
   header{padding:15px 17px}
   main{padding:23px 17px 18px}
   .options header{padding-top:22px}
