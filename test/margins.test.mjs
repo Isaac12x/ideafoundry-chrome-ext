@@ -155,7 +155,8 @@ test('unmarked replies collapse with their prompt and direct media keeps margin 
   assert.equal(rail.hidden, false);
   const railButton = rail.querySelector('button');
   assert.equal(railButton.getAttribute('aria-label'), 'Collapse section: Question');
-  assert.equal(railButton.textContent, '›', 'the left-side rail uses a compact inward chevron');
+  assert.equal(railButton.textContent, '', 'the side action has no text glyph');
+  assert.equal(railButton.dataset.direction, 'right', 'the left-side rail points inward toward the conversation');
   assert.equal(rail.style.left, 'auto');
   assert.equal(rail.style.right, '1004px', 'the cached section bounds include media extending beyond the text');
   assert.match(rail.querySelector('button').getAttribute('aria-label'), /Collapse section/);

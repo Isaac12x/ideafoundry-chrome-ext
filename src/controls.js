@@ -78,7 +78,9 @@ export function createCaptureControls(doc = document, win = window) {
         .diagnostics:has(p:empty):not(:has(textarea:not([hidden]))){display:none}
         .diagnostics p{margin:0}
         #idea-capture-margin-controls{position:fixed;top:50%;z-index:2147483646;display:block;width:40px;height:40px;padding:2px;transform:translateY(-50%);border:0;border-radius:50%;background:transparent;color:var(--ink);font:12px/1.35 "Avenir Next","Trebuchet MS",sans-serif}
-        #idea-capture-margin-controls button{display:grid;place-items:center;width:36px;height:36px;min-height:36px;padding:0;border:1px solid #c7d3c9;border-radius:50%;background:var(--paper);color:var(--forest);box-shadow:0 3px 12px #10251c2b;font-family:Georgia,serif;font-size:22px;line-height:1;transition:background-color 120ms ease,border-color 120ms ease,transform 120ms ease}
+        #idea-capture-margin-controls button{position:relative;display:grid;place-items:center;width:36px;height:36px;min-height:36px;padding:0;border:1px solid #c7d3c9;border-radius:50%;background:var(--paper);color:var(--forest);box-shadow:0 3px 12px #10251c2b;transition:background-color 120ms ease,border-color 120ms ease,transform 120ms ease}
+        #idea-capture-margin-controls button::after{position:absolute;top:50%;left:50%;width:7px;height:10px;content:"";background:currentColor;clip-path:polygon(0 0,2px 0,7px 5px,2px 10px,0 10px,5px 5px);transform:translate(-50%,-50%)}
+        #idea-capture-margin-controls button[data-direction="left"]::after{transform:translate(-50%,-50%) scaleX(-1)}
         #idea-capture-margin-controls button:hover{background:var(--wash);border-color:#9db5a3}
         #idea-capture-margin-controls button:active{transform:scale(.96)}
         @media(max-width:420px){#idea-capture-panel{right:10px;bottom:10px;width:calc(100vw - 20px);max-height:82vh}#idea-capture-panel>header{padding:12px 13px}.tools{padding-inline:10px}.tools button{font-size:9px}.capture-meta{padding-inline:14px}.capture-tools{padding-inline:14px}}
@@ -89,7 +91,7 @@ export function createCaptureControls(doc = document, win = window) {
         <div class="panel-body" hidden><div class="capture-meta"><h2 data-title>Conversation capture</h2><p data-summary></p><p data-warning></p></div><div class="tools"><button type="button" data-action="select-all">Select all</button><button type="button" data-action="select-none">Select none</button><button type="button" data-action="collapse-all">Collapse all</button><button type="button" data-action="expand-all">Expand all</button><button type="button" data-action="copy-diagnostics">Copy diagnostics</button></div><div class="count" aria-live="polite"></div><div class="empty" hidden><p data-empty-message></p><button type="button" data-action="retry">Retry detection</button><button type="button" data-action="copy-diagnostics">Copy diagnostics</button></div><div class="diagnostics"><p data-diagnostics-status aria-live="polite"></p><textarea data-diagnostics-fallback readonly hidden aria-label="Diagnostics to copy manually"></textarea></div><details class="preview" data-preview><summary>Review captured conversation</summary><pre data-preview-text></pre></details><div class="list"></div><div class="capture-tools"><div class="format" role="group" aria-label="File format"><label><input type="radio" name="format" value="md" checked> Markdown</label><label><input type="radio" name="format" value="pdf"> PDF</label></div><div class="actions"><button type="button" data-action="download">Download file</button><button type="button" data-action="settings">Settings</button><button type="button" data-action="send-kb">Send to knowledge base ↗</button><button type="button" data-action="allow-media" hidden>Allow media access</button></div><p class="capture-status" data-capture-status role="status" aria-live="polite"></p></div></div>
       </section>
       <aside id="idea-capture-margin-controls" aria-label="Conversation section controls" hidden>
-        <button type="button" data-idea-section-id aria-expanded="true" aria-label="Collapse current section">›</button>
+        <button type="button" data-idea-section-id aria-expanded="true" aria-label="Collapse current section"></button>
       </aside>`;
   }
   const panel = shadow.querySelector('[data-idea-panel]');
@@ -587,7 +589,7 @@ export function createCaptureControls(doc = document, win = window) {
     rail.style.right = useLeft ? `${Math.max(6, viewport - bounds.left + 4)}px` : 'auto';
     railButton.dataset.ideaSectionId = section.id;
     rail.setAttribute('aria-label', `Current section: ${section.label}`);
-    railButton.textContent = useLeft ? '›' : '‹';
+    railButton.dataset.direction = useLeft ? 'right' : 'left';
     railButton.setAttribute('aria-expanded', 'true');
     railButton.setAttribute('aria-label', `Collapse section: ${section.label}`);
     railButton.title = `Collapse section: ${section.label}`;

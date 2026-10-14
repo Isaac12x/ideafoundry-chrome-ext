@@ -650,12 +650,22 @@ try {
   const railStyle = await rail.evaluate(node => ({
     display: getComputedStyle(node).display,
     buttonDisplay: getComputedStyle(node.querySelector('button')).display,
+    buttonDirection: node.querySelector('button').dataset.direction,
+    chevron: (() => { const style = getComputedStyle(node.querySelector('button'), '::after'); return { content: style.content, position: style.position, left: style.left, top: style.top, width: style.width, height: style.height, clipPath: style.clipPath }; })(),
     position: getComputedStyle(node).position,
     rail: node.getBoundingClientRect().toJSON(),
     content: document.querySelector('main.chat [data-message-author-role]').getBoundingClientRect().toJSON(),
   }));
   assert.equal(railStyle.display, 'block', 'the compact control container styles must survive the fixture content security policy');
   assert.equal(railStyle.buttonDisplay, 'grid', 'the compact button remains centered inside its fixed hit area');
+  assert.equal(railStyle.buttonDirection, 'right', 'the left-side rail points inward toward the conversation');
+  assert.equal(railStyle.chevron.content, '""', 'the chevron is drawn by CSS rather than text');
+  assert.equal(railStyle.chevron.position, 'absolute');
+  assert.equal(railStyle.chevron.left, '17px', 'the pseudo-element anchor sits at the button center');
+  assert.equal(railStyle.chevron.top, '17px', 'the pseudo-element anchor sits at the button center');
+  assert.equal(railStyle.chevron.width, '7px');
+  assert.equal(railStyle.chevron.height, '10px');
+  assert.match(railStyle.chevron.clipPath, /polygon\(/, 'the chevron has a symmetric CSS shape');
   assert.equal(railStyle.position, 'fixed');
   assert.ok(railStyle.rail.right <= railStyle.content.left || railStyle.rail.left >= railStyle.content.right, `rail sits in a blank side margin: ${JSON.stringify(railStyle)}`);
   await target.screenshot({ path: 'artifacts/sections-middle-expanded.png' });

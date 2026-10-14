@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.6 — 2026-10-14
+
+- Draw the side control chevron with a centered CSS pseudo-element instead of a font glyph, preserving inward direction and accessible button labels.
+
 ## 0.3.5 — 2026-10-14
 
 - Consolidate Markdown/PDF selection, download, knowledge-base delivery, preview, settings, and diagnostics in the on-page capture widget.

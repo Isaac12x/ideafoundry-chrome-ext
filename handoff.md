@@ -162,3 +162,13 @@ Automatic content-script widgets capture locally, so exporting does not require 
 Root unit validation passed 61/61 and git diff --check passed. Production build is in dist/. Browser validation uses isolated fixtures, not the user's authenticated live conversations. Reload the unpacked extension and refresh conversation tabs to use 0.3.5. No Git remote is configured, so PR publication and comment monitoring are unavailable.
 
 Final browser validation passed (`npm run test:browser`): selected Markdown KB upload, PDF download action, diagnostics, settings, existing PDF/media/remote workflows, and 360x480 section selection plus reachable send action. A separate profile without explicit ChatGPT host permissions verified automatic widget capture/download. The real media permission API accepted the click gesture but left its native prompt pending in headless Chromium; the test records this and substitutes denial after 2.5 seconds. Native permission acceptance/denial itself was not automated.
+
+## 2026-10-14 — 0.3.6 CSS side chevron
+
+Replaced the side control's text glyph with an empty CSS ::after shape. The button retains its accessible section label, title, keyboard behavior, hit area, and collapse action; a direction attribute mirrors the shape toward the conversation.
+
+A Luna implementation agent made the change and an independent Luna reviewer identified lateral bias from centering a rotated border box rather than the visible strokes. Root confirmed that geometry, and a fresh Luna fix agent replaced it with a centered 7x10px clipped polygon. Root reviewed the final CSS and real Chromium close-up of both directions at artifacts/chevron-directions.png. Updated existing unit and browser assertions to check the text-free control and pseudo-element rendering. Root unit tests passed 61/61 and git diff --check passed.
+
+Reload the unpacked extension from dist/ and refresh existing conversation tabs for version 0.3.6. No Git remote is configured, so publishing a PR and monitoring comments remain unavailable.
+
+Final validation: npm run check passed (61 tests and production build); npm run test:browser passed on rerun. The first browser attempt passed the chevron assertions but timed out in the existing final media-permission/download fixture; the repeat passed the complete suite.
