@@ -138,3 +138,15 @@ An independent Luna review identified omitted standalone action siblings and ove
 Final validation: root `npm test` passed 61/61; `npm run build` and `npm run test:browser` passed on the final implementation. Browser assertions check nested and sibling gallery shells, references, action rows, height reduction, restoration, next-section/composer safety, collapsed export/media, compact controls, and existing PDF/KB/queue workflows. Root performed a separate controller reproduction through collapse, refresh, export, and expansion and inspected the compact-control screenshot at `artifacts/reported-layout-before-collapse.png`. `git diff --check` passed.
 
 The user's authenticated Arc page was not directly inspected; fixtures reproduce the reported structural cases. Reload the extension and refresh existing ChatGPT tabs to use 0.3.3. No Git remote is configured, so PR publication and comment monitoring remain unavailable.
+
+## 2026-10-14 — 0.3.4 visual refinement
+
+Applied the requested frontend-design skill to unify the injected conversation controls, popup, and settings around warm paper surfaces, forest accents, editorial headings, and consistent spacing. The closed launcher is now compact, long section lists scroll within a bounded panel, narrow windows retain all actions, and inline headers align with their content column. Focus indicators and reduced-motion handling remain explicit.
+
+Luna agents implemented the UI and browser layout coverage. An independent Luna review identified inline headers extending beyond their parent content column. Root reviewed the screenshots afterward and also found the side chevron overlapping reply text. A fresh Luna fix pass corrected header border-box sizing and replaced median section edges with the full horizontal content span for rail placement. Resize invalidates cached geometry while preserving pinned-section behavior. Browser assertions cover both findings. A repeated settings image was a full-page screenshot artifact; settled viewport capture and a single-main assertion verified the actual page structure.
+
+Root inspected the corrected desktop controls, short-window panel, popup, and settings screenshots. Layout coverage now includes 360px/390px widths, a 360x480 viewport, long labels and twelve-section scrolling, settings focus, and existing capture/export/KB workflows. The browser uses isolated fixtures rather than the user's authenticated live pages.
+
+Version is 0.3.4. Reload the unpacked extension from dist/ and refresh existing conversation tabs. No Git remote is configured, so a PR cannot be published or monitored.
+
+Final root verification: `npm run check` passed (61/61 tests and production build), `npm run test:browser` passed, and `git diff --check` passed. The build output is ready in dist/; visual artifacts remain ignored in artifacts/.

@@ -21,6 +21,11 @@ const app = createServer(async (req, res) => {
   if (path === '/fixture.css') {
     res.writeHead(200, { 'Content-Type': 'text/css' }); return res.end(fixtureCss);
   }
+  if (path === '/layout-stress') {
+    const turns = Array.from({ length: 12 }, (_, i) => `<div data-message-author-role="user"><p>Fieldwork section ${String(i + 1).padStart(2, '0')}: participant recruitment, consent scheduling, and interview follow-up across the regional community research study</p></div><div data-message-author-role="assistant"><p>Response ${i + 1}: preserve the participant context, evidence notes, and decision links for the next review.</p></div>`).join('');
+    res.writeHead(200, { 'Content-Type': 'text/html', 'Content-Security-Policy': "default-src 'none'; style-src 'self'" });
+    return res.end(`<!doctype html><title>Layout stress fixture</title><link rel="stylesheet" href="/fixture.css"><main class="chat">${turns}</main>`);
+  }
   if (new URL(req.url, 'http://fixture').pathname === '/chat') {
     res.writeHead(200, { 'Content-Type': 'text/html', 'Content-Security-Policy': "default-src 'none'; style-src 'self'" });
     return res.end(`<!doctype html><title>Remote fixture</title><link rel="stylesheet" href="/fixture.css"><main class="chat">
@@ -73,16 +78,44 @@ try {
   await target.locator('#idea-capture-panel').waitFor();
   assert.equal(await target.locator('.idea-capture-section-header').count(), 3, 'manifest content script adds controls before an explicit capture request');
   const headers = target.locator('.idea-capture-section-header');
+  const initialHeaderBounds = await headers.first().evaluate(node => {
+    const parent = node.parentElement;
+    const parentRect = parent.getBoundingClientRect();
+    const style = getComputedStyle(parent);
+    const rect = node.getBoundingClientRect();
+    const contentLeft = parentRect.left + parseFloat(style.paddingLeft);
+    const contentRight = parentRect.right - parseFloat(style.paddingRight);
+    return { header: rect.toJSON(), contentLeft, contentRight };
+  });
+  assert.ok(initialHeaderBounds.header.left >= initialHeaderBounds.contentLeft - 1 && initialHeaderBounds.header.right <= initialHeaderBounds.contentRight + 1, `inline header fits its parent content column: ${JSON.stringify(initialHeaderBounds)}`);
   const panel = target.locator('#idea-capture-panel');
   const rail = target.locator('#idea-capture-margin-controls');
   const panelToggle = panel.locator('[data-action="toggle-panel"]');
   assert.equal(await panelToggle.getAttribute('aria-expanded'), 'false', 'the section widget starts closed');
   assert.equal(await panel.locator('.panel-body').isHidden(), true);
   const ui = await context.newPage(); await ui.goto(`chrome-extension://${id}/options.html`, { waitUntil: 'commit' }); console.log('Options committed.');
+  await mkdir('artifacts', { recursive: true });
   await ui.evaluate(async ({ appUrl, queueUrl, token }) => {
     await chrome.storage.local.set({ settings: { appUrl, source: 0, directory: '', queueUrl, queueToken: token, remoteEnabled: true, allowedOrigins: ['https://chatgpt.com', appUrl] } });
     await chrome.runtime.sendMessage({ type: 'settings' });
   }, { appUrl, queueUrl, token });
+  for (const width of [390, 1280]) {
+    await ui.setViewportSize({ width, height: 900 });
+    await ui.evaluate(async () => {
+      await document.fonts.ready;
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    });
+    const formBounds = await ui.evaluate(() => ({ viewportWidth: innerWidth, documentWidth: document.documentElement.scrollWidth, form: document.querySelector('#form').getBoundingClientRect().toJSON() }));
+    assert.ok(formBounds.documentWidth <= width, `settings page has no horizontal overflow at ${width}px: ${JSON.stringify(formBounds)}`);
+    assert.ok(formBounds.form.left >= 0 && formBounds.form.right <= width, `settings form fits the ${width}px viewport: ${JSON.stringify(formBounds)}`);
+    assert.equal(await ui.locator('main').count(), 1, 'the settings page has one main content column');
+    await ui.screenshot({ path: `artifacts/settings-${width === 390 ? 'narrow' : 'desktop'}.png`, fullPage: width === 390 });
+  }
+  await ui.setViewportSize({ width: 390, height: 900 });
+  await ui.keyboard.press('Tab');
+  assert.equal(await ui.evaluate(() => document.activeElement.id), 'appUrl', 'keyboard focus reaches the first settings field');
+  const settingsFocus = await ui.locator('#appUrl').evaluate(node => getComputedStyle(node).outlineStyle);
+  assert.notEqual(settingsFocus, 'none', 'the focused settings field has a visible outline');
   const send = message => ui.evaluate(message => chrome.runtime.sendMessage(message), message);
 
   // Exercise ChatGPT's real origin and project routes with the current role-free
@@ -173,6 +206,21 @@ try {
     const shadow = document.querySelector('[data-idea-capture-owned="host"]')?.shadowRoot;
     return shadow?.querySelector('.panel-body [data-action="retry"]')?.textContent;
   }), 'Retry detection', 'the expanded empty state offers a retry action');
+  await project.evaluate(() => document.querySelector('[data-idea-capture-owned="host"]')?.shadowRoot?.querySelector('.empty [data-action="copy-diagnostics"]')?.click());
+  await project.waitForFunction(() => {
+    const status = document.querySelector('[data-idea-capture-owned="host"]')?.shadowRoot?.querySelector('[data-diagnostics-status]')?.textContent;
+    return status === 'Diagnostics copied to clipboard.' || status === 'Clipboard access failed. Select and copy the diagnostics below.';
+  });
+  const diagnosticFallback = await project.evaluate(() => {
+    const shadow = document.querySelector('[data-idea-capture-owned="host"]')?.shadowRoot;
+    const textarea = shadow?.querySelector('[data-diagnostics-fallback]');
+    return { visible: !!textarea && !textarea.hidden, label: textarea?.getAttribute('aria-label'), focused: shadow?.activeElement === textarea, status: shadow?.querySelector('[data-diagnostics-status]')?.textContent };
+  });
+  assert.ok(diagnosticFallback.label, 'the manual diagnostics fallback has an accessible name');
+  if (diagnosticFallback.status.startsWith('Clipboard access failed')) {
+    assert.equal(diagnosticFallback.visible, true, 'the manual diagnostics fallback appears when clipboard access fails');
+    assert.equal(diagnosticFallback.focused, true, 'keyboard focus moves to the manual diagnostics fallback');
+  }
   await project.evaluate(() => document.querySelector('[data-idea-capture-owned="host"]')?.shadowRoot?.querySelector('[data-action="toggle-panel"]')?.click());
   assert.equal(await project.evaluate(() => document.querySelector('[data-idea-capture-owned="host"]')?.shadowRoot?.querySelector('[data-action="toggle-panel"]')?.getAttribute('aria-expanded')), 'false');
   await project.goto('https://chatgpt.com/g/g-p-demo/c/123');
@@ -478,12 +526,79 @@ try {
   await mkdir('artifacts', { recursive: true });
   await target.setViewportSize({ width: 1280, height: 900 });
   await target.screenshot({ path: 'artifacts/sections-expanded.png', fullPage: true });
+  for (const width of [360, 390]) {
+    await target.setViewportSize({ width, height: 780 });
+    const widgetBounds = await panel.evaluate(node => {
+      const rect = node.getBoundingClientRect();
+      return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom, width: rect.width, viewportWidth: innerWidth, viewportHeight: innerHeight, documentWidth: document.documentElement.scrollWidth };
+    });
+    assert.ok(widgetBounds.left >= 0 && widgetBounds.right <= width, `widget fits the ${width}px viewport: ${JSON.stringify(widgetBounds)}`);
+    assert.ok(widgetBounds.bottom <= 780 && widgetBounds.top >= 0, `widget fits the ${width}x780 viewport: ${JSON.stringify(widgetBounds)}`);
+    assert.ok(widgetBounds.documentWidth <= width, `conversation has no horizontal overflow at ${width}px: ${JSON.stringify(widgetBounds)}`);
+    await target.screenshot({ path: `artifacts/widget-open-${width}.png` });
+  }
+  await target.setViewportSize({ width: 1280, height: 900 });
+  await target.waitForFunction(() => {
+    const rail = document.querySelector('#idea-capture-controls')?.shadowRoot?.querySelector('#idea-capture-margin-controls');
+    const button = rail?.querySelector('button');
+    const reply = document.querySelector('.long-answer p');
+    if (!button || !reply || rail.hidden) return false;
+    const railRect = button.getBoundingClientRect();
+    const replyRect = reply.getBoundingClientRect();
+    return railRect.right <= replyRect.left || railRect.left >= replyRect.right;
+  }, null, { timeout: 2000 });
+  const initialRailAgainstReply = await target.evaluate(() => {
+    const button = document.querySelector('#idea-capture-controls')?.shadowRoot?.querySelector('#idea-capture-margin-controls button');
+    const reply = document.querySelector('.long-answer p');
+    return { rail: button?.getBoundingClientRect().toJSON(), reply: reply?.getBoundingClientRect().toJSON() };
+  });
+  assert.ok(initialRailAgainstReply.rail.right <= initialRailAgainstReply.reply.left || initialRailAgainstReply.rail.left >= initialRailAgainstReply.reply.right, `rail stays outside readable reply text after resizing to desktop: ${JSON.stringify(initialRailAgainstReply)}`);
   await panel.locator('[data-action="collapse-all"]').click();
   await target.locator('.idea-capture-section-collapsed').first().waitFor({ state: 'attached' });
   assert.equal(await target.locator('.idea-capture-section-collapsed').count(), 7);
   await target.screenshot({ path: 'artifacts/sections-collapsed.png', fullPage: true });
   await panel.locator('[data-action="expand-all"]').click();
   assert.equal(await target.locator('.idea-capture-section-collapsed').count(), 0);
+  await panelToggle.click();
+  assert.equal(await panel.locator('.panel-body').isHidden(), true);
+  await target.screenshot({ path: 'artifacts/widget-closed-desktop.png' });
+  await panelToggle.click();
+  // Long prompts and many rows exercise wrapping and the panel's internal scrolling.
+  const stress = await context.newPage();
+  await stress.setViewportSize({ width: 360, height: 780 });
+  await stress.goto(`${appUrl}/layout-stress`);
+  await stress.locator('.idea-capture-section-header').nth(11).waitFor();
+  const stressPanel = stress.locator('#idea-capture-panel');
+  const stressToggle = stressPanel.locator('[data-action="toggle-panel"]');
+  await stressToggle.click();
+  assert.equal(await stress.locator('.idea-capture-section-header').count(), 12, 'long conversation fixture exposes all 12 section controls');
+  assert.equal(await stressPanel.locator('.row').count(), 12, 'the widget lists all 12 sections');
+  const stressMetrics = await stressPanel.evaluate(node => {
+    const rect = node.getBoundingClientRect();
+    const list = node.querySelector('.list');
+    return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom, panelHeight: rect.height, listHeight: list.clientHeight, listScrollHeight: list.scrollHeight, documentWidth: document.documentElement.scrollWidth, viewportWidth: innerWidth };
+  });
+  assert.ok(stressMetrics.left >= 0 && stressMetrics.right <= 360, `long-label panel stays within the narrow viewport: ${JSON.stringify(stressMetrics)}`);
+  assert.ok(stressMetrics.bottom <= 780, `long-label panel stays within the viewport height: ${JSON.stringify(stressMetrics)}`);
+  assert.ok(stressMetrics.documentWidth <= 360, `long labels create no horizontal page overflow: ${JSON.stringify(stressMetrics)}`);
+  assert.ok(stressMetrics.listScrollHeight > stressMetrics.listHeight, `many section rows scroll inside the panel: ${JSON.stringify(stressMetrics)}`);
+  await stress.screenshot({ path: 'artifacts/widget-long-labels-many-rows.png' });
+  await stress.setViewportSize({ width: 390, height: 780 });
+  const stress390 = await stressPanel.boundingBox();
+  assert.ok(stress390 && stress390.x >= 0 && stress390.x + stress390.width <= 390, `long-label panel fits at 390px: ${JSON.stringify(stress390)}`);
+  await stress.screenshot({ path: 'artifacts/widget-long-labels-390.png' });
+  await stress.setViewportSize({ width: 360, height: 480 });
+  const stressShort = await stressPanel.evaluate(node => {
+    const rect = node.getBoundingClientRect();
+    const body = node.querySelector('.panel-body');
+    const list = node.querySelector('.list');
+    return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom, panelHeight: rect.height, bodyHeight: body.clientHeight, bodyScrollHeight: body.scrollHeight, listHeight: list.clientHeight, listScrollHeight: list.scrollHeight, documentWidth: document.documentElement.scrollWidth };
+  });
+  assert.ok(stressShort.left >= 0 && stressShort.right <= 360, `long-label panel fits the 360px short viewport: ${JSON.stringify(stressShort)}`);
+  assert.ok(stressShort.top >= 0 && stressShort.bottom <= 480, `long-label panel fits the 360x480 viewport: ${JSON.stringify(stressShort)}`);
+  assert.ok(stressShort.documentWidth <= 360, `short viewport has no horizontal overflow: ${JSON.stringify(stressShort)}`);
+  assert.ok(stressShort.listScrollHeight > stressShort.listHeight, `section rows remain internally scrollable in the short viewport: ${JSON.stringify(stressShort)}`);
+  await stress.screenshot({ path: 'artifacts/widget-long-labels-360x480.png' });
 
   // The side rail tracks the turn under the viewport center and collapses the complete group in place.
   await panelToggle.click();
@@ -682,6 +797,11 @@ try {
   await popup.locator('#capture').waitFor({ state: 'visible' });
   assert.match(await popup.locator('#count').textContent(), /2 of 2 sections/);
   assert.match(await popup.locator('#preview').textContent(), /Popup preview will later exclude this turn/);
+  await popup.setViewportSize({ width: 1280, height: 900 });
+  const popupDesktop = await popup.evaluate(() => ({ viewportWidth: innerWidth, documentWidth: document.documentElement.scrollWidth, main: document.querySelector('main').getBoundingClientRect().toJSON() }));
+  assert.ok(popupDesktop.documentWidth <= 1280, `popup has no horizontal overflow at desktop width: ${JSON.stringify(popupDesktop)}`);
+  assert.ok(popupDesktop.main.left >= 0 && popupDesktop.main.right <= 1280, `popup content fits desktop width: ${JSON.stringify(popupDesktop)}`);
+  await popup.screenshot({ path: 'artifacts/popup-desktop.png', fullPage: true });
   await target.locator('.idea-capture-section-header input').nth(1).uncheck();
   await popup.locator('#send').click();
   await popup.getByText(/Saved to KB:/).waitFor();
@@ -689,8 +809,13 @@ try {
   assert.match(popupUpload, /Popup should keep this turn/);
   assert.match(popupUpload, /This selected answer stays/);
   assert.doesNotMatch(popupUpload, /Popup preview will later exclude this turn|This answer should not be uploaded/);
-  await popup.setViewportSize({ width: 430, height: 700 });
-  await popup.screenshot({ path: 'artifacts/popup.png', fullPage: true });
+  for (const width of [360, 390]) {
+    await popup.setViewportSize({ width, height: 700 });
+    const popupBounds = await popup.evaluate(() => ({ viewportWidth: innerWidth, documentWidth: document.documentElement.scrollWidth, main: document.querySelector('main').getBoundingClientRect().toJSON() }));
+    assert.ok(popupBounds.documentWidth <= width, `popup has no horizontal overflow at ${width}px: ${JSON.stringify(popupBounds)}`);
+    assert.ok(popupBounds.main.left >= 0 && popupBounds.main.right <= width, `popup content fits ${width}px: ${JSON.stringify(popupBounds)}`);
+    await popup.screenshot({ path: `artifacts/popup-${width}.png`, fullPage: true });
+  }
   assert.equal(errors.length, 0, errors.join('\n'));
   assert.equal(cspErrors.length, 0, cspErrors.join('\n'));
   console.log('Browser checks passed: turn sections, inline controls, selected MD/PDF export, dynamic/SPA updates, remote full capture, KB upload, and popup.');

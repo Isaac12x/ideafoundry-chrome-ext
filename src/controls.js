@@ -45,17 +45,44 @@ export function createCaptureControls(doc = document, win = window) {
   if (!shadow.querySelector('[data-idea-panel]')) {
     shadow.innerHTML = `
       <style>
-        *{box-sizing:border-box}
-        #idea-capture-panel{position:fixed;right:16px;bottom:16px;z-index:2147483647;width:min(340px,calc(100vw - 32px));max-height:min(70vh,620px);display:flex;flex-direction:column;background:#fff;color:#18221d;border:1px solid #b9c6be;border-radius:12px;box-shadow:0 8px 32px #10251c33;font:13px/1.4 system-ui,sans-serif}
+        :host{color-scheme:light;--paper:#fbfaf5;--ink:#24352b;--muted:#65746a;--line:#d9e0d8;--forest:#285b42;--wash:#edf3ed;font-family:"Avenir Next","Trebuchet MS",sans-serif;font-size:13px;line-height:1.45;color:var(--ink)}
+        *,*::before,*::after{box-sizing:border-box}
         [hidden]{display:none!important}
-        #idea-capture-panel>header{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid #e0e8e3;font-weight:700}button{font:inherit;cursor:pointer;border:1px solid #ccd8d0;border-radius:6px;background:#f7faf8;color:inherit;padding:5px 8px}button:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px solid #19704c;outline-offset:2px}.tools{display:flex;gap:6px;flex-wrap:wrap;padding:9px 12px 4px}.count{padding:2px 14px 8px;color:#506158}.list{overflow:auto;padding:0 8px 10px}.row{display:grid;grid-template-columns:auto 1fr auto;align-items:start;gap:8px;padding:8px 6px;border-top:1px solid #edf1ee}.row input{margin:2px 0 0}.label{overflow-wrap:anywhere}.label small{display:block;color:#65746b;margin-top:2px}.collapse{white-space:nowrap}.empty{padding:8px 14px;color:#506158}.empty p{margin:0 0 10px}.empty textarea,.diagnostics textarea{display:block;width:100%;min-height:150px;margin-top:8px;font:11px/1.4 ui-monospace,monospace;resize:vertical}
-        #idea-capture-margin-controls{position:fixed;top:50%;z-index:2147483646;transform:translateY(-50%);display:block;width:38px;height:38px;padding:1px;background:transparent;color:#18221d;border:0;border-radius:50%;box-shadow:none;font:12px/1.35 system-ui,sans-serif}
-        #idea-capture-margin-controls button{display:grid;place-items:center;width:36px;height:36px;padding:0;border:1px solid #b9c6be;border-radius:50%;background:#fff;color:#18221d;box-shadow:0 3px 12px #10251c2b;font-size:21px;line-height:1}
-        #idea-capture-margin-controls button:hover{background:#eef5f0}
+        button,input,textarea{font:inherit;color:inherit}
+        button{cursor:pointer}
+        #idea-capture-panel{position:fixed;right:clamp(12px,2vw,24px);bottom:clamp(12px,2vw,24px);z-index:2147483647;width:min(352px,calc(100vw - 24px));max-height:min(72vh,660px);display:flex;flex-direction:column;overflow:hidden;background:var(--paper);border:1px solid #c8d3ca;border-radius:10px;box-shadow:0 14px 42px #10251c38,0 2px 8px #10251c12;font-size:13px}
+        #idea-capture-panel:has(.panel-body[hidden]){width:min(214px,calc(100vw - 24px));max-height:none}
+        #idea-capture-panel>header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 16px;border-bottom:1px solid var(--line);font-family:Georgia,"Iowan Old Style",serif;font-size:16px;font-weight:600;letter-spacing:-.015em}
+        #idea-capture-panel:has(.panel-body[hidden])>header{padding:8px 10px;font-family:"Avenir Next","Trebuchet MS",sans-serif;font-size:12px;letter-spacing:0}
+        button{min-height:30px;padding:5px 9px;border:1px solid #cbd6ce;border-radius:5px;background:#f5f7f2;font-family:"Avenir Next","Trebuchet MS",sans-serif;font-size:11px;font-weight:600;transition:background-color 120ms ease,border-color 120ms ease,transform 120ms ease}
+        button:hover{background:#e8efe8;border-color:#aabcae}
+        button:active{transform:translateY(1px)}
+        button:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px solid #397650;outline-offset:2px}
+        .panel-body{display:flex;min-height:0;flex:1;flex-direction:column;overflow-y:auto;overscroll-behavior:contain}
+        .tools{display:flex;gap:6px;flex-wrap:wrap;padding:10px 12px 7px}
+        .tools button{min-height:28px;padding:4px 7px;font-size:10px}
+        .count{padding:2px 14px 9px;color:var(--muted);font-size:11px}
+        .list{min-height:0;flex:0 1 auto;max-height:min(38vh,360px);overflow:auto;overscroll-behavior:contain;padding:0 10px 12px}
+        .row{display:grid;grid-template-columns:17px minmax(0,1fr) auto;align-items:start;gap:9px;padding:10px 5px;border-top:1px solid #e6ebe5}
+        .row input{width:15px;height:15px;margin:2px 0 0;accent-color:var(--forest)}
+        .label{min-width:0;overflow-wrap:anywhere;font-size:12px;font-weight:550;line-height:1.35}
+        .label small{display:block;color:var(--muted);margin-top:3px;font-size:10px;font-weight:400}
+        .collapse{min-height:25px;padding:3px 7px;white-space:nowrap;font-size:10px}
+        .empty{padding:8px 14px 14px;color:#53645a}
+        .empty p{margin:0 0 10px}
+        .empty textarea,.diagnostics textarea{display:block;width:100%;min-height:132px;margin-top:8px;padding:9px;border:1px solid var(--line);border-radius:5px;background:#f4f3ec;font:11px/1.45 ui-monospace,monospace;resize:vertical}
+        .diagnostics{padding:0 14px 12px;color:var(--muted);font-size:11px}
+        .diagnostics:has(p:empty):not(:has(textarea:not([hidden]))){display:none}
+        .diagnostics p{margin:0}
+        #idea-capture-margin-controls{position:fixed;top:50%;z-index:2147483646;display:block;width:40px;height:40px;padding:2px;transform:translateY(-50%);border:0;border-radius:50%;background:transparent;color:var(--ink);font:12px/1.35 "Avenir Next","Trebuchet MS",sans-serif}
+        #idea-capture-margin-controls button{display:grid;place-items:center;width:36px;height:36px;min-height:36px;padding:0;border:1px solid #c7d3c9;border-radius:50%;background:var(--paper);color:var(--forest);box-shadow:0 3px 12px #10251c2b;font-family:Georgia,serif;font-size:22px;line-height:1;transition:background-color 120ms ease,border-color 120ms ease,transform 120ms ease}
+        #idea-capture-margin-controls button:hover{background:var(--wash);border-color:#9db5a3}
         #idea-capture-margin-controls button:active{transform:scale(.96)}
+        @media(max-width:420px){#idea-capture-panel{right:10px;bottom:10px;width:calc(100vw - 20px);max-height:68vh}#idea-capture-panel>header{padding:12px 13px}.tools{padding-inline:10px}.tools button{font-size:9px}}
+        @media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;transition:none!important}}
       </style>
       <section id="idea-capture-panel" data-idea-panel aria-label="Conversation sections" hidden>
-        <header><span>Choose sections to capture</span><button type="button" data-action="toggle-panel" aria-expanded="false">Open</button></header>
+        <header><span>Capture sections</span><button type="button" data-action="toggle-panel" aria-expanded="false">Open</button></header>
         <div class="panel-body" hidden><div class="tools"><button type="button" data-action="select-all">Select all</button><button type="button" data-action="select-none">Select none</button><button type="button" data-action="collapse-all">Collapse all</button><button type="button" data-action="expand-all">Expand all</button><button type="button" data-action="copy-diagnostics">Copy diagnostics</button></div><div class="count" aria-live="polite"></div><div class="empty" hidden><p data-empty-message></p><button type="button" data-action="retry">Retry detection</button><button type="button" data-action="copy-diagnostics">Copy diagnostics</button></div><div class="diagnostics"><p data-diagnostics-status aria-live="polite"></p><textarea data-diagnostics-fallback readonly hidden aria-label="Diagnostics to copy manually"></textarea></div><div class="list"></div></div>
       </section>
       <aside id="idea-capture-margin-controls" aria-label="Conversation section controls" hidden>
@@ -323,7 +350,10 @@ export function createCaptureControls(doc = document, win = window) {
       }
     }
     if (rects.length) {
-      cachedContentBounds = { left: median(rects.map(rect => rect.left)), right: median(rects.map(rect => rect.right)) };
+      // A section can contain a right-aligned prompt and a wider assistant
+      // reply. Median edges can land inside the reply and place the rail over
+      // readable text, so reserve the full horizontal span of the section.
+      cachedContentBounds = { left: Math.min(...rects.map(rect => rect.left)), right: Math.max(...rects.map(rect => rect.right)) };
       const mediaRects = (sectionMediaNodes.get(section?.id) || [])
         .filter(node => node.isConnected)
         .map(node => node.getBoundingClientRect())
@@ -500,6 +530,7 @@ export function createCaptureControls(doc = document, win = window) {
   }
   function onPointerDown(event) { onUserScrollIntent(event); }
   function onResize() {
+    cachedContentBounds = null;
     if (preserveActiveSection) syncRail();
     else scheduleActiveSection();
   }
@@ -652,7 +683,14 @@ export function installCollapseStyle(doc = document) {
     style = doc.createElement('style');
     if (!doc.getElementById(STYLE_ID)) style.id = STYLE_ID;
     style.setAttribute(OWNED, 'style');
-    style.textContent = `.${COLLAPSED_CLASS}{display:none!important}.idea-capture-section-header{display:flex;align-items:center;gap:8px;padding:7px 10px;margin:5px 0;background:#eef5f0;border:1px solid #c9d9ce;border-radius:7px;color:#1b3326;font:12px/1.4 system-ui,sans-serif;position:relative;z-index:10}.idea-capture-section-header input{appearance:auto!important;-webkit-appearance:checkbox!important;display:inline-block!important;visibility:visible!important;opacity:1!important;width:16px!important;height:16px!important;min-width:16px!important;min-height:16px!important;margin:0!important;accent-color:#19704c;flex:0 0 16px}.idea-capture-section-label{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.idea-capture-section-header button{font:inherit;cursor:pointer;border:1px solid #b9cbbf;border-radius:5px;background:white;color:inherit;padding:3px 7px}`;
+    style.textContent = `.${COLLAPSED_CLASS}{display:none!important}
+      .idea-capture-section-header{box-sizing:border-box;display:flex;align-items:center;gap:9px;width:min(100%,720px);min-height:38px;padding:6px 9px;margin:7px auto;background:#f4f6f0;border:1px solid #d5dfd5;border-radius:5px;color:#293b30;font:12px/1.4 "Avenir Next","Trebuchet MS",sans-serif;position:relative;z-index:10;box-shadow:0 1px 2px #10251c0a}
+      .idea-capture-section-header input{appearance:auto!important;-webkit-appearance:checkbox!important;display:inline-block!important;visibility:visible!important;opacity:1!important;width:16px!important;height:16px!important;min-width:16px!important;min-height:16px!important;margin:0!important;accent-color:#285b42;flex:0 0 16px}
+      .idea-capture-section-label{min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:550}
+      .idea-capture-section-header button{min-height:27px;padding:3px 8px;font:600 10px/1.2 "Avenir Next","Trebuchet MS",sans-serif;cursor:pointer;border:1px solid #ccd8ce;border-radius:4px;background:#fbfaf5;color:inherit;white-space:nowrap}
+      .idea-capture-section-header button:hover{background:#e8efe8}
+      .idea-capture-section-header button:focus-visible,.idea-capture-section-header input:focus-visible{outline:2px solid #397650;outline-offset:2px}
+      @media(max-width:520px){.idea-capture-section-header{gap:7px;padding-inline:7px;margin-block:5px}.idea-capture-section-header button{font-size:9px;padding-inline:6px}}`;
     (doc.head || doc.documentElement).append(style);
   }
   styles.set(doc, style);

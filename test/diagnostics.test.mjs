@@ -10,7 +10,7 @@ test('diagnostics report bounded structure and visible/hidden roots without page
   </section></main>`, { url: 'https://chatgpt.com/g/g-p-private-title/c/private-conversation-id' });
   const result = collectDiagnostics(dom.window.document, dom.window.location.href);
   const serialized = JSON.stringify(result);
-  assert.equal(result.version, '0.3.3');
+  assert.equal(result.version, '0.3.4');
   assert.equal(result.provider, 'ChatGPT');
   assert.equal(result.diagnosticsVersion, 2);
   assert.deepEqual(result.routeShape, ['g', '…', 'c', '…']);

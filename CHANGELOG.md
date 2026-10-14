@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.4 — 2026-10-14
+
+- Unify conversation controls, popup, and settings with warm paper colors, forest accents, and refined typography.
+- Make the closed section launcher more compact and keep long section lists scrollable in narrow or short windows.
+- Align inline section controls with the conversation column and refine button spacing and keyboard focus.
+- Add browser layout coverage for long labels, narrow viewports, popup/settings overflow, and control positioning.
+
 ## 0.3.3 — 2026-10-14
 
 - Collapse complete reply layouts, including gallery cards, reference controls, and action rows.
