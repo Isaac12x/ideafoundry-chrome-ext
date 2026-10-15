@@ -1,6 +1,6 @@
 {
   "name": "idea-chrome-ext",
-  "version": "0.3.6",
+  "version": "0.3.7",
   "private": true,
   "type": "module",
   "scripts": {
@@ -11,6 +11,7 @@
     "check": "npm test && npm run build"
   },
   "dependencies": {
+    "markdown-it": "^14.3.2",
     "pdfmake": "^0.3.11",
     "turndown": "^7.2.4",
     "turndown-plugin-gfm": "^1.0.2"

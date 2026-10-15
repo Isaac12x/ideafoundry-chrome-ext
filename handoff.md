@@ -172,3 +172,17 @@ A Luna implementation agent made the change and an independent Luna reviewer ide
 Reload the unpacked extension from dist/ and refresh existing conversation tabs for version 0.3.6. No Git remote is configured, so publishing a PR and monitoring comments remain unavailable.
 
 Final validation: npm run check passed (61 tests and production build); npm run test:browser passed on rerun. The first browser attempt passed the chevron assertions but timed out in the existing final media-permission/download fixture; the repeat passed the complete suite.
+
+## 2026-10-15 — 0.3.7 ordered sections and formatted exports
+
+The user reported collapsed cards collecting at the top, incomplete exports with unrelated images, literal Markdown in PDFs, and repeated media authorization prompts. Luna implementation agents handled collapse, extraction/PDF, and permissions. An independent Luna review found that the first PDF table workaround dropped embedded images; root reviewed afterward and requested fresh Luna fixes for the renderer and hidden-root/canvas extraction cases.
+
+Section headers now use the earliest collapse target in DOM order and inherit its CSS order, keeping later collapsed cards below earlier expanded replies in flex layouts. Split assistant prose blocks and sibling tables are captured together. Hidden provider branches are excluded while extension-collapsed selected content stays available. Canvas clones retain their original source mapping after hidden content is pruned.
+
+PDF generation now parses Markdown into pdfmake content rather than printing Markdown syntax. The renderer covers tables, emphasis, headings, lists, links, code, and referenced media. HTTP(S) host access is declared at installation; the per-page Allow media access widget action and optional settings permission request are removed. Chrome’s extension site-access settings remain authoritative, and the settings page explains that control. Remote capture remains restricted by the configured allowlist.
+
+Version is 0.3.7. Reload dist/ in Chrome/Arc and refresh existing conversation tabs. Provider layouts were tested with fixtures; the user's authenticated live conversation was not available for direct comparison. Only loaded DOM content can be exported. No Git remote is configured, so PR publication and comment monitoring remain unavailable.
+
+Final root verification: `npm run check` passed with 72/72 tests and production build. Root inspected the formatted PDF raster at `artifacts/formatted-export.png` and the mixed expanded/collapsed browser screenshot at `artifacts/ordered-collapse.png`, then reviewed the final renderer and extraction fixes. PDF tests exercise actual generation with table-cell images, nested lists, code, and companion references. Browser download assertions use Chrome's download records because extension-initiated downloads do not emit the page download event and Playwright assigns temporary filenames. Artifacts are ignored by Git.
+
+Final `npm run test:browser` passed against the final build, including geometric ordering of collapsed cards, automatic cross-site media ZIP export with zero permission requests, actual PDF/media generation, selection, KB uploads, remote jobs, and responsive widget behavior. `git diff --check` passed.

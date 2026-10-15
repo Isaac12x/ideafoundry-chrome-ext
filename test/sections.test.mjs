@@ -147,6 +147,44 @@ test('inline controls preserve selection through updates, collapse reversibly, a
   dom.window.close();
 });
 
+test('section headers stay in chronological DOM order while later and earlier turns are toggled', () => {
+  const dom = new JSDOM(`<!doctype html><html><body><main style="display:flex;flex-direction:column">
+    <article data-testid="conversation-turn-0" style="order:1"><div data-message-author-role="user">First prompt</div><div data-message-author-role="assistant">First reply</div></article>
+    <article data-testid="conversation-turn-1" style="order:2"><div data-message-author-role="user">Second prompt</div><div data-message-author-role="assistant">Second reply</div></article>
+    <article data-testid="conversation-turn-2" style="order:3"><div data-message-author-role="user">Third prompt</div><div data-message-author-role="assistant">Third reply</div></article>
+  </main></body></html>`, { url: 'https://chatgpt.com/c/1', pretendToBeVisual: true });
+  const { document } = dom.window;
+  installCollapseStyle(document);
+  const controls = createCaptureControls(document, dom.window);
+  const turns = [...document.querySelectorAll('article')];
+  const shadow = document.querySelector('[data-idea-capture-owned="host"]').shadowRoot;
+  assert.equal(shadow.querySelector('[data-action="allow-media"]'), null, 'the capture panel does not request media access');
+  const headersInOrder = () => [...document.querySelectorAll('.idea-capture-section-header')]
+    .map(header => header.querySelector('.idea-capture-section-label').textContent);
+  const assertNativeOrder = () => {
+    assert.deepEqual(headersInOrder(), ['First prompt', 'Second prompt', 'Third prompt']);
+    for (const [index, turn] of turns.entries()) {
+      const matchingHeader = [...document.querySelectorAll('.idea-capture-section-header')][index];
+      assert.equal(matchingHeader.parentElement, turn.parentElement);
+      assert.equal(matchingHeader.nextElementSibling, turn, 'each header stays immediately before its own turn');
+      assert.equal(matchingHeader.style.order, turn.style.order, 'the header shares its turn’s visual order in a flex or grid parent');
+    }
+  };
+  try {
+    assertNativeOrder();
+    let headers = [...document.querySelectorAll('.idea-capture-section-header')];
+    headers[2].querySelector('button').click();
+    headers = [...document.querySelectorAll('.idea-capture-section-header')];
+    headers[0].querySelector('button').click();
+    headers = [...document.querySelectorAll('.idea-capture-section-header')];
+    headers[0].querySelector('button').click();
+    assertNativeOrder();
+  } finally {
+    controls.destroy();
+    dom.window.close();
+  }
+});
+
 test('prepended duplicate prompts keep node-based selection and panel focus', () => {
   const dom = page();
   const { document } = dom.window;

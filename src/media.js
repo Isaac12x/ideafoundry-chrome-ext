@@ -1,10 +1,159 @@
 import { bytesToBase64, filename, markdown } from './shared.js';
+import MarkdownIt from 'markdown-it';
 
 export const MEDIA_MAX_ITEM_BYTES = 8 * 1024 * 1024;
 export const MEDIA_MAX_TOTAL_BYTES = 20 * 1024 * 1024;
 export const MEDIA_MAX_COUNT = 50;
 const MEDIA_MIME = /^(image\/(png|jpeg|gif|webp|avif|svg\+xml|bmp|tiff?)|audio\/[\w.+-]+|video\/[\w.+-]+|application\/(pdf|octet-stream|zip|msword|rtf|json|xml|vnd\.[\w.+-]+)|text\/(plain|markdown|csv))$/i;
 const PLACEHOLDER = /\{\{idea-media:([a-zA-Z0-9_-]{1,100})\}\}/g;
+const pdfMarkdown = new MarkdownIt({ html: false, linkify: false, breaks: false }).use(md => {
+  md.inline.ruler.before('text', 'idea_media', (state, silent) => {
+    const match = /^\{\{idea-media:([a-zA-Z0-9_-]{1,100})\}\}/.exec(state.src.slice(state.pos));
+    if (!match) return false;
+    if (!silent) { const token = state.push('idea_media', '', 0); token.meta = { id: match[1] }; }
+    state.pos += match[0].length;
+    return true;
+  });
+});
+
+function inlinePdf(tokens = [], mediaById = new Map(), conversation = {}, assetBase = null, maxWidth = 460) {
+  const active = [];
+  const output = [];
+  const style = () => Object.assign({}, ...active.map(item => item.style));
+  for (const token of tokens) {
+    if (token.nesting === 1) {
+      const next = {};
+      if (token.type === 'strong_open') next.bold = true;
+      if (token.type === 'em_open') next.italics = true;
+      if (token.type === 's_open') next.decoration = 'lineThrough';
+      if (token.type === 'link_open') { next.link = token.attrGet('href'); next.color = '#335d4d'; }
+      active.push({ type: token.type.replace('_open', '_close'), style: next });
+    } else if (token.nesting === -1) {
+      const index = active.map(item => item.type).lastIndexOf(token.type);
+      if (index >= 0) active.splice(index);
+    } else if (token.type === 'text' || token.type === 'code_inline' || token.type === 'html_inline') {
+      output.push({ text: token.content, ...style(), ...(token.type === 'code_inline' ? { background: '#f1f3f2' } : {}) });
+    } else if (token.type === 'softbreak' || token.type === 'hardbreak') output.push({ text: '\n', ...style() });
+    else if (token.type === 'image') output.push({ text: token.content || token.attrGet('alt') || 'Image' });
+    else if (token.type === 'idea_media') {
+      const node = pdfMediaNode(mediaById.get(token.meta?.id), conversation, assetBase, maxWidth);
+      if (Array.isArray(node.text)) output.push(...node.text.map(run => ({ ...run, ...style() })));
+      else output.push({ ...node, ...style() });
+    }
+  }
+  return output;
+}
+
+function pdfMediaNode(item, conversation, assetBase, maxWidth = 460) {
+  if (!item) return { text: 'Media unavailable: reference missing from this capture.', italics: true };
+  const label = item.alt || item.title || item.filename || item.kind || 'Referenced media';
+  if (item.kind === 'image' && item.pdfData) return { image: item.pdfData, width: maxWidth, fit: [maxWidth, 640], margin: [0, 3, 0, 3] };
+  const source = item.url || conversation.url;
+  if (item.error || item.pdfError || !item.data) return { text: `Media unavailable: ${item.error || item.pdfError || 'file data was not captured'} — ${label}`, link: source, color: '#335d4d' };
+  const text = [{ text: label, ...(source ? { link: source } : {}), color: '#335d4d' }];
+  if (item.data && item.filename) {
+    const name = assetBase ? flatCompanionName(item) : `media/${item.filename}`;
+    const companionLink = assetBase ? kbAssetUrl(assetBase, name) : undefined;
+    text.push({ text: ` (companion: ${name})`, ...(companionLink ? { link: companionLink } : {}), color: '#335d4d', fontSize: 8 });
+  }
+  return { text };
+}
+
+function pdfMediaParagraph(item, conversation, assetBase, maxWidth = 460) {
+  if (!item) return [{ text: 'Media unavailable: reference missing from this capture.', italics: true }];
+  const label = item.alt || item.title || item.filename || item.kind || 'Referenced media';
+  const source = item.url || conversation.url;
+  if (item.kind === 'image' && item.pdfData) return [pdfMediaNode(item, conversation, assetBase, maxWidth)];
+  if (item.error || item.pdfError || !item.data) return [{ text: `Media unavailable: ${item.error || item.pdfError || 'file data was not captured'} — ${label}`, link: source, color: '#335d4d', margin: [0, 4, 0, 4] }];
+  const name = assetBase ? flatCompanionName(item) : `media/${item.filename}`;
+  const companion = { text: `${item.kind || 'Media'} companion: ${name}`, margin: [0, 4, 0, 1] };
+  if (assetBase) companion.link = kbAssetUrl(assetBase, name);
+  const original = { text: `Original source: ${source}`, link: source, color: '#335d4d', fontSize: 8, margin: [0, 0, 0, 4] };
+  return [companion, original];
+}
+
+function inlineBlock(tokens, mediaById, conversation, assetBase, maxWidth = 460) {
+  const runs = inlinePdf(tokens, mediaById, conversation, assetBase, maxWidth);
+  if (!runs.some(run => run && typeof run === 'object' && ('image' in run || 'stack' in run))) return { text: runs };
+  const stack = []; let text = [];
+  const flush = () => { if (text.length) { stack.push({ text }); text = []; } };
+  for (const run of runs) {
+    if (run && typeof run === 'object' && ('image' in run || 'stack' in run)) { flush(); stack.push(run); }
+    else text.push(run);
+  }
+  flush();
+  if (stack.length === 1 && !text.length) return stack[0];
+  return { stack, margin: [0, 0, 0, 7] };
+}
+
+function markdownPdfBlocks(source, mediaById = new Map(), conversation = {}, assetBase = null) {
+  const tokens = pdfMarkdown.parse(source, {});
+  const parse = (start, stopType, maxWidth = 460) => {
+    const blocks = [];
+    let i = start;
+    while (i < tokens.length && tokens[i].type !== stopType) {
+      const token = tokens[i++];
+      if (token.type === 'paragraph_open' || /^heading_open$/.test(token.type)) {
+        const inline = tokens[i++]; i++; // inline, matching close
+        const heading = token.type === 'heading_open';
+        if (!heading && inline?.children?.length === 1 && inline.children[0].type === 'idea_media') {
+          blocks.push(...pdfMediaParagraph(mediaById.get(inline.children[0].meta?.id), conversation, assetBase, maxWidth));
+          continue;
+        }
+        const block = inlineBlock(inline?.children, mediaById, conversation, assetBase, maxWidth);
+        blocks.push({ ...block, ...(heading ? { fontSize: Math.max(12, 20 - Number(token.tag.slice(1)) * 2), bold: true } : {}), margin: heading ? [0, 8, 0, 4] : [0, 0, 0, 7] });
+      } else if (token.type === 'fence' || token.type === 'code_block') {
+        blocks.push({ text: token.content.replace(/\n$/, ''), fontSize: 8, background: '#f1f3f2', margin: [0, 3, 0, 8], preserveLeadingSpaces: true });
+      } else if (token.type === 'hr') blocks.push({ canvas: [{ type: 'line', x1: 0, y1: 0, x2: maxWidth, y2: 0, lineWidth: 0.7, lineColor: '#9ca8a2' }], margin: [0, 5, 0, 8] });
+      else if (token.type === 'blockquote_open') {
+        const nested = parse(i, 'blockquote_close', maxWidth - 12); i = nested.next + 1;
+        blocks.push(...nested.blocks.map(block => ({ ...block, margin: [12, 2, 0, 6], color: '#46534d' })));
+      } else if (token.type === 'bullet_list_open' || token.type === 'ordered_list_open') {
+        const endType = token.type === 'bullet_list_open' ? 'bullet_list_close' : 'ordered_list_close';
+        const items = [];
+        while (i < tokens.length && tokens[i].type !== endType) {
+          if (tokens[i].type !== 'list_item_open') { i++; continue; }
+          i++;
+          const nested = parse(i, 'list_item_close', maxWidth - 18);
+          i = nested.next + 1;
+          items.push(nested.blocks.length === 1 ? nested.blocks[0] : { stack: nested.blocks.length ? nested.blocks : [{ text: '' }] });
+        }
+        i++;
+        const list = { [token.type === 'bullet_list_open' ? 'ul' : 'ol']: items, margin: [0, 0, 0, 8] };
+        if (token.type === 'ordered_list_open' && Number(token.attrGet?.('start')) > 1) list.start = Number(token.attrGet('start'));
+        blocks.push(list);
+      } else if (token.type === 'table_open') {
+        const body = [];
+        const firstRowStart = tokens.findIndex((item, index) => index >= i && item.type === 'tr_open');
+        let columnCount = 1;
+        if (firstRowStart >= 0) {
+          const firstRowEnd = tokens.findIndex((item, index) => index > firstRowStart && item.type === 'tr_close');
+          columnCount = tokens.slice(firstRowStart + 1, firstRowEnd).filter(item => item.type === 'th_open' || item.type === 'td_open').length || 1;
+        }
+        while (i < tokens.length && tokens[i].type !== 'table_close') {
+          if (tokens[i].type === 'tr_open') {
+            i++; const row = [];
+            while (i < tokens.length && tokens[i].type !== 'tr_close') {
+              if (tokens[i].type === 'inline') {
+                const cellWidth = Math.max(1, maxWidth / columnCount - 16);
+                const cell = inlineBlock(tokens[i].children, mediaById, conversation, assetBase, cellWidth);
+                const cellToken = tokens[i - 1];
+                const alignment = /text-align\s*:\s*(left|center|right)/i.exec(cellToken?.attrGet?.('style') || '')?.[1]?.toLowerCase();
+                row.push({ ...cell, bold: cellToken?.type === 'th_open', ...(alignment ? { alignment } : {}) });
+              }
+              i++;
+            }
+            body.push(row); i++;
+          } else i++;
+        }
+        i++;
+        if (body.length) blocks.push({ table: { headerRows: tokens.slice(start, i).some(item => item.type === 'thead_open') ? 1 : 0, widths: Array(body[0].length).fill('*'), body }, layout: 'lightHorizontalLines', margin: [0, 2, 0, 9] });
+      }
+    }
+    return { blocks, next: i };
+  };
+  return parse(0).blocks;
+}
 
 export function mediaOrigins(conversation) {
   const origins = new Set();
@@ -218,33 +367,7 @@ function flatCompanionName(item) { return `media-${String(item.id).replace(/[^a-
 
 export function pdfMessageContent(message, conversation, assetBase = null) {
   const byId = new Map((conversation.media || []).map(item => [item.id, item]));
-  const content = [];
-  let last = 0;
-  let match;
-  PLACEHOLDER.lastIndex = 0;
-  while ((match = PLACEHOLDER.exec(message.markdown))) {
-    const before = message.markdown.slice(last, match.index);
-    if (before) content.push({ text: before, preserveLeadingSpaces: true });
-    const item = byId.get(match[1]);
-    if (item?.kind === 'image' && item.pdfData) {
-      content.push({ image: item.pdfData, width: 460, fit: [460, 640], margin: [0, 8, 0, 8] });
-    } else if (item) {
-      const label = item.alt || item.title || item.filename || item.kind || 'Referenced media';
-      const source = item.url || conversation.url;
-      if (item.error || item.pdfError || !item.data) {
-        content.push({ text: `Media unavailable: ${item.error || item.pdfError || 'file data was not captured'} — ${label}`, link: source, color: '#335d4d', margin: [0, 4, 0, 4] });
-      } else {
-        const name = assetBase ? flatCompanionName(item) : `media/${item.filename}`;
-        if (assetBase) content.push({ text: `${item.kind || 'Media'} companion: ${name}`, link: kbAssetUrl(assetBase, name), color: '#335d4d', margin: [0, 4, 0, 1] });
-        else content.push({ text: `${item.kind || 'Media'} companion: ${name}`, margin: [0, 4, 0, 1] });
-        content.push({ text: `Original source: ${source}`, link: source, color: '#335d4d', fontSize: 8, margin: [0, 0, 0, 4] });
-      }
-    } else content.push({ text: 'Media unavailable: reference missing from this capture.', italics: true });
-    last = PLACEHOLDER.lastIndex;
-  }
-  const after = message.markdown.slice(last);
-  if (after) content.push({ text: after, preserveLeadingSpaces: true });
-  return content.length ? content : [{ text: message.markdown, preserveLeadingSpaces: true }];
+  return markdownPdfBlocks(message.markdown, byId, conversation, assetBase);
 }
 
 export async function preparePdfMedia(conversation) {

@@ -15,11 +15,19 @@ const fixtureCss = 'body{margin:0;background:#f5f5f2;color:#242824;font:16px/1.6
 let locked = false;
 const app = createServer(async (req, res) => {
   const path = new URL(req.url, 'http://fixture').pathname;
+  if (path === '/media/evidence.png') {
+    const bytes = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=', 'base64');
+    res.writeHead(200, { 'Content-Type': 'image/png', 'Content-Length': bytes.length }); return res.end(bytes);
+  }
   if (path === '/media/brief.pdf') {
     res.writeHead(200, { 'Content-Type': 'application/pdf', 'Content-Length': pdfFixture.length }); return res.end(pdfFixture);
   }
   if (path === '/fixture.css') {
     res.writeHead(200, { 'Content-Type': 'text/css' }); return res.end(fixtureCss);
+  }
+  if (path === '/ordered-turns') {
+    res.writeHead(200, { 'Content-Type': 'text/html' });
+    return res.end(`<!doctype html><title>Ordered turns</title><main style="display:flex;flex-direction:column">${[1,2,3].map(i => `<article data-testid="conversation-turn-${i}" style="order:${i}"><div data-message-author-role="user">Prompt ${i}</div><div data-message-author-role="assistant" style="height:180px">Answer ${i}</div></article>`).join('')}</main>`);
   }
   if (path === '/layout-stress') {
     const turns = Array.from({ length: 12 }, (_, i) => `<div data-message-author-role="user"><p>Fieldwork section ${String(i + 1).padStart(2, '0')}: participant recruitment, consent scheduling, and interview follow-up across the regional community research study</p></div><div data-message-author-role="assistant"><p>Response ${i + 1}: preserve the participant context, evidence notes, and decision links for the next review.</p></div>`).join('');
@@ -60,7 +68,7 @@ try {
   const extension = join(temp, 'extension'); await cp('dist', extension, { recursive: true });
   const manifest = JSON.parse(await readFile(join(extension, 'manifest.json')));
   assert.equal(manifest.action?.default_popup, undefined, 'the toolbar action no longer opens a popup');
-  // Fixture-only access avoids OS permission dialogs in CI. Production keeps optional permissions.
+  // Restrict this test profile to its fixture hosts.
   manifest.host_permissions = ['http://127.0.0.1/*', 'https://chatgpt.com/*', 'https://claude.ai/*'];
   manifest.content_scripts[0].matches.push('http://127.0.0.1/*');
   await writeFile(join(extension, 'manifest.json'), JSON.stringify(manifest));
@@ -579,6 +587,20 @@ try {
   assert.equal(await panel.locator('.panel-body').isHidden(), true);
   await target.screenshot({ path: 'artifacts/widget-closed-desktop.png' });
   await panelToggle.click();
+  const orderedPage = await context.newPage();
+  await orderedPage.goto(`${appUrl}/ordered-turns`);
+  await orderedPage.locator('.idea-capture-section-header').nth(2).waitFor();
+  const orderedWidget = orderedPage.locator('#idea-capture-panel');
+  await orderedWidget.locator('[data-action="toggle-panel"]').click();
+  await orderedWidget.locator('[data-action="collapse-all"]').click();
+  await orderedPage.locator('.idea-capture-section-header button').nth(0).click();
+  const orderedGeometry = await orderedPage.evaluate(() => ({
+    replyBottom: document.querySelector('[data-testid="conversation-turn-1"]').getBoundingClientRect().bottom,
+    nextHeaderTop: document.querySelectorAll('.idea-capture-section-header')[1].getBoundingClientRect().top,
+  }));
+  assert.ok(orderedGeometry.nextHeaderTop >= orderedGeometry.replyBottom, `later collapsed section remains below the expanded previous reply: ${JSON.stringify(orderedGeometry)}`);
+  await orderedPage.screenshot({ path: 'artifacts/ordered-collapse.png' });
+  await orderedPage.close();
   // Long prompts and many rows exercise wrapping and the panel's internal scrolling.
   const stress = await context.newPage();
   await stress.setViewportSize({ width: 360, height: 780 });
@@ -883,31 +905,17 @@ try {
   const settingsPage = context.pages().find(page => page.url().endsWith('/options.html'));
   assert.ok(settingsPage, 'the widget settings action opens the existing settings page');
 
-  // A second extension profile has no required ChatGPT host permission. Its
-  // declared content script must still auto-inject the widget, whose own
-  // capture path can export without background executeScript access.
+  // Exercise the production manifest: media access is available on installation.
   const autoExtension = join(temp, 'auto-extension'); await cp('dist', autoExtension, { recursive: true });
   const autoManifest = JSON.parse(await readFile(join(autoExtension, 'manifest.json')));
-  autoManifest.host_permissions = [`${new URL(appUrl).origin}/*`];
-  await writeFile(join(autoExtension, 'manifest.json'), JSON.stringify(autoManifest));
-  assert.equal(autoManifest.host_permissions.some(origin => origin.includes('chatgpt.com')), false, 'auto-injection fixture has no explicit ChatGPT host permission');
+  assert.deepEqual(autoManifest.host_permissions, ['http://*/*', 'https://*/*']);
   autoContext = await chromium.launchPersistentContext(join(temp, 'auto-profile'), { channel: 'chromium', headless: true, args: ['--deny-permission-prompts', `--disable-extensions-except=${autoExtension}`, `--load-extension=${autoExtension}`] });
   const autoWorker = autoContext.serviceWorkers()[0] || await autoContext.waitForEvent('serviceworker');
   await autoWorker.evaluate(() => {
-    const requestPermission = chrome.permissions.request.bind(chrome.permissions);
-    chrome.permissions.request = async details => {
-      const pending = Symbol('permission prompt pending');
-      try {
-        const result = await Promise.race([requestPermission(details), new Promise(resolve => setTimeout(() => resolve(pending), 2500))]);
-        self.__browserPermissionRequest = { origins: details.origins, result: result === pending ? 'prompt-pending' : result ? 'granted' : 'denied' };
-        return result === pending ? false : result;
-      } catch (error) {
-        self.__browserPermissionRequest = { origins: details.origins, result: 'error', error: error.message };
-        throw error;
-      }
-    };
+    self.__browserPermissionRequests = 0;
+    chrome.permissions.request = async () => { self.__browserPermissionRequests++; throw new Error('Unexpected permission prompt'); };
   });
-  await autoContext.route('https://chatgpt.com/**', route => route.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><title>Automatic capture</title><main><div data-message-author-role="user">A question with automatic injection.</div><div data-message-author-role="assistant">An answer captured by the page widget.<img alt="Remote evidence" src="https://media.example/evidence.png"></div></main>' }));
+  await autoContext.route('https://chatgpt.com/**', route => route.fulfill({ status: 200, contentType: 'text/html', body: `<!doctype html><title>Automatic capture</title><main><div data-message-author-role="user">A question with automatic injection.</div><div data-message-author-role="assistant">An answer captured by the page widget.<img alt="Remote evidence" src="${appUrl}/media/evidence.png"></div></main>` }));
   const autoPage = await autoContext.newPage();
   await autoPage.goto('https://chatgpt.com/c/auto-injected');
   await autoPage.locator('[data-idea-capture-owned="host"]').waitFor({ state: 'attached' });
@@ -915,19 +923,14 @@ try {
   await autoWidget.locator('[data-action="toggle-panel"]').click();
   await autoWidget.locator('[data-summary]').waitFor();
   assert.match(await autoWidget.locator('[data-summary]').textContent(), /2 messages/);
-  const allowMedia = autoWidget.locator('[data-action="allow-media"]');
-  await allowMedia.waitFor({ state: 'visible' });
-  await allowMedia.click();
-  await autoPage.waitForFunction(() => /Media access granted\.|Media access was not granted; unavailable media will be omitted\.|gesture/i.test(document.querySelector('#idea-capture-controls')?.shadowRoot?.querySelector('[data-capture-status]')?.textContent || ''), null, { timeout: 10000 });
-  const mediaPermissionStatus = await autoWidget.locator('[data-capture-status]').textContent();
-  const permissionRequestResult = await autoWorker.evaluate(() => self.__browserPermissionRequest);
-  assert.deepEqual(permissionRequestResult.origins, ['https://media.example/*'], 'the widget click requests only the captured media origin');
-  assert.ok(['granted', 'denied', 'prompt-pending'].includes(permissionRequestResult.result), `permission request settles or reaches the headless prompt: ${JSON.stringify(permissionRequestResult)}`);
-  assert.doesNotMatch(mediaPermissionStatus, /user gesture/i, 'media permission request runs from the widget click without losing its user gesture');
-  console.log('Optional media permission:', permissionRequestResult.result);
+  assert.equal(await autoWidget.locator('[data-action="allow-media"]').count(), 0, 'media authorization is no longer a widget action');
+  assert.equal(await autoWorker.evaluate(() => chrome.permissions.contains({ origins: ['https://media.example/*'] })), true, 'cross-site media access is granted by the production manifest');
   await autoWidget.locator('[name="format"][value="md"]').check();
   await autoWidget.locator('[data-action="download"]').click();
   await autoPage.waitForFunction(() => /Download started in Chrome\./i.test(document.querySelector('#idea-capture-controls')?.shadowRoot?.querySelector('[data-capture-status]')?.textContent || ''), null, { timeout: 10000 });
+  const [autoDownload] = await autoWorker.evaluate(() => chrome.downloads.search({ limit: 1, orderBy: ['-startTime'] }));
+  assert.equal(autoDownload.mime, 'application/zip', 'automatically authorized cross-site image is bundled with the Markdown');
+  assert.equal(await autoWorker.evaluate(() => self.__browserPermissionRequests), 0, 'download requires no per-page permission prompt');
   assert.equal(errors.length, 0, errors.join('\n'));
   assert.equal(cspErrors.length, 0, cspErrors.join('\n'));
   console.log('Browser checks passed: turn sections, inline controls, selected MD/PDF export and download, dynamic/SPA updates, remote full capture, KB upload, diagnostics, settings, and responsive on-page widget.');

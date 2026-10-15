@@ -78,7 +78,7 @@ async function loaded(tabId) {
   throw new Error('Page loading timed out. Open it in Chrome and retry.');
 }
 async function permitted(origin) {
-  if (!(await chrome.permissions.contains({ origins: [`${origin}/*`] }))) throw new Error(`Grant access to ${origin} in extension settings first.`);
+  if (!(await chrome.permissions.contains({ origins: [`${origin}/*`] }))) throw new Error(`Allow this site in Chrome's extension site access settings: ${origin}`);
 }
 async function sendToKB(conversation, format) {
   conversation = await permissionFilteredMedia(conversation);
@@ -107,7 +107,7 @@ async function permissionFilteredMedia(conversation) {
   return { ...conversation, media: (conversation.media || []).map(item => {
     try {
       if (item.data || item.error) return item;
-      if (missingHosts.has(new URL(item.url).origin)) return { ...item, error: 'Access was not granted for this media site. Grant site access in extension settings and retry.' };
+      if (missingHosts.has(new URL(item.url).origin)) return { ...item, error: 'Chrome site access is disabled for this media site. Allow access in the extension menu and retry.' };
     } catch { /* data and page-owned blob media need no host permission */ }
     return item;
   }) };
@@ -216,11 +216,6 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
   if (!fromExtension && !sender.tab?.id) return;
   (async () => {
     if (message.type === 'open-settings') { await chrome.runtime.openOptionsPage(); return {}; }
-    if (message.type === 'widget-media-permission') {
-      if (!sender.tab?.id || !message.conversation) throw new Error('Media access must be requested from the page widget.');
-      const origins = mediaOrigins(message.conversation);
-      return { granted: origins.length > 0 && await chrome.permissions.request({ origins }) };
-    }
     if (message.type === 'widget-export') {
       if (!sender.tab?.id || !['download', 'kb'].includes(message.destination)) throw new Error('Capture must be started from the page widget.');
       if (!message.conversation || !Array.isArray(message.conversation.messages)) throw new Error('No conversation is ready to save.');

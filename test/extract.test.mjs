@@ -14,6 +14,51 @@ test('ChatGPT preserves roles, code, tables, links and strips controls', () => {
   assert.doesNotMatch(markdown(result), /Copy/);
   assert.match(markdown(result), /Source: <https:\/\/chatgpt.com\/c\/123>/);
 });
+test('hidden conversation branches are skipped while extension-collapsed selected turns remain capturable', () => {
+  const dom = new JSDOM(`<style>.idea-capture-section-collapsed{display:none}.provider-hidden{display:none}</style><main>
+    <div data-message-author-role="user" class="idea-capture-section-collapsed"><p>Selected collapsed prompt</p><img src="https://cdn.example/selected.png"></div>
+    <div data-message-author-role="assistant" class="provider-hidden"><p>Hidden stale answer</p><img src="https://cdn.example/stale.png"></div>
+    <div data-message-author-role="assistant"><p>Visible answer</p><img class="provider-hidden" src="https://cdn.example/hidden.png"></div>
+  </main>`, { url: 'https://chatgpt.com/c/123' });
+  const result = extractConversation(dom.window.document, dom.window.location.href);
+  assert.match(result.messages[0].markdown, /Selected collapsed prompt/);
+  assert.match(result.messages[1].markdown, /Visible answer/);
+  assert.deepEqual(result.media.map(item => item.url), ['https://cdn.example/selected.png']);
+});
+test('hidden inferred ChatGPT candidate roots and hidden descendants are excluded', () => {
+  const dom = new JSDOM(`<style>.provider-hidden{display:none}</style><main id="thread">
+    <div class="bg-user-message">Visible question</div>
+    <div class="provider-hidden"><img src="https://cdn.example/hidden-root.png" alt="Hidden"></div>
+    <div><p>Visible answer</p><img class="provider-hidden" src="https://cdn.example/hidden-child.png"></div>
+  </main>`, { url: 'https://chatgpt.com/c/123' });
+  const result = extractConversation(dom.window.document, dom.window.location.href);
+  assert.deepEqual(result.messages.map(message => message.markdown.match(/Visible question|Visible answer/)?.[0]), ['Visible question', 'Visible answer']);
+  assert.deepEqual(result.media, []);
+  dom.window.close();
+});
+test('canvas extraction keeps the original canvas paired after hidden clone branches are pruned', () => {
+  const dom = new JSDOM(`<style>.provider-hidden{display:none}</style><main>
+    <div data-message-author-role="assistant"><canvas class="provider-hidden"></canvas><canvas></canvas></div>
+  </main>`, { url: 'https://chatgpt.com/c/123' });
+  const canvases = dom.window.document.querySelectorAll('canvas');
+  canvases[0].toDataURL = () => 'data:image/png;base64,hidden';
+  canvases[1].toDataURL = () => 'data:image/png;base64,visible';
+  const result = extractConversation(dom.window.document, dom.window.location.href);
+  assert.equal(result.media.length, 1);
+  assert.equal(result.media[0].url, 'data:image/png;base64,visible');
+  dom.window.close();
+});
+test('ChatGPT exports the full assistant turn when its prose and table are split across siblings', () => {
+  const result = extract(`<main><div class="user-message-bubble"><p>Compare these</p></div>
+    <div class="assistant-turn"><div class="markdown"><p>First paragraph.</p></div><table><tr><th>Item</th><th>Value</th></tr><tr><td>Alpha</td><td>3</td></tr></table><div class="prose"><p>Second paragraph.</p></div><button>Copy</button></div>
+  </main>`);
+  const answers = result.messages.filter(message => message.role === 'Assistant');
+  assert.equal(answers.length, 1);
+  assert.match(answers[0].markdown, /First paragraph/);
+  assert.match(answers[0].markdown, /\| Item \| Value \|/);
+  assert.match(answers[0].markdown, /Second paragraph/);
+  assert.doesNotMatch(answers[0].markdown, /Copy/);
+});
 test('ChatGPT keeps separate roles inside one article instead of merging the turn', () => {
   const result = extract('<article data-testid="conversation-turn-1"><div data-message-author-role="user"><p>Question</p></div><div data-message-author-role="assistant"><p>Answer</p></div></article>');
   assert.deepEqual(result.messages.map(message => message.role), ['User', 'Assistant']);
@@ -204,6 +249,11 @@ test('ChatGPT does not reinterpret prose nested inside a user bubble as an assis
   assert.deepEqual(result.messages.map(message => message.role), ['User']);
   assert.deepEqual(result.sections.map(section => section.label), ['User prompt']);
   dom.window.close();
+});
+test('assistant styling wrappers containing a labeled user message do not duplicate its content', () => {
+  const result = extract('<main><div class="assistant-turn"><div data-message-author-role="user">Prompt inside wrapper</div></div></main>');
+  assert.deepEqual(result.messages.map(message => message.role), ['User']);
+  assert.match(result.messages[0].markdown, /Prompt inside wrapper/);
 });
 test('ChatGPT uses labeled article roles before nested generic markdown classes', () => {
   const dom = new JSDOM(`<main><article><h2 class="sr-only">You said:</h2><div class="markdown">User prompt</div></article><article><h2 class="sr-only">ChatGPT said:</h2><div class="markdown">Assistant reply</div></article></main>`, { url: 'https://chatgpt.com/g/g-p-demo/c/123' });

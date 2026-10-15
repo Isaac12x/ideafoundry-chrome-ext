@@ -1,7 +1,6 @@
 import { chatGptConversationRoot, extractConversation } from './extract.js';
 import { collectDiagnostics } from './diagnostics.js';
 import { markdown } from './shared.js';
-import { mediaOrigins } from './media.js';
 
 const HOST_ID = 'idea-capture-controls';
 const COLLAPSED_CLASS = 'idea-capture-section-collapsed';
@@ -88,7 +87,7 @@ export function createCaptureControls(doc = document, win = window) {
       </style>
       <section id="idea-capture-panel" data-idea-panel aria-label="Conversation capture" hidden>
         <header><span>IdeaFoundry / Capture</span><button type="button" data-action="toggle-panel" aria-expanded="false">Open</button></header>
-        <div class="panel-body" hidden><div class="capture-meta"><h2 data-title>Conversation capture</h2><p data-summary></p><p data-warning></p></div><div class="tools"><button type="button" data-action="select-all">Select all</button><button type="button" data-action="select-none">Select none</button><button type="button" data-action="collapse-all">Collapse all</button><button type="button" data-action="expand-all">Expand all</button><button type="button" data-action="copy-diagnostics">Copy diagnostics</button></div><div class="count" aria-live="polite"></div><div class="empty" hidden><p data-empty-message></p><button type="button" data-action="retry">Retry detection</button><button type="button" data-action="copy-diagnostics">Copy diagnostics</button></div><div class="diagnostics"><p data-diagnostics-status aria-live="polite"></p><textarea data-diagnostics-fallback readonly hidden aria-label="Diagnostics to copy manually"></textarea></div><details class="preview" data-preview><summary>Review captured conversation</summary><pre data-preview-text></pre></details><div class="list"></div><div class="capture-tools"><div class="format" role="group" aria-label="File format"><label><input type="radio" name="format" value="md" checked> Markdown</label><label><input type="radio" name="format" value="pdf"> PDF</label></div><div class="actions"><button type="button" data-action="download">Download file</button><button type="button" data-action="settings">Settings</button><button type="button" data-action="send-kb">Send to knowledge base ↗</button><button type="button" data-action="allow-media" hidden>Allow media access</button></div><p class="capture-status" data-capture-status role="status" aria-live="polite"></p></div></div>
+        <div class="panel-body" hidden><div class="capture-meta"><h2 data-title>Conversation capture</h2><p data-summary></p><p data-warning></p></div><div class="tools"><button type="button" data-action="select-all">Select all</button><button type="button" data-action="select-none">Select none</button><button type="button" data-action="collapse-all">Collapse all</button><button type="button" data-action="expand-all">Expand all</button><button type="button" data-action="copy-diagnostics">Copy diagnostics</button></div><div class="count" aria-live="polite"></div><div class="empty" hidden><p data-empty-message></p><button type="button" data-action="retry">Retry detection</button><button type="button" data-action="copy-diagnostics">Copy diagnostics</button></div><div class="diagnostics"><p data-diagnostics-status aria-live="polite"></p><textarea data-diagnostics-fallback readonly hidden aria-label="Diagnostics to copy manually"></textarea></div><details class="preview" data-preview><summary>Review captured conversation</summary><pre data-preview-text></pre></details><div class="list"></div><div class="capture-tools"><div class="format" role="group" aria-label="File format"><label><input type="radio" name="format" value="md" checked> Markdown</label><label><input type="radio" name="format" value="pdf"> PDF</label></div><div class="actions"><button type="button" data-action="download">Download file</button><button type="button" data-action="settings">Settings</button><button type="button" data-action="send-kb">Send to knowledge base ↗</button></div><p class="capture-status" data-capture-status role="status" aria-live="polite"></p></div></div>
       </section>
       <aside id="idea-capture-margin-controls" aria-label="Conversation section controls" hidden>
         <button type="button" data-idea-section-id aria-expanded="true" aria-label="Collapse current section"></button>
@@ -112,7 +111,6 @@ export function createCaptureControls(doc = document, win = window) {
   const preview = shadow.querySelector('[data-preview]');
   const previewText = shadow.querySelector('[data-preview-text]');
   const captureStatus = shadow.querySelector('[data-capture-status]');
-  const allowMediaButton = shadow.querySelector('[data-action="allow-media"]');
   const captureActions = shadow.querySelector('.capture-tools');
   let busy = false;
   async function request(message) {
@@ -126,7 +124,6 @@ export function createCaptureControls(doc = document, win = window) {
       title.textContent = conversation.title || 'Conversation capture';
       summary.textContent = `${conversation.provider} · ${conversation.messages.length} messages · ${sections.filter(section => selected.get(section.id) !== false).length} of ${sections.length} sections`;
       warning.textContent = conversation.warning || '';
-      allowMediaButton.hidden = mediaOrigins(conversation).length === 0;
       preview.hidden = !conversation.messages.length;
       previewText.textContent = markdown(conversation);
     } catch (error) {
@@ -207,14 +204,6 @@ export function createCaptureControls(doc = document, win = window) {
     const action = event.target.closest('button')?.dataset.action;
     if (action === 'download' || action === 'send-kb') void exportFromWidget(action === 'send-kb' ? 'kb' : 'download');
     if (action === 'settings') void request({ type: 'open-settings' }).catch(error => { captureStatus.textContent = error.message; });
-    if (action === 'allow-media') {
-      try {
-        const conversation = capture('export');
-        void request({ type: 'widget-media-permission', conversation }).then(result => {
-          captureStatus.textContent = result.granted ? 'Media access granted.' : 'Media access was not granted; unavailable media will be omitted.';
-        }).catch(error => { captureStatus.textContent = error.message; });
-      } catch (error) { captureStatus.textContent = error.message; }
-    }
   };
   const onListChange = event => {
     const input = event.target.closest('input[data-section-id]');
@@ -332,8 +321,13 @@ export function createCaptureControls(doc = document, win = window) {
     const currentIds = new Set(sections.map(section => section.id));
     for (const [id, header] of headers) if (!currentIds.has(id)) { header.remove(); headers.delete(id); }
     for (const section of sections) {
-      const anchor = collapseTargets(section)[0] || section.nodes[0];
+      const targets = collapseTargets(section);
+      const anchor = targets.reduce((earliest, node) => {
+        if (!earliest) return node;
+        return earliest.compareDocumentPosition(node) & 4 ? earliest : node;
+      }, null) || section.nodes[0];
       if (!anchor?.parentNode) continue;
+      const visualOrder = win.getComputedStyle?.(anchor).order;
       let header = headers.get(section.id);
       if (!header) {
         header = doc.createElement('div'); header.className = HEADER_CLASS; header.dataset.ideaCaptureControl = 'true'; header.setAttribute(OWNED, 'header');
@@ -343,6 +337,7 @@ export function createCaptureControls(doc = document, win = window) {
         const button = doc.createElement('button'); button.type = 'button'; button.dataset.ideaSectionId = section.id;
         header.append(input, label, button); headers.set(section.id, header);
       }
+      if (visualOrder) header.style.order = visualOrder;
       if (header.parentNode !== anchor.parentNode || header.nextSibling !== anchor) anchor.parentNode.insertBefore(header, anchor);
       const input = header.querySelector('input'); input.checked = selected.get(section.id) !== false;
       input.setAttribute('aria-label', `Include section: ${section.label}`);

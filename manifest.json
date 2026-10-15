@@ -1,11 +1,11 @@
 {
   "manifest_version": 3,
   "name": "IdeaFoundry · Conversation capture",
-  "version": "0.3.6",
+  "version": "0.3.7",
   "description": "Save LLM conversations as Markdown or PDF, or send them directly to your IdeaFoundry knowledge base.",
   "minimum_chrome_version": "120",
   "permissions": ["activeTab", "scripting", "storage", "downloads", "alarms", "offscreen"],
-  "optional_host_permissions": ["http://*/*", "https://*/*"],
+  "host_permissions": ["http://*/*", "https://*/*"],
   "background": { "service_worker": "background.js", "type": "module" },
   "content_scripts": [{
     "matches": ["https://chatgpt.com/*", "https://chat.openai.com/*", "https://claude.ai/*", "https://gemini.google.com/*"],

@@ -1,13 +1,27 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
-import { mediaFileEntries, mediaCompanionEntries, makeZip, pdfMessageContent, renderMediaMarkdown, resolveMedia } from '../src/media.js';
+import { mediaFileEntries, mediaCompanionEntries, makeZip, mediaOrigins, pdfMessageContent, renderMediaMarkdown, resolveMedia } from '../src/media.js';
 import { markdown } from '../src/shared.js';
+import pdfMake from 'pdfmake/build/pdfmake.js';
+import fonts from 'pdfmake/build/vfs_fonts.js';
+pdfMake.addVirtualFileSystem(fonts);
 
 const imageData = Buffer.from([137, 80, 78, 71]).toString('base64');
 const conversation = media => ({
   title: 'A capture', url: 'https://chatgpt.com/c/1', provider: 'ChatGPT', capturedAt: '2026-01-01T00:00:00.000Z',
   messages: [{ role: 'Assistant', markdown: `Before\n\n{{idea-media:${media[0].id}}}\n\nAfter` }], media,
+});
+
+test('media host permissions cover credential-free HTTP(S) origins only', () => {
+  const input = conversation([
+    { id: 'https', url: 'https://cdn.example/path/image.png' },
+    { id: 'http', url: 'http://assets.example/file' },
+    { id: 'credentials', url: 'https://user:secret@cdn.example/private.png' },
+    { id: 'blob', url: 'blob:https://chatgpt.com/id' },
+    { id: 'data', url: 'data:image/png;base64,AAAA' },
+  ]);
+  assert.deepEqual(mediaOrigins(input), ['https://cdn.example/*', 'http://assets.example/*']);
 });
 
 test('data URL media resolves, stays at its message position, and becomes companion files', async () => {
@@ -144,8 +158,32 @@ test('aggregate retrieval budget includes streamed bytes from failed attempts an
 test('PDF content keeps surrounding text around an inline image resource', () => {
   const input = conversation([{ id: 'img1', kind: 'image', data: imageData, mime: 'image/png', url: 'https://cdn.example/chart.png' }]);
   const parts = pdfMessageContent(input.messages[0], { ...input, media: [{ ...input.media[0], pdfData: `data:image/png;base64,${imageData}` }] });
-  assert.deepEqual(parts.map(part => part.image ? 'image' : part.text.trim()), ['Before', 'image', 'After']);
+  assert.deepEqual(parts.map(part => part.image ? 'image' : part.text.map(run => run.text).join('').trim()), ['Before', 'image', 'After']);
   assert.match(parts[1].image, /^data:image\/png;base64,/);
+});
+
+test('PDF turns Markdown tables, emphasis, headings, links and lists into semantic pdfmake nodes', () => {
+  const input = conversation([{ id: 'unused', kind: 'file', url: 'https://cdn.example/doc.pdf' }]);
+  input.messages[0].markdown = '# Findings\n\nA **bold** and *italic* [source](https://example.com).\n\n| Name | Count |\n|---|---:|\n| Alpha | 3 |\n\n- one\n- two';
+  const content = pdfMessageContent(input.messages[0], input);
+  assert.equal(content[0].fontSize, 18);
+  assert.ok(content[1].text.some(run => run.text === 'bold' && run.bold));
+  assert.ok(content[1].text.some(run => run.text === 'italic' && run.italics));
+  assert.ok(content[1].text.some(run => run.text === 'source' && run.link === 'https://example.com'));
+  const table = content.find(item => item.table);
+  assert.ok(table);
+  assert.deepEqual(table.table.body.map(row => row.map(cell => cell.text.map(run => run.text).join(''))), [['Name', 'Count'], ['Alpha', '3']]);
+  assert.ok(content.some(item => item.ul?.length === 2));
+});
+
+test('PDF generation accepts rendered Markdown and keeps image placeholders inside table cells readable', async () => {
+  const input = conversation([{ id: 'chart', kind: 'image', url: 'https://cdn.example/chart.png', alt: 'Chart' }]);
+  input.messages[0].markdown = '| Item | Detail |\n|---|---|\n| Graph | {{idea-media:chart}} |\n\n**Done**';
+  const content = pdfMessageContent(input.messages[0], input);
+  assert.ok(content[0].table);
+  assert.ok(content[0].table.body[1][1].text.some(run => /Media unavailable: file data was not captured/.test(run.text) && run.link === 'https://cdn.example/chart.png'));
+  const buffer = await pdfMake.createPdf({ defaultStyle: { font: 'Roboto' }, content }).getBuffer();
+  assert.ok(buffer.length > 1000);
 });
 
 test('PDF references local companion paths and KB companion URLs using the uploaded filename', () => {
@@ -162,6 +200,35 @@ test('PDF references local companion paths and KB companion URLs using the uploa
   const link = new URL(remote[1].link);
   assert.equal(link.searchParams.get('file'), `Research/${uploadedName}`);
   assert.match(remote[1].text, new RegExp(uploadedName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+});
+
+test('PDF keeps table media embedded and preserves code, nested lists, list starts, and following content', async () => {
+  const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l9sAAAAASUVORK5CYII=';
+  const item = { id: 'chart', kind: 'image', filename: 'chart.png', mime: 'image/png', data: png, pdfData: `data:image/png;base64,${png}`, url: 'https://cdn.example/chart.png', alt: 'Chart' };
+  const input = conversation([item]);
+  input.messages[0].markdown = [
+    '| Item | Detail |', '|---|---|', '| Graph | before {{idea-media:chart}} after |', '',
+    '```js', 'const literal = "{{idea-media:chart}}";', '```', '',
+    '3. first', '   - nested', '   - second nested', '4. second', '',
+    'After the list.',
+  ].join('\n');
+  const content = pdfMessageContent(input.messages[0], input);
+  const table = content.find(block => block.table);
+  assert.ok(table, 'table remains a semantic pdfmake table');
+  const cell = table.table.body[1][1];
+  assert.ok(cell.stack.some(block => block.image?.startsWith('data:image/png;base64,')), 'image stays in its table cell');
+  assert.ok(cell.stack.some(block => block.text?.some(run => run.text === 'before ')));
+  assert.ok(cell.stack.some(block => block.text?.some(run => run.text === ' after')));
+  const code = content.find(block => block.fontSize === 8 && block.text === 'const literal = "{{idea-media:chart}}";');
+  assert.ok(code, 'placeholder-looking code remains literal code');
+  const ordered = content.find(block => block.ol);
+  assert.ok(ordered);
+  assert.equal(ordered.start, 3, 'ordered list start is retained');
+  assert.ok(ordered.ol.length === 2);
+  assert.ok(ordered.ol[0].stack?.some(block => block.ul?.length === 2), 'nested list items are attached to the correct parent');
+  assert.ok(content.some(block => block.text?.some?.(run => run.text === 'After the list.')), 'content after nested lists is retained');
+  const buffer = await pdfMake.createPdf({ defaultStyle: { font: 'Roboto' }, content }).getBuffer();
+  assert.ok(buffer.length > 1000, 'pdfmake successfully renders the mixed document');
 });
 
 test('local media ZIP includes the Markdown and relative companion paths', async () => {

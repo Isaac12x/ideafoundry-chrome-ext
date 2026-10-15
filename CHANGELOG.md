@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.7 — 2026-10-15
+
+- Keep collapsed section cards in conversation order on layouts with CSS-ordered turns.
+- Exclude hidden conversation branches and unrelated hidden media from capture while preserving selected collapsed content.
+- Render Markdown as formatted PDF content, including tables, emphasis, headings, lists, links, and code.
+- Include HTTP(S) media access in installation permissions and remove repeated media authorization from the widget.
+
 ## 0.3.6 — 2026-10-14
 
 - Draw the side control chevron with a centered CSS pseudo-element instead of a font glyph, preserving inward direction and accessible button labels.

@@ -41,6 +41,16 @@ function isInSidebar(node) {
   return !!node.closest?.(sidebarSelector);
 }
 
+function isVisibleConversationNode(node) {
+  for (let current = node; current?.nodeType === 1; current = current.parentElement) {
+    if (current.hidden || current.getAttribute('aria-hidden') === 'true' || /display\s*:\s*none|visibility\s*:\s*(hidden|collapse)/i.test(current.getAttribute('style') || '')) return false;
+    if (current.classList.contains('idea-capture-section-collapsed')) continue;
+    const style = current.ownerDocument?.defaultView?.getComputedStyle?.(current);
+    if (style?.display === 'none' || style?.visibility === 'hidden' || style?.visibility === 'collapse') return false;
+  }
+  return true;
+}
+
 function chatGptRole(node) {
   const labeled = node.matches('[data-message-author-role], [data-role], [data-turn-role]')
     ? node
@@ -91,8 +101,11 @@ function chatGptClassTurns(root) {
   const result = [];
   const add = (selector, role) => {
     for (const node of root.querySelectorAll(selector)) {
-      if (isInSidebar(node)) continue;
+      if (isInSidebar(node) || !isVisibleConversationNode(node)) continue;
       if (role === 'assistant' && node.closest(`${chatGptUserBubbleSelector}, [data-message-author-role="user"], [data-role="user"]`)) continue;
+      // Assistant styling wrappers can contain a separately labeled user
+      // message. Capturing the wrapper would duplicate that prompt as an answer.
+      if (role === 'assistant' && node.querySelector(`${chatGptUserBubbleSelector}, [data-message-author-role="user"], [data-role="user"]`)) continue;
       if (role === 'assistant') {
         let ancestor = node.parentElement;
         let coveredByLabeledTurn = false;
@@ -113,6 +126,11 @@ function chatGptClassTurns(root) {
   // useful when the older role attributes and conversation-turn test IDs are
   // absent. Restrict prose candidates to a real conversation root chosen above.
   add(chatGptUserBubbleSelector, 'user');
+  // Some builds split one answer across several prose containers and leave
+  // tables or follow-up paragraphs beside them. The assistant turn wrapper is
+  // the message boundary in that layout, so convert it once and let export
+  // cleanup remove its controls and hidden branches.
+  add('[class*="agent-turn"], [class*="assistant-turn"]', 'assistant');
   add('.markdown, .prose', 'assistant');
   return result;
 }
@@ -266,6 +284,7 @@ export function extractConversation(doc = document, url = location.href, options
   let td;
   const convert = (node, messageRole, messageIndex) => {
     if (!includeMarkdown) return '';
+    if (!isVisibleConversationNode(node)) return '';
     if (!td) {
       td = new TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced', bulletListMarker: '-' });
       td.use(gfm);
@@ -282,7 +301,14 @@ export function extractConversation(doc = document, url = location.href, options
       });
     }
     const copy = doc.createElement('div');
-    copy.append(node.cloneNode(true));
+    const cloned = node.cloneNode(true);
+    copy.append(cloned);
+    const originalElements = [...node.querySelectorAll('*')];
+    const clonedElements = [...cloned.querySelectorAll('*')];
+    const originalForClone = new WeakMap(clonedElements.map((element, index) => [element, originalElements[index]]));
+    originalElements.forEach((original, index) => {
+      if (!isVisibleConversationNode(original)) clonedElements[index]?.remove();
+    });
     copy.querySelectorAll(exportExcludedSelector).forEach(n => n.remove());
 
     let mediaOrdinal = mediaOrdinals.get(messageIndex) || 0;
@@ -337,7 +363,6 @@ export function extractConversation(doc = document, url = location.href, options
     };
     const mediaSelector = 'img[src],img[srcset],audio[src],video[src],audio source[src],video source[src],object[data],embed[src],iframe[src],canvas,svg[aria-label]';
     const mediaElements = [...copy.querySelectorAll(mediaSelector)];
-    let canvasIndex = 0;
     for (const element of mediaElements) {
       if (element.closest('a[href]') && mediaAnchors.has(element.closest('a[href]'))) continue;
       if (element.tagName.toLowerCase() === 'svg' && element.closest('button')) continue;
@@ -352,7 +377,7 @@ export function extractConversation(doc = document, url = location.href, options
       let raw = element.getAttribute(attr) || (tag === 'img' ? srcsetUrl(element.getAttribute('srcset')) : '');
       let mediaError = '';
       if (tag === 'canvas') {
-        const originalCanvas = (node.matches?.('canvas') ? [node] : [...node.querySelectorAll('canvas')])[canvasIndex++];
+        const originalCanvas = originalForClone.get(element) || (node.matches?.('canvas') ? node : null);
         try { raw = originalCanvas.toDataURL('image/png'); } catch { mediaError = 'Canvas image could not be captured.'; }
       }
       if (tag === 'svg') {
@@ -388,10 +413,11 @@ export function extractConversation(doc = document, url = location.href, options
     const root = chatGptConversationRoot(doc);
     candidates = [...root.querySelectorAll('[data-message-author-role]')]
       .filter(node => !isInSidebar(node))
+      .filter(isVisibleConversationNode)
       .filter(node => hasMeaningfulContent(node))
       .map(node => ({ node, role: node.dataset.messageAuthorRole }));
     const turns = [...root.querySelectorAll('[data-testid^="conversation-turn-"], article[data-turn-id], article')]
-      .filter(node => !isInSidebar(node))
+      .filter(node => !isInSidebar(node) && isVisibleConversationNode(node))
       .filter(node => node.matches('[data-testid^="conversation-turn-"], article[data-turn-id]') || !!chatGptRole(node))
       .filter(node => !node.parentElement?.closest('[data-testid^="conversation-turn-"], article[data-turn-id], article'));
     const unrecognizedTurns = [];
@@ -410,7 +436,7 @@ export function extractConversation(doc = document, url = location.href, options
       }
     }
     const userBubbles = [...root.querySelectorAll(chatGptUserBubbleSelector)]
-      .filter(node => !isInSidebar(node) && hasMeaningfulContent(node));
+      .filter(node => !isInSidebar(node) && isVisibleConversationNode(node) && hasMeaningfulContent(node));
     const inferredTurns = chatGptInferredTurns(root, userBubbles, candidates);
     for (const candidate of inferredTurns) {
       if (!candidates.some(existing => existing.node === candidate.node || existing.node.contains(candidate.node))) candidates.push(candidate);
@@ -439,7 +465,8 @@ export function extractConversation(doc = document, url = location.href, options
   }
   // Drop only nested wrappers that repeat a role. A containing message with a
   // different role is a separate speaker and must remain in the transcript.
-  candidates = candidates.filter(({ node, role }) => !candidates.some(other => other.node !== node && other.role === role && other.node.contains(node)));
+  candidates = candidates.filter(({ node, role }) => isVisibleConversationNode(node) &&
+    !candidates.some(other => other.node !== node && other.role === role && other.node.contains(node)));
   // A neutral branch can be split by nested action controls or presentation
   // labels. Treat adjacent inferred fragments as one logical reply.
   const logicalCandidates = [];
