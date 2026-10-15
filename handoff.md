@@ -186,3 +186,17 @@ Version is 0.3.7. Reload dist/ in Chrome/Arc and refresh existing conversation t
 Final root verification: `npm run check` passed with 72/72 tests and production build. Root inspected the formatted PDF raster at `artifacts/formatted-export.png` and the mixed expanded/collapsed browser screenshot at `artifacts/ordered-collapse.png`, then reviewed the final renderer and extraction fixes. PDF tests exercise actual generation with table-cell images, nested lists, code, and companion references. Browser download assertions use Chrome's download records because extension-initiated downloads do not emit the page download event and Playwright assigns temporary filenames. Artifacts are ignored by Git.
 
 Final `npm run test:browser` passed against the final build, including geometric ordering of collapsed cards, automatic cross-site media ZIP export with zero permission requests, actual PDF/media generation, selection, KB uploads, remote jobs, and responsive widget behavior. `git diff --check` passed.
+
+## 2026-10-15 — URL scope and settings access regression fixes
+
+Luna agents implemented URL/content lifecycle fixes, settings access, and browser regressions; root orchestrated, reviewed the changes, and isolated the commit from unrelated existing and concurrent KB/media work.
+
+A bare origin (for example https://chatgpt.com) stays root-only after settings save/load. An origin ending in /* matches non-root paths only. The previous settings migration silently changed bare origins to wildcards. Content scripts also attempted to read storage restricted to trusted extension contexts, preventing automatic activation. Content now requests only parsed capture URL rules from the background worker, which broadcasts changes without exposing queue credentials. A singleton route monitor handles SPA transitions even when no widget exists; revision and execution guards prevent delayed reads or older injections from overwriting current state.
+
+Toolbar clicks wait for content initialization, and open Settings on excluded/browser-internal pages or injection failure. The action context menu opens Settings; the manifest uses options_ui. Reload the unpacked dist/ extension and refresh existing tabs to replace old scripts. If earlier saves converted a bare origin to /*, enter and save the intended pattern again.
+
+Verification: root exported the staged commit to an isolated temporary checkout (excluding unrelated KB/media edits). Its 85 unit tests and production build passed. Browser fixtures cover real options save/reload, existing-tab visibility updates, root-to-path and path-to-root pushState navigation, capture/export, and settings access. These are isolated browser fixtures, not the user's signed-in ChatGPT session. The working-tree dist/ build was also refreshed.
+
+No Git remote is configured, so PR publication and PR-comment monitoring are unavailable. Unrelated working-tree edits remain uncommitted.
+
+Final isolated-checkout verification passed: `npm run check` (85 tests and build), `npm run test:browser`, and `git diff --cached --check`. An initial isolated browser run found that a pre-existing download-status assertion depended on an unrelated uncommitted wording change; that assertion change was excluded from this commit and the complete browser suite then passed.

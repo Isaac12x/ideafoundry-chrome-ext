@@ -5,6 +5,8 @@ import { mkdtemp, cp, readFile, writeFile, rm, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve, join } from 'node:path';
 import { createQueue } from '../server/queue.mjs';
+// Defaults to Playwright's bundled Chromium (new headless). Override: IDEA_BROWSER_CHANNEL=chrome|msedge|..., or IDEA_BROWSER_PATH=/path/to/chromium-based-browser.
+const browserOptions = process.env.IDEA_BROWSER_PATH ? { executablePath: process.env.IDEA_BROWSER_PATH } : { channel: process.env.IDEA_BROWSER_CHANNEL || 'chromium' };
 const temp = await mkdtemp(join(tmpdir(), 'idea-extension-e2e-'));
 const token = 'browser-test-token-at-least-32-characters';
 const uploads = [];
@@ -59,12 +61,17 @@ const app = createServer(async (req, res) => {
 });
 const queue = createQueue({ token, storePath: join(temp, 'queue.json') });
 let context;
+let mounted;
 let autoContext;
 try {
   await new Promise(r => app.listen(0, '127.0.0.1', r));
   await new Promise(r => queue.listen(0, '127.0.0.1', r));
   const appUrl = `http://127.0.0.1:${app.address().port}`;
-  const queueUrl = `http://127.0.0.1:${queue.address().port}`;
+  // Mount the queue under a path like idea-app does, to exercise base URLs with a path.
+  const mount = '/api/v1/capture';
+  mounted = createServer((req, res) => { if (req.url.startsWith(`${mount}/`)) { req.url = req.url.slice(mount.length); queue.emit('request', req, res); } else { res.writeHead(404); res.end(); } });
+  await new Promise(r => mounted.listen(0, '127.0.0.1', r));
+  const queueUrl = `http://127.0.0.1:${mounted.address().port}${mount}`;
   const extension = join(temp, 'extension'); await cp('dist', extension, { recursive: true });
   const manifest = JSON.parse(await readFile(join(extension, 'manifest.json')));
   assert.equal(manifest.action?.default_popup, undefined, 'the toolbar action no longer opens a popup');
@@ -72,13 +79,19 @@ try {
   manifest.host_permissions = ['http://127.0.0.1/*', 'https://chatgpt.com/*', 'https://claude.ai/*'];
   manifest.content_scripts[0].matches.push('http://127.0.0.1/*');
   await writeFile(join(extension, 'manifest.json'), JSON.stringify(manifest));
-  context = await chromium.launchPersistentContext(join(temp, 'profile'), { channel: 'chromium', headless: true, args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`] });
+  context = await chromium.launchPersistentContext(join(temp, 'profile'), { ...browserOptions, headless: true, args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`] });
   let worker = context.serviceWorkers()[0] || await context.waitForEvent('serviceworker');
   const id = new URL(worker.url()).host;
   console.log('Extension worker loaded.');
   const errors = [];
   const cspErrors = [];
   context.on('page', p => p.on('pageerror', e => errors.push(e.message)));
+  const ui = await context.newPage(); await ui.goto(`chrome-extension://${id}/options.html`, { waitUntil: 'commit' }); console.log('Options committed.');
+  await ui.evaluate(async ({ appUrl, queueUrl, token }) => {
+    await chrome.storage.local.set({ settings: { appUrl, source: 0, directory: '', queueUrl, queueToken: token, remoteEnabled: true, allowedOrigins: ['https://chatgpt.com', 'https://chatgpt.com/*', `${appUrl}/*`] } });
+    await chrome.runtime.sendMessage({ type: 'settings' });
+  }, { appUrl, queueUrl, token });
+  await ui.reload();
   const target = await context.newPage();
   target.on('console', message => {
     if (message.type() === 'error' && /Content Security Policy|Refused to apply inline style|style-src/i.test(message.text())) cspErrors.push(message.text());
@@ -103,12 +116,7 @@ try {
   const panelToggle = panel.locator('[data-action="toggle-panel"]');
   assert.equal(await panelToggle.getAttribute('aria-expanded'), 'false', 'the section widget starts closed');
   assert.equal(await panel.locator('.panel-body').isHidden(), true);
-  const ui = await context.newPage(); await ui.goto(`chrome-extension://${id}/options.html`, { waitUntil: 'commit' }); console.log('Options committed.');
   await mkdir('artifacts', { recursive: true });
-  await ui.evaluate(async ({ appUrl, queueUrl, token }) => {
-    await chrome.storage.local.set({ settings: { appUrl, source: 0, directory: '', queueUrl, queueToken: token, remoteEnabled: true, allowedOrigins: ['https://chatgpt.com', appUrl] } });
-    await chrome.runtime.sendMessage({ type: 'settings' });
-  }, { appUrl, queueUrl, token });
   for (const width of [390, 1280]) {
     await ui.setViewportSize({ width, height: 900 });
     await ui.evaluate(async () => {
@@ -126,6 +134,8 @@ try {
   assert.equal(await ui.evaluate(() => document.activeElement.id), 'appUrl', 'keyboard focus reaches the first settings field');
   const settingsFocus = await ui.locator('#appUrl').evaluate(node => getComputedStyle(node).outlineStyle);
   assert.notEqual(settingsFocus, 'none', 'the focused settings field has a visible outline');
+  assert.equal(await ui.getByLabel(/Allowed capture URLs/).count(), 1, 'the URL pattern editor has an accessible label');
+  assert.equal(await ui.getByRole('button', { name: 'Save connections' }).count(), 1, 'settings can be saved through a named form action');
   const send = async message => {
     if (message.type === 'capture') {
       return worker.evaluate(async ({ tabId, mode }) => {
@@ -211,6 +221,58 @@ try {
       <article data-testid="conversation-turn-4"><h2 class="sr-only">ChatGPT said:</h2><div class="markdown"><p>Test the interview guide with three participants.</p></div></article>
     </main>` });
   });
+
+  // Drive URL scope changes through the real options form. Keep both tabs open
+  // so settings changes and SPA route transitions must update already loaded pages.
+  const rootScopePage = await context.newPage();
+  const pathScopePage = await context.newPage();
+  await Promise.all([
+    rootScopePage.goto('https://chatgpt.com/'),
+    pathScopePage.goto('https://chatgpt.com/c/settings-regression'),
+  ]);
+  const waitForCaptureHost = async (page, present) => page.waitForFunction(expected =>
+    Boolean(document.querySelector('[data-idea-capture-owned="host"]')) === expected, present, { timeout: 5000 });
+  await waitForCaptureHost(rootScopePage, true);
+  await waitForCaptureHost(pathScopePage, true);
+  const saveAllowedUrls = async value => {
+    await ui.locator('#allowedOrigins').fill(value);
+    await ui.locator('#form button[type="submit"]').click();
+    await ui.waitForFunction(() => document.querySelector('#status')?.textContent === 'Connections saved.');
+    const saved = await ui.evaluate(async () => (await chrome.storage.local.get('settings')).settings);
+    assert.equal(saved.allowedOrigins.join('\n'), value, `settings UI persists the selected capture URL pattern: ${value}`);
+    await ui.reload();
+    assert.equal(await ui.getByLabel(/Allowed capture URLs/).inputValue(), value, `settings UI loads the saved URL pattern: ${value}`);
+    return saved;
+  };
+  const changeRouteWithoutReload = async (page, path) => {
+    const before = await page.evaluate(() => performance.getEntriesByType('navigation').length);
+    await page.evaluate(path => history.pushState({}, '', path), path);
+    assert.equal(await page.evaluate(() => performance.getEntriesByType('navigation').length), before, 'SPA route change does not reload the tab');
+  };
+
+  await saveAllowedUrls(`https://chatgpt.com\n${appUrl}/*`);
+  await waitForCaptureHost(rootScopePage, true);
+  await waitForCaptureHost(pathScopePage, false);
+  await changeRouteWithoutReload(rootScopePage, '/c/root-only');
+  await waitForCaptureHost(rootScopePage, false);
+  await changeRouteWithoutReload(pathScopePage, '/');
+  await waitForCaptureHost(pathScopePage, true);
+
+  // Put the open tabs back on root/path so the next save verifies that the
+  // wildcard setting flips their eligibility in the opposite direction.
+  await changeRouteWithoutReload(rootScopePage, '/');
+  await waitForCaptureHost(rootScopePage, true);
+  await changeRouteWithoutReload(pathScopePage, '/c/settings-regression');
+  await waitForCaptureHost(pathScopePage, false);
+
+  await saveAllowedUrls(`https://chatgpt.com/*\n${appUrl}/*`);
+  await waitForCaptureHost(rootScopePage, false);
+  await waitForCaptureHost(pathScopePage, true);
+  await changeRouteWithoutReload(rootScopePage, '/c/subpaths-only');
+  await waitForCaptureHost(rootScopePage, true);
+  await changeRouteWithoutReload(pathScopePage, '/');
+  await waitForCaptureHost(pathScopePage, false);
+
   const project = await context.newPage();
   await project.goto('https://chatgpt.com/g/g-p-demo/project');
   const projectHost = project.locator('[data-idea-capture-owned="host"]');
@@ -909,7 +971,7 @@ try {
   const autoExtension = join(temp, 'auto-extension'); await cp('dist', autoExtension, { recursive: true });
   const autoManifest = JSON.parse(await readFile(join(autoExtension, 'manifest.json')));
   assert.deepEqual(autoManifest.host_permissions, ['http://*/*', 'https://*/*']);
-  autoContext = await chromium.launchPersistentContext(join(temp, 'auto-profile'), { channel: 'chromium', headless: true, args: ['--deny-permission-prompts', `--disable-extensions-except=${autoExtension}`, `--load-extension=${autoExtension}`] });
+  autoContext = await chromium.launchPersistentContext(join(temp, 'auto-profile'), { ...browserOptions, headless: true, args: ['--deny-permission-prompts', `--disable-extensions-except=${autoExtension}`, `--load-extension=${autoExtension}`] });
   const autoWorker = autoContext.serviceWorkers()[0] || await autoContext.waitForEvent('serviceworker');
   await autoWorker.evaluate(() => {
     self.__browserPermissionRequests = 0;
@@ -937,6 +999,6 @@ try {
 } finally {
   await context?.close();
   await autoContext?.close();
-  await Promise.all([new Promise(r => app.close(r)), new Promise(r => queue.close(r))]);
+  await Promise.all([new Promise(r => app.close(r)), new Promise(r => queue.close(r)), new Promise(r => mounted ? mounted.close(r) : r())]);
   await rm(temp, { recursive: true, force: true });
 }

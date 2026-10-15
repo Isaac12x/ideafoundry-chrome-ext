@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Preserve root-only capture URLs when saving and loading settings; `/*` matches non-root paths only.
+- Update widget visibility when settings change or a site navigates without reloading.
+- Read capture URL rules through the background worker while keeping private connection settings restricted.
+- Keep settings reachable from the toolbar on excluded or unsupported pages, and wait for widget initialization before opening it.
+
 ## 0.3.7 — 2026-10-15
 
 - Keep collapsed section cards in conversation order on layouts with CSS-ordered turns.

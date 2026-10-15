@@ -4,15 +4,15 @@
   "version": "0.3.7",
   "description": "Save LLM conversations as Markdown or PDF, or send them directly to your IdeaFoundry knowledge base.",
   "minimum_chrome_version": "120",
-  "permissions": ["activeTab", "scripting", "storage", "downloads", "alarms", "offscreen"],
+  "permissions": ["activeTab", "scripting", "storage", "downloads", "alarms", "offscreen", "contextMenus"],
   "host_permissions": ["http://*/*", "https://*/*"],
   "background": { "service_worker": "background.js", "type": "module" },
   "content_scripts": [{
-    "matches": ["https://chatgpt.com/*", "https://chat.openai.com/*", "https://claude.ai/*", "https://gemini.google.com/*"],
+    "matches": ["http://*/*", "https://*/*"],
     "js": ["content.js"],
     "run_at": "document_idle"
   }],
-  "action": { "default_title": "Open IdeaFoundry capture widget" },
-  "options_page": "options.html",
+  "action": { "default_title": "Open capture widget (right-click for settings)" },
+  "options_ui": { "page": "options.html", "open_in_tab": true },
   "content_security_policy": { "extension_pages": "script-src 'self'; object-src 'self'" }
 }

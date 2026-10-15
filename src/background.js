@@ -1,6 +1,7 @@
-import { defaults, withDefaults, validateSettings, validateJob, httpUrl } from './shared.js';
+import { defaults, withDefaults, validateSettings, validateJob, httpUrl, urlMatchesCaptureSites, resolveCaptureSites } from './shared.js';
 import { uploadInApp } from './kb-upload.js';
 import { mediaOrigins } from './media.js';
+import { handleActionClick } from './action.js';
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 const settings = async () => withDefaults((await chrome.storage.local.get('settings')).settings || defaults);
 let rendering;
@@ -75,10 +76,10 @@ async function loaded(tabId) {
     if ((await chrome.tabs.get(tabId)).status === 'complete') return;
     await pause(500);
   }
-  throw new Error('Page loading timed out. Open it in Chrome and retry.');
+  throw new Error('Page loading timed out. Open it in your browser and retry.');
 }
 async function permitted(origin) {
-  if (!(await chrome.permissions.contains({ origins: [`${origin}/*`] }))) throw new Error(`Allow this site in Chrome's extension site access settings: ${origin}`);
+  if (!(await chrome.permissions.contains({ origins: [`${origin}/*`] }))) throw new Error(`Allow this site in the browser's extension site access settings: ${origin}`);
 }
 async function sendToKB(conversation, format) {
   conversation = await permissionFilteredMedia(conversation);
@@ -107,7 +108,7 @@ async function permissionFilteredMedia(conversation) {
   return { ...conversation, media: (conversation.media || []).map(item => {
     try {
       if (item.data || item.error) return item;
-      if (missingHosts.has(new URL(item.url).origin)) return { ...item, error: 'Chrome site access is disabled for this media site. Allow access in the extension menu and retry.' };
+      if (missingHosts.has(new URL(item.url).origin)) return { ...item, error: 'Browser site access is disabled for this media site. Allow access in the extension menu and retry.' };
     } catch { /* data and page-owned blob media need no host permission */ }
     return item;
   }) };
@@ -128,7 +129,7 @@ async function poll() {
   try {
     const config = validateSettings(await settings());
     if (!config.remoteEnabled) return;
-    await permitted(config.queueUrl);
+    await permitted(new URL(config.queueUrl).origin);
     // Resume only result delivery after a worker restart, never repeat an uncertain upload.
     const { pendingResult } = await chrome.storage.local.get('pendingResult');
     if (pendingResult) {
@@ -142,7 +143,7 @@ async function poll() {
     if (!incoming) { await status({ state: 'idle' }); return; }
     let result;
     try {
-      const job = validateJob(incoming, config.allowedOrigins);
+      const job = validateJob(incoming, config.captureSites);
       // Persist an uncertain failure before any capture/upload; a restart will report it, not retry it.
       await chrome.storage.local.set({ pendingResult: { id: job.id, queueUrl: config.queueUrl, result: { state: 'failed', error: 'Capture interrupted. Check the KB before submitting a new job.' } } });
       await permitted(httpUrl(job.url).origin);
@@ -169,7 +170,8 @@ async function poll() {
       conversation = await capture(tabId, 'all', true);
       // Honor disable/reconfiguration before exporting content.
       const latest = await settings();
-      if (!latest.remoteEnabled || latest.queueUrl !== config.queueUrl || latest.appUrl !== config.appUrl || !latest.allowedOrigins.includes(httpUrl(job.url).origin)) throw new Error('Remote settings changed; capture cancelled.');
+      const latestConfig = validateSettings(latest);
+      if (!latest.remoteEnabled || latest.queueUrl !== config.queueUrl || latest.appUrl !== config.appUrl || !urlMatchesCaptureSites(job.url, latestConfig.captureSites)) throw new Error('Remote settings changed; capture cancelled.');
       const saved = await sendToKB(conversation, job.format);
       result = { state: 'completed', filename: saved.name };
     } catch (error) { result = { state: 'failed', error: error.message }; }
@@ -186,21 +188,52 @@ async function alarm() {
   if (config.remoteEnabled) await chrome.alarms.create('remote-capture', { periodInMinutes: 0.5 });
   else await chrome.alarms.clear('remote-capture');
 }
-chrome.runtime.onInstalled.addListener(alarm);
-chrome.runtime.onStartup.addListener(alarm);
-chrome.alarms.onAlarm.addListener(a => { if (a.name === 'remote-capture') void poll(); });
-chrome.action.onClicked.addListener(async tab => {
+async function registerActionMenu() {
+  await chrome.contextMenus.removeAll().catch(() => {});
   try {
-    if (!tab?.id || !/^https?:\/\//i.test(tab.url || '')) throw new Error('Open an http or https page to use conversation capture.');
-    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content.js'] });
-    const [{ result }] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: () => {
-      const controller = globalThis.__ideaCaptureController;
-      if (!controller) return { ok: false, error: globalThis.__ideaCapture?.error || 'Could not start the capture widget.' };
-      controller.open(); return { ok: true };
-    } });
-    if (!result?.ok) throw new Error(result?.error || 'Could not open the capture widget.');
+    chrome.contextMenus.create({ id: 'idea-capture-settings', title: 'Open capture settings', contexts: ['action'] });
+  } catch (error) { console.warn('IdeaFoundry settings menu could not be registered:', error.message); }
+}
+chrome.runtime.onInstalled.addListener(() => { void alarm(); void registerActionMenu(); });
+chrome.runtime.onStartup.addListener(() => { void alarm(); void registerActionMenu(); });
+chrome.contextMenus.onClicked.addListener(async (info, tab) => {
+  if (info.menuItemId !== 'idea-capture-settings') return;
+  await chrome.runtime.openOptionsPage();
+  if (tab?.id) {
     await chrome.action.setBadgeText({ tabId: tab.id, text: '' });
     await chrome.action.setTitle({ tabId: tab.id, title: 'IdeaFoundry capture widget' });
+  }
+});
+chrome.alarms.onAlarm.addListener(a => { if (a.name === 'remote-capture') void poll(); });
+chrome.action.onClicked.addListener(async tab => {
+  const clearBadge = async () => {
+    if (!tab?.id) return;
+    await chrome.action.setBadgeText({ tabId: tab.id, text: '' });
+    await chrome.action.setTitle({ tabId: tab.id, title: 'IdeaFoundry capture widget' });
+  };
+  try {
+    const outcome = await handleActionClick(tab, {
+      getSettings: settings,
+      openOptions: () => chrome.runtime.openOptionsPage(),
+      injectCapture: async tabId => {
+        await chrome.scripting.executeScript({ target: { tabId }, files: ['content.js'] });
+        const [{ result }] = await chrome.scripting.executeScript({ target: { tabId }, func: () => {
+          if (globalThis.__ideaCaptureBoot) return Promise.resolve(globalThis.__ideaCaptureBoot).then(() => {
+            const controller = globalThis.__ideaCaptureController;
+            if (!controller) return { ok: false, error: globalThis.__ideaCapture?.error || 'Could not start the capture widget.' };
+            controller.open(); return { ok: true };
+          });
+          const controller = globalThis.__ideaCaptureController;
+          if (!controller) return { ok: false, error: globalThis.__ideaCapture?.error || 'Could not start the capture widget.' };
+          controller.open(); return { ok: true };
+        } });
+        if (!result?.ok) throw new Error(result?.error || 'Could not open the capture widget.');
+      },
+    });
+    if (outcome.error && !outcome.settingsOpened) throw outcome.error;
+    if (outcome.excluded && tab?.id) await chrome.action.setTitle({ tabId: tab.id, title: 'Add this site under Allowed capture URLs, then refresh the page.' });
+    if (outcome.error && tab?.id) await chrome.action.setTitle({ tabId: tab.id, title: `Capture unavailable: ${outcome.error.message}` });
+    if (outcome.captured) await clearBadge();
   } catch (error) {
     console.warn('IdeaFoundry capture could not open:', error.message);
     if (tab?.id) {
@@ -215,6 +248,10 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
   const fromExtension = sender.url?.startsWith(chrome.runtime.getURL(''));
   if (!fromExtension && !sender.tab?.id) return;
   (async () => {
+    if (message.type === 'get-capture-sites') {
+      if (!sender.tab?.id) throw new Error('Capture settings are available only to an open page.');
+      return { captureSites: resolveCaptureSites(await settings()) };
+    }
     if (message.type === 'open-settings') { await chrome.runtime.openOptionsPage(); return {}; }
     if (message.type === 'widget-export') {
       if (!sender.tab?.id || !['download', 'kb'].includes(message.destination)) throw new Error('Capture must be started from the page widget.');
@@ -222,7 +259,10 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
       const conversation = message.conversation;
       if (JSON.stringify(conversation).length > 24_000_000) throw new Error('Conversation and inline media exceed the 24 MB capture limit.');
       const filteredConversation = await permissionFilteredMedia(conversation);
-      if (message.destination === 'kb') return sendToKB(filteredConversation, message.format);
+      if (message.destination === 'kb') {
+        const saved = await sendToKB(filteredConversation, message.format);
+        return { name: saved.name, appUrl: saved.appUrl };
+      }
       const file = await render(filteredConversation, message.format, true);
       await chrome.downloads.download({ url: file.url, filename: file.name, saveAs: true });
       return { name: file.name };
@@ -244,4 +284,15 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
     throw new Error('Unknown request.');
   })().then(result => respond({ ok: true, ...result }), error => respond({ ok: false, error: error.message }));
   return true;
+});
+
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName !== 'local' || !changes.settings) return;
+  void (async () => {
+    let captureSites;
+    try { captureSites = resolveCaptureSites(changes.settings.newValue || defaults); }
+    catch { captureSites = []; }
+    const tabs = await chrome.tabs.query({ url: ['http://*/*', 'https://*/*'] });
+    await Promise.all(tabs.map(tab => chrome.tabs.sendMessage(tab.id, { type: 'capture-sites-updated', captureSites }).catch(() => {})));
+  })();
 });
