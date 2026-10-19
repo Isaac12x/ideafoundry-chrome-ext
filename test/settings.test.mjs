@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { defaults, withDefaults, validateSettings, urlMatchesCaptureSites, parseCaptureSitePattern, resolveCaptureSites } from '../src/shared.js';
+import { defaults, withDefaults, validateSettings, validateJob, urlMatchesCaptureSites, parseCaptureSitePattern, resolveCaptureSites } from '../src/shared.js';
 
 test('IdeaFoundry uses 8443 and upgrades only the previous bundled address', () => {
   assert.equal(defaults.appUrl, 'https://ideas.local:8443');
@@ -65,4 +65,19 @@ test('capture origin matching preserves explicit ports', () => {
   assert.equal(urlMatchesCaptureSites('https://chatgpt.com:8443/c/1', sites), true);
   assert.equal(urlMatchesCaptureSites('https://chatgpt.com/c/1', sites), false);
   assert.equal(urlMatchesCaptureSites('https://chat.openai.com:8443/c/1', sites), false);
+});
+
+test('validateJob passes through optional KB target and omits it when absent', () => {
+  const sites = validateSettings({ captureSites: ['https://claude.ai/*'] }).captureSites;
+  const base = { id: 'a1', url: 'https://claude.ai/chat/1', format: 'md' };
+  assert.deepEqual(validateJob(base, sites), base);
+  assert.deepEqual(validateJob({ ...base, source: 2, directory: ' notes/ai ' }, sites), { ...base, source: 2, directory: 'notes/ai' });
+  assert.deepEqual(validateJob({ ...base, source: 0, directory: '' }, sites), { ...base, source: 0, directory: '' });
+});
+
+test('validateJob rejects bad KB target', () => {
+  const sites = validateSettings({ captureSites: ['https://claude.ai/*'] }).captureSites;
+  const base = { id: 'a1', url: 'https://claude.ai/chat/1', format: 'md' };
+  for (const bad of [{ source: -1 }, { source: 1.5 }, { source: 'x' }, { directory: '/abs' }, { directory: 'a/../b' }, { directory: 5 }, { directory: 'a'.repeat(501) }])
+    assert.throws(() => validateJob({ ...base, ...bad }, sites), /KB/);
 });

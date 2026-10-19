@@ -35,6 +35,14 @@ test('data URL media resolves, stays at its message position, and becomes compan
   assert.deepEqual([...files[1].bytes], [137, 80, 78, 71]);
 });
 
+test('KB companion names carry the export stamp in both files and links', async () => {
+  const resolved = await resolveMedia(conversation([{ id: 'img1', kind: 'image', url: `data:image/png;base64,${imageData}`, alt: 'chart', filename: 'chart.png' }]));
+  const assetBase = { appUrl: 'https://app.example', source: 0, directory: 'Docs', stamp: 'abc123' };
+  const files = mediaFileEntries(resolved, assetBase);
+  assert.match(files[1].name, /^media-abc123-img1-/);
+  assert.ok(decodeURIComponent(new TextDecoder().decode(files[0].bytes)).includes(`file=Docs/${files[1].name}`));
+});
+
 test('ordinary anchors remain web links while media placeholders receive explicit Markdown', () => {
   const input = conversation([{ id: 'img1', kind: 'image', url: 'https://cdn.example/chart.png', alt: 'chart' }]);
   input.messages[0].markdown = '[Reference](https://example.com/page) and {{idea-media:img1}}';

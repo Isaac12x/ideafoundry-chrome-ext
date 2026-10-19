@@ -11,7 +11,8 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
       if (urls.has(message.url)) { URL.revokeObjectURL(message.url); urls.delete(message.url); }
       return {};
     }
-    const { format, download, assetBase = null } = message;
+    const { format, download } = message;
+    const assetBase = message.assetBase && { ...message.assetBase, stamp: Date.now().toString(36) + crypto.randomUUID().slice(0, 6) };
     let conversation = await resolveMedia(message.conversation);
     const mime = format === 'pdf' ? 'application/pdf' : 'text/markdown;charset=utf-8';
     let bytes;

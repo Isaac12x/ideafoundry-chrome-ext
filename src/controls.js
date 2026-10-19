@@ -54,6 +54,9 @@ export function createCaptureControls(doc = document, win = window) {
         #idea-capture-panel{position:fixed;right:clamp(12px,2vw,24px);bottom:clamp(12px,2vw,24px);z-index:2147483647;width:min(440px,calc(100vw - 24px));max-height:min(82vh,820px);display:flex;flex-direction:column;overflow:hidden;background:var(--paper);border:1px solid #c8d3ca;border-radius:10px;box-shadow:0 14px 42px #10251c38,0 2px 8px #10251c12;font-size:13px}
         #idea-capture-panel:has(.panel-body[hidden]){width:min(214px,calc(100vw - 24px));max-height:none}
         #idea-capture-panel>header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 18px;border-bottom:1px solid var(--line);font-family:Georgia,"Iowan Old Style",serif;font-size:18px;font-weight:600;letter-spacing:-.015em}
+        #idea-capture-panel>header [data-export-status]{min-width:0;overflow-wrap:anywhere;font-size:clamp(12px,3.4vw,18px)}
+        #idea-capture-panel>header.is-busy [data-export-status]{font-family:"Avenir Next","Trebuchet MS",sans-serif;font-size:12px;font-weight:600;color:var(--forest)}
+        #idea-capture-panel>header.is-error [data-export-status]{color:#8a3b28}
         #idea-capture-panel:has(.panel-body[hidden])>header{padding:8px 10px;font-family:"Avenir Next","Trebuchet MS",sans-serif;font-size:12px;letter-spacing:0}
         button{min-height:30px;padding:5px 9px;border:1px solid #cbd6ce;border-radius:5px;background:#f5f7f2;font-family:"Avenir Next","Trebuchet MS",sans-serif;font-size:11px;font-weight:600;transition:background-color 120ms ease,border-color 120ms ease,transform 120ms ease}
         button:hover{background:#e8efe8;border-color:#aabcae}
@@ -63,7 +66,7 @@ export function createCaptureControls(doc = document, win = window) {
         .tools{display:flex;gap:6px;flex-wrap:wrap;padding:10px 12px 7px}
         .tools button{min-height:28px;padding:4px 7px;font-size:10px}
         .count{padding:2px 14px 9px;color:var(--muted);font-size:11px}
-        .capture-meta{padding:13px 18px 5px}.capture-meta h2{margin:0 0 4px;font:500 19px/1.2 Georgia,"Iowan Old Style",serif;overflow-wrap:anywhere}.capture-meta p{margin:0;color:var(--muted);font-size:11px}.capture-tools{padding:12px 18px 14px;border-top:1px solid var(--line)}.capture-tools .format{display:flex;gap:8px;margin:0 0 10px}.capture-tools label{display:flex;align-items:center;gap:6px;padding:7px 10px;border:1px solid var(--line);background:#f7f7f0;cursor:pointer}.capture-tools label:has(:checked){border-color:var(--forest);background:var(--wash)}.capture-tools .actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}.capture-tools .actions button{min-height:38px;font-size:12px}.capture-tools .actions [data-action="send-kb"]{grid-column:1/-1;background:var(--forest);border-color:var(--forest);color:var(--paper)}.capture-tools .actions [data-action="settings"]{background:transparent}.capture-status{min-height:17px;margin:9px 0 0;color:var(--forest);font-size:11px;overflow-wrap:anywhere}.preview{margin:0 14px 12px}.preview summary{cursor:pointer;color:var(--muted);font-size:11px}.preview pre{max-height:190px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;background:#f0efe8;padding:10px;font:11px/1.5 ui-monospace,monospace}
+        .capture-meta{padding:13px 18px 5px}.capture-meta h2{margin:0 0 4px;font:500 19px/1.2 Georgia,"Iowan Old Style",serif;overflow-wrap:anywhere}.capture-meta p{margin:0;color:var(--muted);font-size:11px}.capture-tools{padding:12px 18px 14px;border-top:1px solid var(--line)}.capture-tools .format{display:flex;gap:8px;margin:0 0 10px}.capture-tools label{display:flex;align-items:center;gap:6px;padding:7px 10px;border:1px solid var(--line);background:#f7f7f0;cursor:pointer}.capture-tools label:has(:checked){border-color:var(--forest);background:var(--wash)}.capture-tools .actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}.capture-tools .actions button{min-height:38px;font-size:12px}.capture-tools .actions [data-action="send-kb"]{grid-column:1/-1;background:var(--forest);border-color:var(--forest);color:var(--paper)}.capture-tools .actions [data-action="settings"]{background:transparent}.capture-status{min-height:17px;margin:9px 0 0;color:var(--forest);font-size:11px;overflow-wrap:anywhere}.capture-status.is-error{color:#8a3b28}.preview{margin:0 14px 12px}.preview summary{cursor:pointer;color:var(--muted);font-size:11px}.preview pre{max-height:190px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;background:#f0efe8;padding:10px;font:11px/1.5 ui-monospace,monospace}
         .list:not(:empty){min-height:96px;max-height:min(38vh,360px);overflow:auto;overscroll-behavior:contain;padding:0 10px 12px}
         .row{display:grid;grid-template-columns:17px minmax(0,1fr) auto;align-items:start;gap:9px;padding:10px 5px;border-top:1px solid #e6ebe5}
         .row input{width:15px;height:15px;margin:2px 0 0;accent-color:var(--forest)}
@@ -86,7 +89,7 @@ export function createCaptureControls(doc = document, win = window) {
         @media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;transition:none!important}}
       </style>
       <section id="idea-capture-panel" data-idea-panel aria-label="Conversation capture" hidden>
-        <header><span>IdeaFoundry / Capture</span><button type="button" data-action="toggle-panel" aria-expanded="false">Open</button></header>
+        <header><span data-export-status>IdeaFoundry / Capture</span><button type="button" data-action="toggle-panel" aria-expanded="false">Open</button></header>
         <div class="panel-body" hidden><div class="capture-meta"><h2 data-title>Conversation capture</h2><p data-summary></p><p data-warning></p></div><div class="tools"><button type="button" data-action="select-all">Select all</button><button type="button" data-action="select-none">Select none</button><button type="button" data-action="collapse-all">Collapse all</button><button type="button" data-action="expand-all">Expand all</button><button type="button" data-action="copy-diagnostics">Copy diagnostics</button></div><div class="count" aria-live="polite"></div><div class="empty" hidden><p data-empty-message></p><button type="button" data-action="retry">Retry detection</button><button type="button" data-action="copy-diagnostics">Copy diagnostics</button></div><div class="diagnostics"><p data-diagnostics-status aria-live="polite"></p><textarea data-diagnostics-fallback readonly hidden aria-label="Diagnostics to copy manually"></textarea></div><details class="preview" data-preview><summary>Review captured conversation</summary><pre data-preview-text></pre></details><div class="list"></div><div class="capture-tools"><div class="format" role="group" aria-label="File format"><label><input type="radio" name="format" value="md" checked> Markdown</label><label><input type="radio" name="format" value="pdf"> PDF</label></div><div class="actions"><button type="button" data-action="download">Download file</button><button type="button" data-action="settings">Settings</button><button type="button" data-action="send-kb">Send to knowledge base ↗</button></div><p class="capture-status" data-capture-status role="status" aria-live="polite"></p></div></div>
       </section>
       <aside id="idea-capture-margin-controls" aria-label="Conversation section controls" hidden>
@@ -111,12 +114,40 @@ export function createCaptureControls(doc = document, win = window) {
   const preview = shadow.querySelector('[data-preview]');
   const previewText = shadow.querySelector('[data-preview-text]');
   const captureStatus = shadow.querySelector('[data-capture-status]');
+  const exportStatus = shadow.querySelector('[data-export-status]');
+  const panelHeader = shadow.querySelector('#idea-capture-panel>header');
   const captureActions = shadow.querySelector('.capture-tools');
+  const defaultHeaderLabel = 'IdeaFoundry / Capture';
   let busy = false;
+  function setExportFeedback(message, tone = 'idle') {
+    exportStatus.textContent = message || defaultHeaderLabel;
+    panelHeader.classList.toggle('is-busy', tone === 'busy');
+    panelHeader.classList.toggle('is-error', tone === 'error');
+    if (tone === 'idle' && !message) exportStatus.textContent = defaultHeaderLabel;
+  }
   async function request(message) {
-    const result = await win.chrome?.runtime?.sendMessage(message);
+    if (!win.chrome?.runtime?.id) throw new Error('Extension was updated or reloaded. Refresh this page and try again.');
+    let result;
+    try {
+      result = await win.chrome.runtime.sendMessage(message);
+    } catch (error) {
+      const msg = error?.message || String(error);
+      if (/context invalidated|extension context invalidated/i.test(msg)) throw new Error('Extension was updated or reloaded. Refresh this page and try again.');
+      throw error;
+    }
     if (!result?.ok) throw new Error(result?.error || 'IdeaFoundry did not respond.');
     return result;
+  }
+  function ensurePanelOpen() {
+    if (toggleButton.getAttribute('aria-expanded') === 'true') return;
+    toggleButton.setAttribute('aria-expanded', 'true');
+    toggleButton.textContent = 'Close';
+    body.hidden = false;
+  }
+  function showCaptureStatus(message, tone = 'idle') {
+    captureStatus.textContent = message;
+    captureStatus.classList.toggle('is-error', tone === 'error');
+    captureStatus.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   }
   function updateMetadata() {
     try {
@@ -137,20 +168,46 @@ export function createCaptureControls(doc = document, win = window) {
   async function exportFromWidget(destination) {
     if (busy) return;
     busy = true;
+    ensurePanelOpen();
+    panel.hidden = false;
+    const sendButton = captureActions.querySelector('[data-action="send-kb"]');
+    const downloadButton = captureActions.querySelector('[data-action="download"]');
+    const activeButton = destination === 'kb' ? sendButton : downloadButton;
     for (const button of captureActions.querySelectorAll('button')) button.disabled = true;
     try {
       const format = shadow.querySelector('[name="format"]:checked')?.value || 'md';
-      captureStatus.textContent = destination === 'kb' ? 'Sending to your knowledge base…' : 'Preparing your file…';
+      const busyMessage = destination === 'kb' ? 'Sending to your knowledge base…' : 'Preparing your file…';
+      setExportFeedback(busyMessage, 'busy');
+      showCaptureStatus(busyMessage, 'busy');
+      if (activeButton) activeButton.textContent = destination === 'kb' ? 'Sending…' : 'Preparing…';
       const conversation = await capture('export');
       if (conversation.media?.length) {
+        setExportFeedback('Reading page media…', 'busy');
+        showCaptureStatus('Reading page media…', 'busy');
         const resolved = await resolvePageMedia(conversation.media);
         const byId = new Map(resolved.map(item => [item.id, item]));
         conversation.media = conversation.media.map(item => byId.has(item.id) ? { ...item, ...byId.get(item.id) } : item);
       }
+      if (destination === 'kb') {
+        setExportFeedback('Uploading to your knowledge base…', 'busy');
+        showCaptureStatus('Uploading to your knowledge base…', 'busy');
+      }
       const result = await request({ type: 'widget-export', destination, format, conversation });
-      captureStatus.textContent = destination === 'kb' ? `Saved to knowledge base: ${result.name}` : 'Download started in Chrome.';
-    } catch (error) { captureStatus.textContent = error.message; }
-    finally { busy = false; for (const button of captureActions.querySelectorAll('button')) button.disabled = false; }
+      const successMessage = destination === 'kb'
+        ? `Saved to knowledge base: ${result.name}${result.appUrl ? `. Open ${result.appUrl}` : ''}`
+        : 'Download started.';
+      setExportFeedback(destination === 'kb' ? `Saved: ${result.name}` : 'Download started.', 'idle');
+      showCaptureStatus(successMessage, 'idle');
+    } catch (error) {
+      setExportFeedback(error.message, 'error');
+      showCaptureStatus(error.message, 'error');
+    }
+    finally {
+      busy = false;
+      if (sendButton) sendButton.textContent = 'Send to knowledge base ↗';
+      if (downloadButton) downloadButton.textContent = 'Download file';
+      for (const button of captureActions.querySelectorAll('button')) button.disabled = false;
+    }
   }
   async function resolvePageMedia(items) {
     const results = [];
@@ -203,7 +260,7 @@ export function createCaptureControls(doc = document, win = window) {
   const onCaptureClick = event => {
     const action = event.target.closest('button')?.dataset.action;
     if (action === 'download' || action === 'send-kb') void exportFromWidget(action === 'send-kb' ? 'kb' : 'download');
-    if (action === 'settings') void request({ type: 'open-settings' }).catch(error => { captureStatus.textContent = error.message; });
+    if (action === 'settings') void request({ type: 'open-settings' }).catch(error => { showCaptureStatus(error.message, 'error'); setExportFeedback(error.message, 'error'); });
   };
   const onListChange = event => {
     const input = event.target.closest('input[data-section-id]');

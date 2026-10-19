@@ -8,7 +8,8 @@
     "test": "node --test test/*.test.mjs",
     "test:browser": "node scripts/browser-test.mjs",
     "queue": "node server/index.mjs",
-    "check": "npm test && npm run build"
+    "check": "npm test && npm run build",
+    "test:idea-app": "node scripts/idea-app-e2e.mjs"
   },
   "dependencies": {
     "markdown-it": "^14.3.2",

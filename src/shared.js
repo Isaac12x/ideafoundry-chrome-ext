@@ -88,14 +88,23 @@ export function serviceBase(value) {
   secureService(url);
   return url.origin + url.pathname.replace(/\/+$/, '');
 }
+export function kbSource(value) {
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < 0) throw new Error('KB source must be a non-negative integer.');
+  return n;
+}
+export function kbDirectory(value) {
+  if (typeof value !== 'string' || value.length > 500) throw new Error('Use a relative KB folder without .. segments.');
+  const dir = value.trim();
+  if (dir.startsWith('/') || dir.split(/[\\/]/).includes('..')) throw new Error('Use a relative KB folder without .. segments.');
+  return dir;
+}
 export function validateSettings(input) {
   const value = withDefaults(input);
   value.appUrl = serviceOrigin(value.appUrl);
   value.queueUrl = serviceBase(value.queueUrl);
-  value.source = Number(value.source);
-  if (!Number.isInteger(value.source) || value.source < 0) throw new Error('KB source must be a non-negative integer.');
-  value.directory = value.directory.trim();
-  if (value.directory.startsWith('/') || value.directory.split(/[\\/]/).includes('..')) throw new Error('Use a relative KB folder without .. segments.');
+  value.source = kbSource(value.source);
+  value.directory = kbDirectory(value.directory);
   value.captureSites = resolveCaptureSites(value);
   value.allowedOrigins = value.captureSites.map(formatCaptureSite);
   value.queueToken = value.queueToken.trim();
@@ -108,7 +117,10 @@ export function validateJob(job, captureSites) {
   const url = httpUrl(job.url);
   if (!urlMatchesCaptureSites(url.href, captureSites)) throw new Error('This conversation URL is not allowed for remote capture.');
   if (!['md', 'pdf'].includes(job.format)) throw new Error('Format must be md or pdf.');
-  return { id: job.id, url: url.href, format: job.format };
+  const out = { id: job.id, url: url.href, format: job.format };
+  if (job.source != null) out.source = kbSource(job.source);
+  if (job.directory != null) out.directory = kbDirectory(job.directory);
+  return out;
 }
 export function filename(title, format, date = new Date()) {
   const stem = title.normalize('NFKC').replace(/[<>:"/\\|?*\u0000-\u001f]/g, '-').replace(/\s+/g, ' ').replace(/^[. ]+|[. ]+$/g, '').slice(0, 100) || 'Conversation';

@@ -2,7 +2,7 @@ import { createServer } from 'node:http';
 import { timingSafeEqual, randomUUID } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync, renameSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { httpUrl } from '../src/shared.js';
+import { httpUrl, kbSource, kbDirectory } from '../src/shared.js';
 
 export function createQueue({ token, storePath, now = Date.now }) {
   if (!token || token.length < 32) throw new Error('QUEUE_TOKEN must contain at least 32 characters.');
@@ -52,6 +52,10 @@ export function createQueue({ token, storePath, now = Date.now }) {
         // Keep a bounded result history. Active jobs are never evicted.
         if (jobs.length >= 1000) jobs = jobs.filter(j => ['queued', 'running'].includes(j.state)).concat(jobs.filter(j => !['queued', 'running'].includes(j.state)).slice(-800));
         const job = { id: randomUUID(), url: url.href, format, state: 'queued', createdAt: now() };
+        try {
+          if (body.source != null) job.source = kbSource(body.source);
+          if (body.directory != null) job.directory = kbDirectory(body.directory);
+        } catch (error) { return reply(400, { error: error.message }); }
         jobs.push(job); save(); return reply(201, job);
       }
       if (path === '/jobs/claim') {

@@ -52,7 +52,7 @@ function pdfMediaNode(item, conversation, assetBase, maxWidth = 460) {
   if (item.error || item.pdfError || !item.data) return { text: `Media unavailable: ${item.error || item.pdfError || 'file data was not captured'} — ${label}`, link: source, color: '#335d4d' };
   const text = [{ text: label, ...(source ? { link: source } : {}), color: '#335d4d' }];
   if (item.data && item.filename) {
-    const name = assetBase ? flatCompanionName(item) : `media/${item.filename}`;
+    const name = assetBase ? flatCompanionName(item, assetBase) : `media/${item.filename}`;
     const companionLink = assetBase ? kbAssetUrl(assetBase, name) : undefined;
     text.push({ text: ` (companion: ${name})`, ...(companionLink ? { link: companionLink } : {}), color: '#335d4d', fontSize: 8 });
   }
@@ -65,7 +65,7 @@ function pdfMediaParagraph(item, conversation, assetBase, maxWidth = 460) {
   const source = item.url || conversation.url;
   if (item.kind === 'image' && item.pdfData) return [pdfMediaNode(item, conversation, assetBase, maxWidth)];
   if (item.error || item.pdfError || !item.data) return [{ text: `Media unavailable: ${item.error || item.pdfError || 'file data was not captured'} — ${label}`, link: source, color: '#335d4d', margin: [0, 4, 0, 4] }];
-  const name = assetBase ? flatCompanionName(item) : `media/${item.filename}`;
+  const name = assetBase ? flatCompanionName(item, assetBase) : `media/${item.filename}`;
   const companion = { text: `${item.kind || 'Media'} companion: ${name}`, margin: [0, 4, 0, 1] };
   if (assetBase) companion.link = kbAssetUrl(assetBase, name);
   const original = { text: `Original source: ${source}`, link: source, color: '#335d4d', fontSize: 8, margin: [0, 0, 0, 4] };
@@ -325,7 +325,7 @@ export function renderMediaMarkdown(conversation, { includeMediaDirectory = fals
       const source = markdownLink(item.url || conversation.url);
       const label = item.alt || item.title || item.filename || item.kind || 'Referenced media';
       if (item.error || !item.data) return `[Media unavailable: ${markdownText(label)} — ${markdownText(item.error || 'file data was not captured')}](${source})`;
-      const assetName = flatAssets ? `media-${String(item.id).replace(/[^a-zA-Z0-9_-]/g, '-').slice(0, 40)}-${item.filename}` : item.filename;
+      const assetName = flatAssets ? flatCompanionName(item, assetBase) : item.filename;
       const path = assetBase && flatAssets ? kbAssetUrl(assetBase, assetName)
         : (includeMediaDirectory ? `media/${item.filename}` : assetName).split('/').map(encodeURIComponent).join('/');
       assets.push(item);
@@ -348,7 +348,7 @@ function kbAssetUrl(assetBase, name) {
 
 export function mediaFileEntries(conversation, assetBase = null) {
   const { conversation: rendered, assets } = renderMediaMarkdown(conversation, { flatAssets: true, assetBase });
-  const names = new Map(assets.map(item => [item.id, flatCompanionName(item)]));
+  const names = new Map(assets.map(item => [item.id, flatCompanionName(item, assetBase)]));
   return [{ name: filename(conversation.title, 'md'), mime: 'text/markdown;charset=utf-8', bytes: new TextEncoder().encode(markdown(rendered)) }, ...assets.map(item => ({ name: names.get(item.id), mime: item.mime, bytes: Uint8Array.from(atob(item.data), c => c.charCodeAt(0)) }))];
 }
 
@@ -360,10 +360,11 @@ export function mediaArchiveEntries(conversation) {
 export function mediaCompanionEntries(conversation, { includeImages = false, assetBase = null } = {}) {
   return (conversation.media || [])
     .filter(item => item.data && !item.error && (includeImages || item.kind !== 'image'))
-    .map(item => ({ name: assetBase ? flatCompanionName(item) : `media/${item.filename}`, mime: item.mime, bytes: Uint8Array.from(atob(item.data), c => c.charCodeAt(0)) }));
+    .map(item => ({ name: assetBase ? flatCompanionName(item, assetBase) : `media/${item.filename}`, mime: item.mime, bytes: Uint8Array.from(atob(item.data), c => c.charCodeAt(0)) }));
 }
 
-function flatCompanionName(item) { return `media-${String(item.id).replace(/[^a-zA-Z0-9_-]/g, '-').slice(0, 40)}-${item.filename}`; }
+// stamp is unique per export: Rails renames colliding uploads (-2), which would orphan KB links.
+function flatCompanionName(item, assetBase) { return `media-${assetBase?.stamp ? `${assetBase.stamp}-` : ''}${String(item.id).replace(/[^a-zA-Z0-9_-]/g, '-').slice(0, 40)}-${item.filename}`; }
 
 export function pdfMessageContent(message, conversation, assetBase = null) {
   const byId = new Map((conversation.media || []).map(item => [item.id, item]));

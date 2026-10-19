@@ -81,18 +81,19 @@ async function loaded(tabId) {
 async function permitted(origin) {
   if (!(await chrome.permissions.contains({ origins: [`${origin}/*`] }))) throw new Error(`Allow this site in the browser's extension site access settings: ${origin}`);
 }
-async function sendToKB(conversation, format) {
+async function sendToKB(conversation, format, target = {}) {
   conversation = await permissionFilteredMedia(conversation);
   const config = validateSettings(await settings());
   await permitted(config.appUrl);
-  const file = await render(conversation, format, false, { appUrl: config.appUrl, source: config.source, directory: config.directory });
+  const dest = { appUrl: config.appUrl, source: target.source ?? config.source, directory: target.directory ?? config.directory };
+  const file = await render(conversation, format, false, dest);
   const tabs = await chrome.tabs.query({ url: `${config.appUrl}/*` });
   let tab = tabs[0];
   const created = !tab;
   if (created) tab = await chrome.tabs.create({ url: `${config.appUrl}/knowledge-base`, active: false });
   try {
     await loaded(tab.id);
-    const results = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: uploadInApp, args: [file, { appUrl: config.appUrl, source: config.source, directory: config.directory }] });
+    const results = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: uploadInApp, args: [file, dest] });
     if (!results[0]?.result) throw new Error('Upload did not finish. Check the KB before retrying.');
     if (!results[0].result.ok) throw new Error(results[0].result.error);
     return results[0].result;
@@ -172,7 +173,7 @@ async function poll() {
       const latest = await settings();
       const latestConfig = validateSettings(latest);
       if (!latest.remoteEnabled || latest.queueUrl !== config.queueUrl || latest.appUrl !== config.appUrl || !urlMatchesCaptureSites(job.url, latestConfig.captureSites)) throw new Error('Remote settings changed; capture cancelled.');
-      const saved = await sendToKB(conversation, job.format);
+      const saved = await sendToKB(conversation, job.format, { source: job.source, directory: job.directory });
       result = { state: 'completed', filename: saved.name };
     } catch (error) { result = { state: 'failed', error: error.message }; }
     await chrome.storage.local.set({ pendingResult: { id: incoming.id, queueUrl: config.queueUrl, result } });

@@ -937,7 +937,7 @@ try {
 
   await widget.locator('[name="format"][value="pdf"]').check();
   await widget.locator('[data-action="download"]').click();
-  await target.waitForFunction(() => /Download started in Chrome\./i.test(document.querySelector('#idea-capture-controls')?.shadowRoot?.querySelector('[data-capture-status]')?.textContent || ''), null, { timeout: 10000 });
+  await target.waitForFunction(() => /Download started\./i.test(document.querySelector('#idea-capture-controls')?.shadowRoot?.querySelector('[data-capture-status]')?.textContent || ''), null, { timeout: 10000 });
 
   await widget.locator('[data-action="copy-diagnostics"]').first().click();
   await target.waitForFunction(() => {
@@ -989,7 +989,7 @@ try {
   assert.equal(await autoWorker.evaluate(() => chrome.permissions.contains({ origins: ['https://media.example/*'] })), true, 'cross-site media access is granted by the production manifest');
   await autoWidget.locator('[name="format"][value="md"]').check();
   await autoWidget.locator('[data-action="download"]').click();
-  await autoPage.waitForFunction(() => /Download started in Chrome\./i.test(document.querySelector('#idea-capture-controls')?.shadowRoot?.querySelector('[data-capture-status]')?.textContent || ''), null, { timeout: 10000 });
+  await autoPage.waitForFunction(() => /Download started\./i.test(document.querySelector('#idea-capture-controls')?.shadowRoot?.querySelector('[data-capture-status]')?.textContent || ''), null, { timeout: 10000 });
   const [autoDownload] = await autoWorker.evaluate(() => chrome.downloads.search({ limit: 1, orderBy: ['-startTime'] }));
   assert.equal(autoDownload.mime, 'application/zip', 'automatically authorized cross-site image is bundled with the Markdown');
   assert.equal(await autoWorker.evaluate(() => self.__browserPermissionRequests), 0, 'download requires no per-page permission prompt');
