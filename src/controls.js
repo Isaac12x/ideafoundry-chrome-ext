@@ -52,16 +52,39 @@ export function createCaptureControls(doc = document, win = window) {
         button,input,textarea{font:inherit;color:inherit}
         button{cursor:pointer}
         #idea-capture-panel{position:fixed;right:clamp(12px,2vw,24px);bottom:clamp(12px,2vw,24px);z-index:2147483647;width:min(440px,calc(100vw - 24px));max-height:min(82vh,820px);display:flex;flex-direction:column;overflow:hidden;background:var(--paper);border:1px solid #c8d3ca;border-radius:10px;box-shadow:0 14px 42px #10251c38,0 2px 8px #10251c12;font-size:13px}
-        #idea-capture-panel:has(.panel-body[hidden]){width:min(214px,calc(100vw - 24px));max-height:none}
+        #idea-capture-panel:has(.panel-body[hidden]){width:min(236px,calc(100vw - 24px));max-height:none;border-color:#bdcbbf;border-radius:9px;box-shadow:0 8px 24px #10251c25,0 1px 3px #10251c12}
         #idea-capture-panel>header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 18px;border-bottom:1px solid var(--line);font-family:Georgia,"Iowan Old Style",serif;font-size:18px;font-weight:600;letter-spacing:-.015em}
         #idea-capture-panel>header [data-export-status]{min-width:0;overflow-wrap:anywhere;font-size:clamp(12px,3.4vw,18px)}
+        .launcher-mark{display:none}
+        .launcher-brand{display:none}
+        .header-copy{min-width:0;flex:1}
+        .header-title{display:none}
         #idea-capture-panel>header.is-busy [data-export-status]{font-family:"Avenir Next","Trebuchet MS",sans-serif;font-size:12px;font-weight:600;color:var(--forest)}
         #idea-capture-panel>header.is-error [data-export-status]{color:#8a3b28}
-        #idea-capture-panel:has(.panel-body[hidden])>header{padding:8px 10px;font-family:"Avenir Next","Trebuchet MS",sans-serif;font-size:12px;letter-spacing:0}
+        #idea-capture-panel:has(.panel-body[hidden])>header{position:relative;gap:10px;padding:10px 11px;border:0;font-family:"Avenir Next","Trebuchet MS",sans-serif;font-size:12px;letter-spacing:0}
+        #idea-capture-panel:has(.panel-body[hidden]):has([data-action="toggle-panel"]:hover){background:#f2f5ef}
+        #idea-capture-panel:has(.panel-body[hidden])>header>*{pointer-events:none}
+        #idea-capture-panel:has(.panel-body[hidden]) [data-action="toggle-panel"]{pointer-events:auto}
+        #idea-capture-panel:has(.panel-body[hidden]) .launcher-mark{position:relative;display:grid;place-items:center;flex:0 0 34px;width:34px;height:34px;border:1px solid #cbd8cd;border-radius:6px;background:#f1f4ed;color:var(--forest)}
+        #idea-capture-panel:has(.panel-body[hidden]) .launcher-mark::before{width:13px;height:16px;border:1.5px solid currentColor;border-radius:2px;content:"";background:linear-gradient(to bottom,transparent 0 5px,currentColor 5px 6.5px,transparent 6.5px 9px,currentColor 9px 10.5px,transparent 10.5px)}
+        #idea-capture-panel:has(.panel-body[hidden]) .launcher-mark::after{position:absolute;top:5px;right:7px;width:4px;height:4px;border-top:1.5px solid currentColor;border-right:1.5px solid currentColor;background:var(--paper);content:""}
+        #idea-capture-panel:has(.panel-body[hidden]) .header-copy{display:flex;flex-direction:column;gap:2px;padding-right:48px;line-height:1.15}
+        #idea-capture-panel:has(.panel-body[hidden]) .launcher-brand{display:block;font-size:10px;font-weight:600;letter-spacing:.055em;text-transform:uppercase;color:#52685a}
+        #idea-capture-panel:has(.panel-body[hidden]) [data-export-status]{display:none;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px;font-weight:600;color:var(--forest)}
+        #idea-capture-panel:has(.panel-body[hidden]) .header-title{display:block;font:600 12px/1.2 Georgia,"Iowan Old Style",serif;letter-spacing:-.01em;white-space:nowrap}
+        #idea-capture-panel:has(.panel-body[hidden])>header.is-busy [data-export-status],#idea-capture-panel:has(.panel-body[hidden])>header.is-error [data-export-status]{display:block}
+        #idea-capture-panel:has(.panel-body[hidden])>header.is-busy .launcher-brand,#idea-capture-panel:has(.panel-body[hidden])>header.is-error .launcher-brand{display:none}
+        #idea-capture-panel:has(.panel-body[hidden])>header.is-error [data-export-status]{color:#8a3b28}
         button{min-height:30px;padding:5px 9px;border:1px solid #cbd6ce;border-radius:5px;background:#f5f7f2;font-family:"Avenir Next","Trebuchet MS",sans-serif;font-size:11px;font-weight:600;transition:background-color 120ms ease,border-color 120ms ease,transform 120ms ease}
         button:hover{background:#e8efe8;border-color:#aabcae}
         button:active{transform:translateY(1px)}
         button:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px solid #397650;outline-offset:2px}
+        #idea-capture-panel:has(.panel-body[hidden]) [data-action="toggle-panel"]{position:absolute;inset:0;width:auto;height:auto;min-height:0;padding:0;border:1px solid transparent;border-radius:inherit;background:transparent;font-size:0}
+        #idea-capture-panel:has(.panel-body[hidden]) [data-action="toggle-panel"]::after{position:absolute;top:50%;right:11px;display:grid;place-items:center;width:38px;height:38px;border:1px solid var(--forest);border-radius:6px;background:var(--forest);color:var(--paper);content:"+";font:400 21px/1 "Avenir Next","Trebuchet MS",sans-serif;transform:translateY(-50%);transition:background-color 120ms ease,border-color 120ms ease}
+        #idea-capture-panel:has(.panel-body[hidden]) [data-action="toggle-panel"]:hover{background:transparent;border-color:transparent}
+        #idea-capture-panel:has(.panel-body[hidden]) [data-action="toggle-panel"]:hover::after{background:#1f4934;border-color:#1f4934}
+        #idea-capture-panel:has(.panel-body[hidden]) [data-action="toggle-panel"]:focus-visible{outline:2px solid #397650;outline-offset:-4px}
+        #idea-capture-panel:has(.panel-body[hidden]) [data-action="toggle-panel"]:active{transform:none}
         .panel-body{display:block;min-height:0;flex:1;overflow-y:auto;overscroll-behavior:contain}
         .tools{display:flex;gap:6px;flex-wrap:wrap;padding:10px 12px 7px}
         .tools button{min-height:28px;padding:4px 7px;font-size:10px}
@@ -86,10 +109,11 @@ export function createCaptureControls(doc = document, win = window) {
         #idea-capture-margin-controls button:hover{background:var(--wash);border-color:#9db5a3}
         #idea-capture-margin-controls button:active{transform:scale(.96)}
         @media(max-width:420px){#idea-capture-panel{right:10px;bottom:10px;width:calc(100vw - 20px);max-height:82vh}#idea-capture-panel>header{padding:12px 13px}.tools{padding-inline:10px}.tools button{font-size:9px}.capture-meta{padding-inline:14px}.capture-tools{padding-inline:14px}}
+        @media(max-width:220px){#idea-capture-panel:has(.panel-body[hidden])>header{gap:0;padding:7px}#idea-capture-panel:has(.panel-body[hidden]) .launcher-mark{display:none}#idea-capture-panel:has(.panel-body[hidden]) .header-copy{padding-right:43px}#idea-capture-panel:has(.panel-body[hidden]) [data-action="toggle-panel"]::after{right:7px}}
         @media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;transition:none!important}}
       </style>
       <section id="idea-capture-panel" data-idea-panel aria-label="Conversation capture" hidden>
-        <header><span data-export-status>IdeaFoundry / Capture</span><button type="button" data-action="toggle-panel" aria-expanded="false">Open</button></header>
+        <header><span class="launcher-mark" aria-hidden="true"></span><span class="header-copy"><span class="launcher-brand" aria-hidden="true">IdeaFoundry</span><span data-export-status>IdeaFoundry / Capture</span><span class="header-title">Capture</span></span><button type="button" data-action="toggle-panel" aria-label="Open conversation capture panel" aria-expanded="false">Open</button></header>
         <div class="panel-body" hidden><div class="capture-meta"><h2 data-title>Conversation capture</h2><p data-summary></p><p data-warning></p></div><div class="tools"><button type="button" data-action="select-all">Select all</button><button type="button" data-action="select-none">Select none</button><button type="button" data-action="collapse-all">Collapse all</button><button type="button" data-action="expand-all">Expand all</button><button type="button" data-action="copy-diagnostics">Copy diagnostics</button></div><div class="count" aria-live="polite"></div><div class="empty" hidden><p data-empty-message></p><button type="button" data-action="retry">Retry detection</button><button type="button" data-action="copy-diagnostics">Copy diagnostics</button></div><div class="diagnostics"><p data-diagnostics-status aria-live="polite"></p><textarea data-diagnostics-fallback readonly hidden aria-label="Diagnostics to copy manually"></textarea></div><details class="preview" data-preview><summary>Review captured conversation</summary><pre data-preview-text></pre></details><div class="list"></div><div class="capture-tools"><div class="format" role="group" aria-label="File format"><label><input type="radio" name="format" value="md" checked> Markdown</label><label><input type="radio" name="format" value="html"> HTML</label><label><input type="radio" name="format" value="pdf"> PDF</label></div><p class="format-hint" data-format-hint></p><div class="actions"><button type="button" data-action="download">Download file</button><button type="button" data-action="settings">Settings</button><button type="button" data-action="send-kb">Send to knowledge base ↗</button></div><p class="capture-status" data-capture-status role="status" aria-live="polite"></p></div></div>
       </section>
       <aside id="idea-capture-margin-controls" aria-label="Conversation section controls" hidden>
@@ -143,6 +167,7 @@ export function createCaptureControls(doc = document, win = window) {
     if (toggleButton.getAttribute('aria-expanded') === 'true') return;
     toggleButton.setAttribute('aria-expanded', 'true');
     toggleButton.textContent = 'Close';
+    toggleButton.setAttribute('aria-label', 'Close conversation capture panel');
     body.hidden = false;
   }
   function showCaptureStatus(message, tone = 'idle') {
@@ -181,7 +206,7 @@ export function createCaptureControls(doc = document, win = window) {
       setExportFeedback(busyMessage, 'busy');
       showCaptureStatus(busyMessage, 'busy');
       if (activeButton) activeButton.textContent = destination === 'kb' ? 'Sending…' : 'Preparing…';
-      const conversation = await capture('export', true, ['html', 'pdf'].includes(format));
+      const conversation = await capture('export', true, format === 'html' || format === 'pdf' && destination === 'download');
       if (conversation.media?.length) {
         setExportFeedback('Reading page media…', 'busy');
         showCaptureStatus('Reading page media…', 'busy');
@@ -235,6 +260,7 @@ export function createCaptureControls(doc = document, win = window) {
     const open = toggleButton.getAttribute('aria-expanded') !== 'true';
     toggleButton.setAttribute('aria-expanded', String(open));
     toggleButton.textContent = open ? 'Close' : 'Open';
+    toggleButton.setAttribute('aria-label', open ? 'Close conversation capture panel' : 'Open conversation capture panel');
     body.hidden = !open;
   };
   const onRailClick = event => {
@@ -268,8 +294,8 @@ export function createCaptureControls(doc = document, win = window) {
     const format = shadow.querySelector('[name="format"]:checked')?.value || 'md';
     const sendButton = captureActions.querySelector('[data-action="send-kb"]');
     const pdf = format === 'pdf';
-    sendButton.disabled = pdf;
-    formatHint.textContent = pdf ? 'PDF opens the browser print dialog. Choose “Save as PDF”; use Markdown or HTML for direct knowledge-base delivery.' : format === 'html' ? 'HTML keeps the captured page styling and can be sent to your knowledge base.' : '';
+    sendButton.disabled = false;
+    formatHint.textContent = pdf ? 'Send a formatted PDF directly to your knowledge base. Download preserves page styling through the print dialog; choose “Save as PDF”.' : format === 'html' ? 'HTML keeps the captured page styling and can be sent to your knowledge base.' : '';
   };
   const onListChange = event => {
     const input = event.target.closest('input[data-section-id]');
@@ -812,7 +838,7 @@ export function createCaptureControls(doc = document, win = window) {
     delete conversation.nodes;
     return conversation;
   }
-  function open() { toggleButton.setAttribute('aria-expanded', 'true'); toggleButton.textContent = 'Close'; body.hidden = false; panel.hidden = false; refresh(); }
+  function open() { toggleButton.setAttribute('aria-expanded', 'true'); toggleButton.textContent = 'Close'; toggleButton.setAttribute('aria-label', 'Close conversation capture panel'); body.hidden = false; panel.hidden = false; refresh(); }
   return { capture, refresh, open, destroy() {
     if (destroyed) return;
     destroyed = true;
