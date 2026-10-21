@@ -1,6 +1,7 @@
 import { chromium } from 'playwright';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
+import { execFileSync } from 'node:child_process';
 import { mkdtemp, cp, readFile, writeFile, rm, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve, join } from 'node:path';
@@ -13,7 +14,7 @@ const uploads = [];
 const longResearch = Array.from({ length: 18 }, (_, i) => `<p>Research note ${i + 1}: interview evidence needs careful coding, participant context, and a clear link to the decision being made.</p>`).join('');
 const longConsent = Array.from({ length: 14 }, (_, i) => `<p>Consent detail ${i + 1}: explain the purpose, storage period, access rules, and withdrawal process in plain language.</p>`).join('');
 const pdfFixture = Buffer.from('%PDF-1.4\n% browser media fixture\n%%EOF\n', 'latin1');
-const fixtureCss = 'body{margin:0;background:#f5f5f2;color:#242824;font:16px/1.6 Georgia,serif}main.chat{max-width:700px;margin:0 auto;padding:32px 24px;min-height:100vh}[data-message-author-role]{display:block;margin:18px 0;padding:16px 20px;border-radius:12px;background:white;box-shadow:0 1px 3px #0001}[data-message-author-role="user"]{margin-left:90px;background:#e9eee9;font-family:system-ui,sans-serif}.long-answer p{margin:0 0 18px}';
+const fixtureCss = 'body{margin:0;background:#f5f5f2;color:#242824;font:16px/1.6 Georgia,serif}main.chat{max-width:700px;margin:0 auto;padding:32px 24px;min-height:100vh}[data-message-author-role]{display:block;margin:18px 0;padding:16px 20px;border-radius:12px;background:white;box-shadow:0 1px 3px #0001}[data-message-author-role="user"]{margin-left:90px;background:#e9eee9;font-family:system-ui,sans-serif}.long-answer p{margin:0 0 18px}.research-question{color:#203c2d}.answer-card{max-width:660px;margin:18px auto;padding:22px 26px;border:1px solid #d8e0d8;border-radius:14px;background:linear-gradient(135deg,#fff 0%,#eef5ef 100%);color:#24372c;font:16px/1.65 Georgia,serif}.answer-heading{font:600 26px/1.2 Georgia,serif;color:#244f38}.evidence-image{width:480px;height:240px;object-fit:contain}.evidence-chart{display:block;width:480px;height:180px}.evidence-table{width:100%;border-collapse:collapse}.evidence-table th{text-align:left;border-bottom:2px solid #285b42}.answer-card pre{padding:14px;background:#f2f1eb;white-space:pre-wrap}@media(max-width:720px){.answer-card{max-width:calc(100vw - 100px)}.evidence-image,.evidence-chart{width:100%;max-width:100%}}';
 let locked = false;
 const app = createServer(async (req, res) => {
   const path = new URL(req.url, 'http://fixture').pathname;
@@ -37,7 +38,7 @@ const app = createServer(async (req, res) => {
     return res.end(`<!doctype html><title>Layout stress fixture</title><link rel="stylesheet" href="/fixture.css"><main class="chat">${turns}</main>`);
   }
   if (new URL(req.url, 'http://fixture').pathname === '/chat') {
-    res.writeHead(200, { 'Content-Type': 'text/html', 'Content-Security-Policy': "default-src 'none'; style-src 'self'" });
+    res.writeHead(200, { 'Content-Type': 'text/html', 'Content-Security-Policy': "default-src 'none'; style-src 'self'; img-src data:" });
     return res.end(`<!doctype html><title>Remote fixture</title><link rel="stylesheet" href="/fixture.css"><main class="chat">
       <div data-message-author-role="user"><p>Compare the first research approaches.</p></div>
       <div data-message-author-role="assistant"><div class="long-answer">${longResearch}<div data-message-author-role="assistant"><p>Approach Alpha uses interviews.</p></div></div></div>
@@ -573,9 +574,10 @@ try {
 
   const mediaPdf = await ui.evaluate(async conversation => chrome.runtime.sendMessage({ target: 'offscreen', conversation, format: 'pdf', download: false }), projectCapture.conversation);
   assert.equal(mediaPdf.ok, true, mediaPdf.error);
-  const pdfBytes = Buffer.from(mediaPdf.files[0].base64, 'base64');
-  assert.equal(pdfBytes.subarray(0, 5).toString(), '%PDF-');
-  assert.match(pdfBytes.toString('latin1'), /\/Subtype\s*\/Image/, 'the generated PDF embeds image XObjects for inline PNG and WebP');
+  const htmlBytes = Buffer.from(mediaPdf.files[0].base64, 'base64');
+  assert.match(htmlBytes.toString('utf8'), /^<!doctype html>/i, 'PDF preparation returns a browser-renderable HTML document');
+  assert.equal(mediaPdf.mime, 'text/html;charset=utf-8');
+  assert.match(htmlBytes.toString('utf8'), /Source:/, 'the print document retains provenance');
 
   const localMarkdown = await ui.evaluate(async conversation => chrome.runtime.sendMessage({ target: 'offscreen', conversation, format: 'md', download: true }), projectCapture.conversation);
   assert.equal(localMarkdown.ok, true, localMarkdown.error);
@@ -812,20 +814,9 @@ try {
   assert.match(selectedMarkdownUpload, /main risks/);
   assert.doesNotMatch(selectedMarkdownUpload, /project timeline|three weeks/);
 
-  // Observe the actual conversation handed to the offscreen PDF renderer without changing production code.
-  await ui.evaluate(() => {
-    window.__offscreenInputs = [];
-    chrome.runtime.onMessage.addListener(message => {
-      if (message?.target === 'offscreen') window.__offscreenInputs.push({ format: message.format, conversation: message.conversation });
-    });
-  });
   const selectedPdf = await send({ type: 'export', destination: 'kb', format: 'pdf', conversation: selected.conversation });
-  assert.equal(selectedPdf.ok, true, selectedPdf.error);
-  const pdfInput = await ui.evaluate(() => window.__offscreenInputs.at(-1));
-  assert.equal(pdfInput?.format, 'pdf');
-  assert.equal(pdfInput.conversation.messages.length, 5);
-  assert.equal(pdfInput.conversation.messages.some(message => message.markdown.includes('project timeline')), false);
-  assert.match(uploads.at(-1).toString(), /%PDF-/);
+  assert.equal(selectedPdf.ok, false, 'PDF cannot be sent to KB before the user saves it through the print dialog');
+  assert.match(selectedPdf.error, /print dialog/i);
 
   await panel.locator('[data-action="select-none"]').click();
   const noneSelected = await send({ type: 'capture', tabId, mode: 'export' });
@@ -866,15 +857,15 @@ try {
   });
   await target.waitForFunction(() => document.querySelectorAll('.idea-capture-section-header').length === 1 && !document.querySelector('#idea-capture-controls')?.shadowRoot?.querySelector('#idea-capture-panel')?.hidden);
 
-  for (const format of ['md', 'pdf']) {
+  for (const format of ['md', 'html']) {
     const response = await send({ type: 'export', destination: 'kb', format, conversation: captured.conversation });
     console.log(`${format} upload:`, response.ok, response.error || '');
     assert.equal(response.ok, true, response.error);
-    assert.match(uploads.at(-1).toString(), format === 'md' ? /## Assistant/ : /%PDF-/);
+    assert.match(uploads.at(-1).toString(), format === 'md' ? /## Assistant/ : /text\/html/);
   }
   locked = true;
   const rejected = await send({ type: 'export', destination: 'kb', format: 'md', conversation: captured.conversation });
-  assert.equal(rejected.ok, false); assert.match(rejected.error, /unlock/i); assert.equal(uploads.length, 5);
+  assert.equal(rejected.ok, false); assert.match(rejected.error, /unlock/i); assert.equal(uploads.length, 4);
   locked = false;
   const queueRequest = (path, body) => fetch(queueUrl + path, { method: body ? 'POST' : 'GET', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
   const job = await (await queueRequest('/jobs', { url: `${appUrl}/chat?thread=next`, format: 'md' })).json();
@@ -886,7 +877,7 @@ try {
     await new Promise(r => setTimeout(r, 500));
   }
   console.log('Remote queue:', result.state);
-  assert.equal(result.state, 'completed', result.error || JSON.stringify(result)); assert.equal(uploads.length, 6);
+  assert.equal(result.state, 'completed', result.error || JSON.stringify(result)); assert.equal(uploads.length, 5);
   const remoteUpload = uploads.at(-1).toString();
   assert.match(remoteUpload, /first research approaches/);
   assert.match(remoteUpload, /consent plan/);
@@ -901,20 +892,51 @@ try {
     if (result.state === 'failed') break;
     await new Promise(r => setTimeout(r, 200));
   }
-  assert.equal(result.state, 'failed'); assert.match(result.error, /not allowed/); assert.equal(uploads.length, 6);
-  // Blob downloads exercise the offscreen renderer directly without a native Save dialog.
-  const file = await ui.evaluate(async conversation => chrome.runtime.sendMessage({ target: 'offscreen', conversation, format: 'pdf', download: true }), captured.conversation);
+  assert.equal(result.state, 'failed'); assert.match(result.error, /not allowed/); assert.equal(uploads.length, 5);
+  // Standalone HTML downloads exercise the offscreen renderer without a native Save dialog.
+  const file = await ui.evaluate(async conversation => chrome.runtime.sendMessage({ target: 'offscreen', conversation, format: 'html', download: true }), captured.conversation);
   assert.equal(file.ok, true, file.error);
-  const pdf = await ui.evaluate(async url => Array.from(new Uint8Array(await (await fetch(url)).arrayBuffer())), file.url);
-  assert.equal(Buffer.from(pdf).subarray(0, 5).toString(), '%PDF-');
-  await writeFile('artifacts/conversation.pdf', Buffer.from(pdf));
+  const html = await ui.evaluate(async url => Array.from(new Uint8Array(await (await fetch(url)).arrayBuffer())), file.url);
+  assert.match(Buffer.from(html).toString('utf8'), /^<!doctype html>/i);
+  await writeFile('artifacts/conversation.html', Buffer.from(html));
   // Exercise export from the on-page widget. The latest page selection must be
   // read when the user exports, so changing it after opening the widget filters
   // the upload without a separate popup preview.
   await target.evaluate(() => {
-    document.querySelector('main').innerHTML = '<div data-message-author-role="user">Widget should keep this turn.</div><div data-message-author-role="assistant">This selected answer stays.</div><div data-message-author-role="user">Widget should exclude this turn.</div><div data-message-author-role="assistant">This answer should not be uploaded.</div>';
+    const paragraphs = Array.from({ length: 72 }, (_, i) => `<p>Research evidence ${i + 1}: compare interview records with observation notes, preserve participant context, and record how the evidence changes the pilot decision. Keep the reasoning visible so reviewers can follow the source through analysis and implementation.</p>`).join('');
+    document.querySelector('main').innerHTML = `<div data-message-author-role="user" class="research-question">Widget should keep this long research turn.</div><div data-message-author-role="assistant"><section class="answer-card"><h2 class="answer-heading">Research synthesis</h2><p>Compare the field notes, survey summary, and location map before choosing a pilot.</p><img class="evidence-image" alt="Evidence chart" width="480" height="240" src=""><svg class="evidence-chart" viewBox="0 0 480 180" role="img" aria-label="Fieldwork chart"><defs><linearGradient id="chartGradient"><stop offset="0" stop-color="#285b42"/><stop offset="1" stop-color="#98bca1"/></linearGradient></defs><path d="M10 160 L130 120 L250 90 L370 45 L470 15" fill="none" stroke="url(#chartGradient)" stroke-width="8"/></svg><table class="evidence-table"><thead><tr><th>Evidence</th><th>Decision</th></tr></thead><tbody><tr><td>Interview notes</td><td>Test recruitment first</td></tr><tr><td>Survey summary</td><td>Validate interest</td></tr></tbody></table><pre><code>function choosePilot(evidence) { return evidence.interviews > 0 ? "field test" : "recruit"; }</code></pre>${paragraphs}<p id="final-layout-sentinel">Final page sentinel: preserve this last paragraph after print pagination.</p></section></div><div data-message-author-role="user">Widget should exclude this turn.</div><div data-message-author-role="assistant">This answer should not be uploaded.</div>`;
+    const canvas = document.createElement('canvas');
+    canvas.width = 480; canvas.height = 240;
+    const context = canvas.getContext('2d');
+    const gradient = context.createLinearGradient(0, 0, 480, 240);
+    gradient.addColorStop(0, '#dbe9dd'); gradient.addColorStop(1, '#a6c3ac');
+    context.fillStyle = gradient; context.fillRect(0, 0, 480, 240);
+    context.strokeStyle = '#285b42'; context.lineWidth = 9; context.beginPath();
+    context.moveTo(30, 190); context.lineTo(130, 145); context.lineTo(230, 160); context.lineTo(330, 80); context.lineTo(450, 55); context.stroke();
+    context.fillStyle = '#285b42'; context.beginPath(); context.arc(330, 80, 11, 0, Math.PI * 2); context.fill();
+    document.querySelector('.evidence-image').src = canvas.toDataURL('image/png');
   });
   await target.waitForFunction(() => document.querySelectorAll('.idea-capture-section-header').length === 2 && [...document.querySelectorAll('.idea-capture-section-header input')].every(input => input.checked));
+  await target.waitForFunction(() => { const image = document.querySelector('.evidence-image'); return image?.complete && image.naturalWidth === 480; });
+  await target.setViewportSize({ width: 1280, height: 900 });
+  await target.locator('#idea-capture-controls').evaluate(node => { node.dataset.screenshotHidden = 'true'; node.style.display = 'none'; });
+  await target.locator('.idea-capture-section-header').evaluateAll(nodes => nodes.forEach(node => { node.dataset.screenshotHidden = 'true'; node.style.visibility = 'hidden'; }));
+  await target.screenshot({ path: 'artifacts/layout-source-viewport.png' });
+  await target.screenshot({ path: 'artifacts/layout-source.png', fullPage: true });
+  await target.locator('#idea-capture-controls').evaluate(node => { node.style.display = ''; delete node.dataset.screenshotHidden; });
+  await target.locator('.idea-capture-section-header').evaluateAll(nodes => nodes.forEach(node => { node.style.visibility = ''; delete node.dataset.screenshotHidden; }));
+  const sourceLayoutMetrics = await target.evaluate(() => {
+    const card = document.querySelector('.answer-card');
+    const image = card.querySelector('img');
+    const path = card.querySelector('svg path');
+    return {
+      card: { ...card.getBoundingClientRect().toJSON(), background: getComputedStyle(card).backgroundImage, color: getComputedStyle(card).color },
+      image: { ...image.getBoundingClientRect().toJSON(), naturalWidth: image.naturalWidth, naturalHeight: image.naturalHeight },
+      svg: { ...card.querySelector('svg').getBoundingClientRect().toJSON() },
+      tableBorder: { width: getComputedStyle(card.querySelector('th')).borderBottomWidth, style: getComputedStyle(card.querySelector('th')).borderBottomStyle, color: getComputedStyle(card.querySelector('th')).borderBottomColor },
+      chart: { ...path.getBoundingClientRect().toJSON(), stroke: getComputedStyle(path).stroke, strokeWidth: getComputedStyle(path).strokeWidth },
+    };
+  });
   const widget = target.locator('#idea-capture-panel');
   const widgetToggle = widget.locator('[data-action="toggle-panel"]');
   if (await widgetToggle.getAttribute('aria-expanded') !== 'true') await widgetToggle.click();
@@ -931,13 +953,83 @@ try {
   await target.waitForFunction(() => /Saved to knowledge base:/i.test(document.querySelector('#idea-capture-controls')?.shadowRoot?.querySelector('[data-capture-status]')?.textContent || ''), null, { timeout: 10000 });
   assert.equal(uploads.length, uploadCountBeforeWidgetSend + 1, 'the widget sends one fresh capture to the KB');
   const widgetUpload = uploads.at(-1).toString();
-  assert.match(widgetUpload, /Widget should keep this turn/);
-  assert.match(widgetUpload, /This selected answer stays/);
+  assert.match(widgetUpload, /Widget should keep this long research turn/);
+  assert.match(widgetUpload, /Research evidence 72/);
   assert.doesNotMatch(widgetUpload, /Widget should exclude this turn|This answer should not be uploaded/);
 
+  await widget.locator('[name="format"][value="html"]').check();
+  const htmlUploadCount = uploads.length;
+  await widget.locator('[data-action="send-kb"]').click();
+  await target.waitForFunction(() => /Saved to knowledge base:/i.test(document.querySelector('#idea-capture-controls')?.shadowRoot?.querySelector('[data-capture-status]')?.textContent || ''), null, { timeout: 10000 });
+  assert.equal(uploads.length, htmlUploadCount + 1, 'the widget sends the styled standalone HTML snapshot to KB');
+  const capturedHtmlPart = uploads.at(-1).toString().match(/Content-Type: text\/html[^\r]*\r\n\r\n([\s\S]*?)\r\n--/i)?.[1];
+  assert.ok(capturedHtmlPart, 'multipart KB upload contains standalone HTML');
+  assert.match(capturedHtmlPart, /data-idea-export-section=/);
+  assert.match(capturedHtmlPart, /linear-gradient/, 'the source gradient remains in standalone HTML');
+  assert.match(capturedHtmlPart, /<svg[\s\S]*?<path/, 'inline SVG charts survive in standalone HTML');
+  assert.doesNotMatch(capturedHtmlPart, /Widget should exclude this turn|This answer should not be uploaded/);
+  await writeFile('artifacts/captured-layout.html', capturedHtmlPart);
+
   await widget.locator('[name="format"][value="pdf"]').check();
+  assert.equal(await widget.locator('[data-action="send-kb"]').isDisabled(), true, 'PDF-to-KB is visibly disabled');
+  const printTabPromise = context.waitForEvent('page');
   await widget.locator('[data-action="download"]').click();
-  await target.waitForFunction(() => /Download started\./i.test(document.querySelector('#idea-capture-controls')?.shadowRoot?.querySelector('[data-capture-status]')?.textContent || ''), null, { timeout: 10000 });
+  await target.waitForFunction(() => /Choose “Save as PDF”/i.test(document.querySelector('#idea-capture-controls')?.shadowRoot?.querySelector('[data-capture-status]')?.textContent || ''), null, { timeout: 10000 });
+  const printTab = await printTabPromise;
+  await printTab.waitForLoadState('domcontentloaded');
+  await printTab.waitForFunction(() => document.querySelector('[data-idea-export-section]') && !document.querySelector('script:not([src])'));
+  await printTab.setViewportSize({ width: 1280, height: 900 });
+  const exportLayoutMetrics = await printTab.evaluate(() => {
+    const card = document.querySelector('.answer-card');
+    const image = card.querySelector('img');
+    const path = card.querySelector('svg path');
+    return {
+      card: { ...card.getBoundingClientRect().toJSON(), background: getComputedStyle(card).backgroundImage, color: getComputedStyle(card).color },
+      image: { ...image.getBoundingClientRect().toJSON(), naturalWidth: image.naturalWidth, naturalHeight: image.naturalHeight },
+      svg: { ...card.querySelector('svg').getBoundingClientRect().toJSON() },
+      tableBorder: { width: getComputedStyle(card.querySelector('th')).borderBottomWidth, style: getComputedStyle(card.querySelector('th')).borderBottomStyle, color: getComputedStyle(card.querySelector('th')).borderBottomColor },
+      chart: { ...path.getBoundingClientRect().toJSON(), stroke: getComputedStyle(path).stroke, strokeWidth: getComputedStyle(path).strokeWidth },
+    };
+  });
+  for (const property of ['width', 'height']) {
+    assert.ok(Math.abs(sourceLayoutMetrics.card[property] - exportLayoutMetrics.card[property]) <= 1, `source/export card ${property} matches: ${JSON.stringify({ source: sourceLayoutMetrics.card, exported: exportLayoutMetrics.card })}`);
+    assert.ok(Math.abs(sourceLayoutMetrics.image[property] - exportLayoutMetrics.image[property]) <= 1, `source/export image ${property} matches: ${JSON.stringify({ source: sourceLayoutMetrics.image, exported: exportLayoutMetrics.image })}`);
+    assert.ok(Math.abs(sourceLayoutMetrics.svg[property] - exportLayoutMetrics.svg[property]) <= 1, `source/export SVG ${property} matches: ${JSON.stringify({ source: sourceLayoutMetrics.svg, exported: exportLayoutMetrics.svg })}`);
+  }
+  assert.equal(exportLayoutMetrics.image.naturalWidth, sourceLayoutMetrics.image.naturalWidth);
+  assert.ok(sourceLayoutMetrics.image.naturalWidth > 0, 'the source fixture image loaded before comparison');
+  assert.ok(exportLayoutMetrics.image.naturalWidth > 0, 'the exported image loaded before comparison');
+  assert.equal(exportLayoutMetrics.chart.strokeWidth, sourceLayoutMetrics.chart.strokeWidth);
+  assert.equal(exportLayoutMetrics.chart.stroke, sourceLayoutMetrics.chart.stroke, 'the SVG chart retains its computed gradient stroke');
+  assert.deepEqual(exportLayoutMetrics.tableBorder, sourceLayoutMetrics.tableBorder, 'the table keeps its individual header border style');
+  const standalonePreview = await context.newPage();
+  await standalonePreview.setViewportSize({ width: 1280, height: 900 });
+  await standalonePreview.setContent(capturedHtmlPart, { waitUntil: 'load' });
+  await standalonePreview.waitForFunction(() => [...document.images].every(image => image.complete));
+  const standaloneHeader = await standalonePreview.locator('.provenance').evaluateAll(nodes => ({ count: nodes.length, position: nodes[0] ? getComputedStyle(nodes[0]).position : '' }));
+  assert.deepEqual(standaloneHeader, { count: 1, position: 'static' }, 'standalone HTML has one static provenance header');
+  const standaloneBounds = await standalonePreview.locator('.answer-card').evaluate(node => node.getBoundingClientRect().toJSON());
+  assert.ok(Math.abs(sourceLayoutMetrics.card.width - standaloneBounds.width) <= 1, 'standalone HTML screenshot retains source card width');
+  await standalonePreview.screenshot({ path: 'artifacts/layout-export-viewport.png' });
+  await standalonePreview.close();
+  const printHtml = await printTab.locator('html').evaluate(node => node.outerHTML);
+  assert.match(printHtml, /Widget should keep this long research turn/);
+  assert.match(printHtml, /Final page sentinel/);
+  assert.match(printHtml, /Evidence chart/);
+  assert.match(printHtml, /linear-gradient/);
+  assert.match(printHtml, /<svg[\s\S]*?<path/);
+  assert.doesNotMatch(printHtml, /Widget should exclude this turn|This answer should not be uploaded/);
+  const cdp = await context.newCDPSession(printTab);
+  const printed = await cdp.send('Page.printToPDF', { printBackground: true, preferCSSPageSize: true });
+  const printedPdf = Buffer.from(printed.data, 'base64');
+  assert.equal(printedPdf.subarray(0, 5).toString(), '%PDF-', 'Chromium prints the styled snapshot as a real PDF');
+  await mkdir('artifacts', { recursive: true });
+  await writeFile('artifacts/captured-layout.pdf', printedPdf);
+  const printableText = execFileSync('pdftotext', ['-layout', '-', '-'], { input: printedPdf, encoding: 'utf8' });
+  assert.match(printableText, /Final page sentinel/, 'the final long-answer text is present in the generated PDF');
+  assert.match(printableText, /Research evidence 72/, 'Chromium prints the final paragraph after multiple pages');
+  assert.match(printableText, /Test recruitment first/, 'table cell text is present in the PDF');
+  assert.match(printableText, /choosePilot/, 'code remains searchable in the PDF');
 
   await widget.locator('[data-action="copy-diagnostics"]').first().click();
   await target.waitForFunction(() => {
@@ -952,13 +1044,13 @@ try {
   await target.setViewportSize({ width: 1280, height: 900 });
   const widgetDesktop = await widget.evaluate(node => ({ viewportWidth: innerWidth, documentWidth: document.documentElement.scrollWidth, rect: node.getBoundingClientRect().toJSON() }));
   assert.ok(widgetDesktop.documentWidth <= 1280, `on-page widget has no horizontal overflow at desktop width: ${JSON.stringify(widgetDesktop)}`);
-  await target.screenshot({ path: 'artifacts/widget-export-desktop.png', fullPage: true });
+  await target.screenshot({ path: 'artifacts/widget-export-desktop.png' });
   for (const width of [360, 390]) {
     await target.setViewportSize({ width, height: 700 });
     const widgetBounds = await widget.evaluate(node => ({ viewportWidth: innerWidth, documentWidth: document.documentElement.scrollWidth, rect: node.getBoundingClientRect().toJSON() }));
     assert.ok(widgetBounds.documentWidth <= width, `on-page widget has no horizontal overflow at ${width}px: ${JSON.stringify(widgetBounds)}`);
     assert.ok(widgetBounds.rect.left >= 0 && widgetBounds.rect.right <= width, `on-page widget fits ${width}px: ${JSON.stringify(widgetBounds)}`);
-    await target.screenshot({ path: `artifacts/widget-export-${width}.png`, fullPage: true });
+    await target.screenshot({ path: `artifacts/widget-export-${width}.png` });
   }
   await target.setViewportSize({ width: 1280, height: 900 });
   const settingsPageEvent = context.waitForEvent('page', { timeout: 5000 }).catch(() => null);

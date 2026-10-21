@@ -69,7 +69,7 @@ try {
     await ui.locator('#status', { hasText: 'Connections saved.' }).waitFor();
   };
 
-  // 1. Extension -> KB through the on-page widget, md then pdf.
+  // 1. Extension -> KB through the on-page widget, Markdown then styled HTML.
   await saveSettings(false);
   const page = await context.newPage();
   await page.goto(`${chat}/c/e2e`);
@@ -102,12 +102,12 @@ try {
   }
   assert.equal((await readFile(join(kbDir, pdfCompanion))).subarray(0, 5).toString(), '%PDF-');
   assert.equal((await readFile(join(kbDir, pngCompanion))).subarray(1, 4).toString(), 'PNG');
-  await sendKb('pdf');
-  const afterPdf = await kbFiles();
-  const conversationPdf = afterPdf.find(f => f.endsWith('.pdf') && !afterMd.includes(f));
-  assert.ok(conversationPdf, `a conversation PDF was stored: ${afterPdf}`);
-  assert.equal((await readFile(join(kbDir, conversationPdf))).subarray(0, 5).toString(), '%PDF-');
-  console.log('KB after pdf:', afterPdf);
+  await sendKb('html');
+  const afterHtml = await kbFiles();
+  const conversationHtml = afterHtml.find(f => f.endsWith('.html') && !afterMd.includes(f));
+  assert.ok(conversationHtml, `a styled conversation HTML was stored: ${afterHtml}`);
+  assert.match(await readFile(join(kbDir, conversationHtml), 'utf8'), /Interviews give context/);
+  console.log('KB after html:', afterHtml);
 
   // 2. App -> extension: jobs from the in-app settings form and from the API.
   await saveSettings(true);
@@ -158,8 +158,9 @@ try {
   assert.ok(filesAfterForm.some(f => f.endsWith('brief.pdf') && !filesBeforeForm.includes(f)), 'remote job also stored its PDF media companion');
   await showsInList(formUrl, new RegExp(`MD · completed · ${formJob.filename.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
 
-  // 2b. Job created straight through the JSON API (md and pdf).
-  for (const format of ['md', 'pdf']) {
+  // 2b. Job created straight through the JSON API (Markdown). Remote PDF needs
+  // an interactive print dialog, so it is rejected with a clear status.
+  for (const format of ['md']) {
     const url = `${fixtureOrigin}/c/from-api-${format}`;
     await createViaApi(url, format);
     const job = await runPoll(url);
@@ -168,6 +169,11 @@ try {
     assert.ok((await kbFiles()).includes(job.filename), `${job.filename} landed in the KB dir`);
     await showsInList(url, /completed/);
   }
+  const remotePdfUrl = `${fixtureOrigin}/c/from-api-pdf`;
+  await createViaApi(remotePdfUrl, 'pdf');
+  const remotePdfJob = await runPoll(remotePdfUrl);
+  assert.equal(remotePdfJob.state, 'failed');
+  assert.match(remotePdfJob.error, /interactive browser print/i);
 
   // 3. Negative: origin not in the extension's allow list fails with a visible error.
   const badUrl = 'https://example.com/private';
