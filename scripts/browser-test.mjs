@@ -575,9 +575,11 @@ try {
   const mediaPdf = await ui.evaluate(async conversation => chrome.runtime.sendMessage({ target: 'offscreen', conversation, format: 'pdf', download: false }), projectCapture.conversation);
   assert.equal(mediaPdf.ok, true, mediaPdf.error);
   const htmlBytes = Buffer.from(mediaPdf.files[0].base64, 'base64');
-  assert.match(htmlBytes.toString('utf8'), /^<!doctype html>/i, 'PDF preparation returns a browser-renderable HTML document');
-  assert.equal(mediaPdf.mime, 'text/html;charset=utf-8');
-  assert.match(htmlBytes.toString('utf8'), /Source:/, 'the print document retains provenance');
+  assert.equal(mediaPdf.mime, 'application/pdf');
+  assert.equal(htmlBytes.subarray(0, 5).toString(), '%PDF-', 'PDF preparation returns PDF bytes');
+  const mediaPdfText = execFileSync('pdftotext', ['-', '-'], { input: htmlBytes, encoding: 'utf8' });
+  assert.match(mediaPdfText, /Source:/, 'the PDF retains provenance');
+  assert.ok(mediaPdf.files.some(file => file.name.endsWith('brief.pdf')), 'PDF exports include referenced file companions for KB delivery');
 
   const localMarkdown = await ui.evaluate(async conversation => chrome.runtime.sendMessage({ target: 'offscreen', conversation, format: 'md', download: true }), projectCapture.conversation);
   assert.equal(localMarkdown.ok, true, localMarkdown.error);
@@ -649,6 +651,30 @@ try {
   assert.equal(await target.locator('.idea-capture-section-collapsed').count(), 0);
   await panelToggle.click();
   assert.equal(await panel.locator('.panel-body').isHidden(), true);
+  const launcherGeometry = await panel.evaluate(node => {
+    const card = node.getBoundingClientRect();
+    const copy = node.querySelector('.header-copy').getBoundingClientRect();
+    return { card: card.toJSON(), copy: copy.toJSON(), action: getComputedStyle(node.querySelector('[data-action="toggle-panel"]'), '::after').width, viewport: innerWidth };
+  });
+  assert.ok(launcherGeometry.card.left >= 0 && launcherGeometry.card.right <= launcherGeometry.viewport, `closed launcher stays inside the desktop viewport: ${JSON.stringify(launcherGeometry)}`);
+  assert.equal(await panelToggle.getAttribute('aria-label'), 'Open conversation capture panel');
+  await panelToggle.hover();
+  await target.screenshot({ path: 'artifacts/widget-closed-hover.png' });
+  await panelToggle.focus();
+  await target.keyboard.press('Tab');
+  await target.keyboard.press('Shift+Tab');
+  assert.equal(await panelToggle.evaluate(node => node.matches(':focus-visible')), true, 'keyboard navigation gives the closed launcher a visible focus state');
+  await target.screenshot({ path: 'artifacts/widget-closed-focus.png' });
+  await target.keyboard.press('Enter');
+  assert.equal(await panelToggle.getAttribute('aria-expanded'), 'true', 'the launcher opens from the keyboard');
+  await panelToggle.click();
+  assert.equal(await panelToggle.getAttribute('aria-expanded'), 'false');
+  await target.setViewportSize({ width: 195, height: 450 });
+  const narrowLauncher = await panel.evaluate(node => ({ card: node.getBoundingClientRect().toJSON(), viewport: innerWidth, title: node.querySelector('.header-title').getBoundingClientRect().toJSON() }));
+  assert.ok(narrowLauncher.card.left >= 0 && narrowLauncher.card.right <= narrowLauncher.viewport, `closed launcher fits the 195px CSS viewport (equivalent to a narrow 200% zoom viewport): ${JSON.stringify(narrowLauncher)}`);
+  assert.ok(narrowLauncher.title.right <= narrowLauncher.card.right - 40, `launcher title clears the expand action at narrow width: ${JSON.stringify(narrowLauncher)}`);
+  await target.screenshot({ path: 'artifacts/widget-closed-narrow-200.png' });
+  await target.setViewportSize({ width: 1280, height: 900 });
   await target.screenshot({ path: 'artifacts/widget-closed-desktop.png' });
   await panelToggle.click();
   const orderedPage = await context.newPage();
@@ -815,8 +841,16 @@ try {
   assert.doesNotMatch(selectedMarkdownUpload, /project timeline|three weeks/);
 
   const selectedPdf = await send({ type: 'export', destination: 'kb', format: 'pdf', conversation: selected.conversation });
-  assert.equal(selectedPdf.ok, false, 'PDF cannot be sent to KB before the user saves it through the print dialog');
-  assert.match(selectedPdf.error, /print dialog/i);
+  assert.equal(selectedPdf.ok, true, selectedPdf.error);
+  const uploadedPdfBody = uploads.at(-1);
+  assert.match(uploadedPdfBody.toString(), /Content-Type: application\/pdf/i, 'KB upload contains a PDF attachment');
+  const pdfStart = uploadedPdfBody.indexOf(Buffer.from('%PDF-'));
+  assert.notEqual(pdfStart, -1, 'KB upload contains PDF bytes');
+  const pdfEnd = uploadedPdfBody.indexOf(Buffer.from('\r\n--'), pdfStart);
+  const uploadedPdfText = execFileSync('pdftotext', ['-', '-'], { input: uploadedPdfBody.subarray(pdfStart, pdfEnd), encoding: 'utf8' });
+  assert.match(uploadedPdfText, /first research approaches/i, 'generated PDF includes selected conversation content');
+  assert.doesNotMatch(uploadedPdfText, /project timeline|three weeks/i, 'generated PDF excludes unselected sections');
+  await writeFile('artifacts/kb-delivery.pdf', uploadedPdfBody.subarray(pdfStart, pdfEnd));
 
   await panel.locator('[data-action="select-none"]').click();
   const noneSelected = await send({ type: 'capture', tabId, mode: 'export' });
@@ -864,10 +898,12 @@ try {
     assert.match(uploads.at(-1).toString(), format === 'md' ? /## Assistant/ : /text\/html/);
   }
   locked = true;
+  const uploadsBeforeLockedAttempt = uploads.length;
   const rejected = await send({ type: 'export', destination: 'kb', format: 'md', conversation: captured.conversation });
-  assert.equal(rejected.ok, false); assert.match(rejected.error, /unlock/i); assert.equal(uploads.length, 4);
+  assert.equal(rejected.ok, false); assert.match(rejected.error, /unlock/i); assert.equal(uploads.length, uploadsBeforeLockedAttempt);
   locked = false;
   const queueRequest = (path, body) => fetch(queueUrl + path, { method: body ? 'POST' : 'GET', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+  const beforeRemoteMarkdown = uploads.length;
   const job = await (await queueRequest('/jobs', { url: `${appUrl}/chat?thread=next`, format: 'md' })).json();
   await send({ type: 'poll' });
   let result;
@@ -877,7 +913,7 @@ try {
     await new Promise(r => setTimeout(r, 500));
   }
   console.log('Remote queue:', result.state);
-  assert.equal(result.state, 'completed', result.error || JSON.stringify(result)); assert.equal(uploads.length, 5);
+  assert.equal(result.state, 'completed', result.error || JSON.stringify(result)); assert.equal(uploads.length, beforeRemoteMarkdown + 1);
   const remoteUpload = uploads.at(-1).toString();
   assert.match(remoteUpload, /first research approaches/);
   assert.match(remoteUpload, /consent plan/);
@@ -885,6 +921,19 @@ try {
   assert.match(remoteUpload, /three weeks/);
   assert.match(remoteUpload, /main risks/);
   assert.match(remoteUpload, /Recruitment and review time/);
+  const beforeRemotePdf = uploads.length;
+  const pdfJob = await (await queueRequest('/jobs', { url: `${appUrl}/chat?thread=pdf`, format: 'pdf' })).json();
+  await send({ type: 'poll' });
+  for (let i = 0; i < 60; i++) {
+    result = await (await queueRequest(`/jobs/${pdfJob.id}`)).json();
+    if (['completed', 'failed'].includes(result.state)) break;
+    await new Promise(r => setTimeout(r, 500));
+  }
+  assert.equal(result.state, 'completed', result.error || JSON.stringify(result));
+  assert.ok(result.filename.endsWith('.pdf'));
+  assert.equal(uploads.length, beforeRemotePdf + 1);
+  assert.match(uploads.at(-1).toString(), /Content-Type: application\/pdf/i, 'remote PDF job uploads actual PDF data');
+  assert.match(uploads.at(-1).toString(), /%PDF-/i);
   const blocked = await (await queueRequest('/jobs', { url: 'https://example.com/private', format: 'md' })).json();
   await send({ type: 'poll' });
   for (let i = 0; i < 30; i++) {
@@ -892,7 +941,7 @@ try {
     if (result.state === 'failed') break;
     await new Promise(r => setTimeout(r, 200));
   }
-  assert.equal(result.state, 'failed'); assert.match(result.error, /not allowed/); assert.equal(uploads.length, 5);
+  assert.equal(result.state, 'failed'); assert.match(result.error, /not allowed/); assert.equal(uploads.length, beforeRemotePdf + 1);
   // Standalone HTML downloads exercise the offscreen renderer without a native Save dialog.
   const file = await ui.evaluate(async conversation => chrome.runtime.sendMessage({ target: 'offscreen', conversation, format: 'html', download: true }), captured.conversation);
   assert.equal(file.ok, true, file.error);
@@ -971,7 +1020,13 @@ try {
   await writeFile('artifacts/captured-layout.html', capturedHtmlPart);
 
   await widget.locator('[name="format"][value="pdf"]').check();
-  assert.equal(await widget.locator('[data-action="send-kb"]').isDisabled(), true, 'PDF-to-KB is visibly disabled');
+  assert.equal(await widget.locator('[data-action="send-kb"]').isDisabled(), false, 'PDF-to-KB remains available');
+  const pdfUploadCount = uploads.length;
+  await widget.locator('[data-action="send-kb"]').click();
+  await target.waitForFunction(() => /Saved to knowledge base:/i.test(document.querySelector('#idea-capture-controls')?.shadowRoot?.querySelector('[data-capture-status]')?.textContent || ''), null, { timeout: 10000 });
+  assert.equal(uploads.length, pdfUploadCount + 1, 'the widget sends a PDF directly to the KB');
+  assert.match(uploads.at(-1).toString(), /Content-Type: application\/pdf/i);
+  assert.match(uploads.at(-1).toString(), /%PDF-/i);
   const printTabPromise = context.waitForEvent('page');
   await widget.locator('[data-action="download"]').click();
   await target.waitForFunction(() => /Choose “Save as PDF”/i.test(document.querySelector('#idea-capture-controls')?.shadowRoot?.querySelector('[data-capture-status]')?.textContent || ''), null, { timeout: 10000 });

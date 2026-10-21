@@ -158,22 +158,17 @@ try {
   assert.ok(filesAfterForm.some(f => f.endsWith('brief.pdf') && !filesBeforeForm.includes(f)), 'remote job also stored its PDF media companion');
   await showsInList(formUrl, new RegExp(`MD · completed · ${formJob.filename.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
 
-  // 2b. Job created straight through the JSON API (Markdown). Remote PDF needs
-  // an interactive print dialog, so it is rejected with a clear status.
-  for (const format of ['md']) {
+  // 2b. Jobs created straight through the JSON API support Markdown and direct PDF delivery.
+  for (const format of ['md', 'pdf']) {
     const url = `${fixtureOrigin}/c/from-api-${format}`;
     await createViaApi(url, format);
     const job = await runPoll(url);
     assert.equal(job.state, 'completed', job.error);
     assert.ok(job.filename.endsWith(`.${format}`));
     assert.ok((await kbFiles()).includes(job.filename), `${job.filename} landed in the KB dir`);
+    if (format === 'pdf') assert.equal((await readFile(join(kbDir, job.filename))).subarray(0, 5).toString(), '%PDF-');
     await showsInList(url, /completed/);
   }
-  const remotePdfUrl = `${fixtureOrigin}/c/from-api-pdf`;
-  await createViaApi(remotePdfUrl, 'pdf');
-  const remotePdfJob = await runPoll(remotePdfUrl);
-  assert.equal(remotePdfJob.state, 'failed');
-  assert.match(remotePdfJob.error, /interactive browser print/i);
 
   // 3. Negative: origin not in the extension's allow list fails with a visible error.
   const badUrl = 'https://example.com/private';

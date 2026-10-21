@@ -1,6 +1,6 @@
 # IdeaFoundry Conversation Capture
 
-A Chrome Manifest V3 extension that saves LLM conversations as Markdown, standalone styled HTML, or a browser-printed PDF. Markdown and HTML can be sent directly to the knowledge base in `../idea-app`. Includes an authenticated queue service so a server can request capture by URL using your signed-in Chrome session.
+A Chrome Manifest V3 extension that saves LLM conversations as Markdown, standalone styled HTML, or PDF. All three formats can be sent directly to the knowledge base in `../idea-app`. Includes an authenticated queue service so a server can request capture by URL using your signed-in Chrome session.
 
 ## Install
 
@@ -22,9 +22,9 @@ Open the browser's extensions page (`chrome://extensions`, `edge://extensions`, 
 
 ChatGPT, Claude, and Gemini have dedicated extractors. Other sites with message-role attributes preserve speaker labels; other pages with a main/article region get a generic page preview. Arbitrary site layouts cannot be guaranteed. Generic page captures require manual review and are rejected for remote jobs. Sites that change their markup may require an extractor update.
 
-Only messages currently present in the page DOM are captured. Load older messages before exporting. HTML and PDF capture the selected conversation's shared layout containers and inline computed styles; HTML embeds retrieved images and is a standalone file. PDF opens Chromium's print dialog; choose **Save as PDF** there. Browser print settings control page size, scale, margins, and printed backgrounds. Selection is preserved. Markdown retains semantic text and links. Only selected message DOM and its layout ancestors are serialized; provider chrome and external stylesheets are omitted, unavailable images become notes, and external web fonts/background images may use a local fallback.
+Only messages currently present in the page DOM are captured. Load older messages before exporting. HTML and local PDF downloads preserve the selected conversation's shared page layout. HTML embeds retrieved images and is a standalone file. Downloading PDF opens Chromium's print dialog; choose **Save as PDF** there, where browser settings control page size, scale, margins, and printed backgrounds. Sending PDF to the knowledge base or through a remote job creates a semantic PDF from captured Markdown, including provenance, embedded images, and linked companion files; it does not reproduce the provider's page styling. Markdown retains semantic text and links. Only selected message DOM and its layout ancestors are serialized for HTML and local print; provider chrome and external stylesheets are omitted, unavailable images become notes, and external web fonts/background images may use a local fallback.
 
-Markdown exports with companion files download as a ZIP containing the `.md` plus a `media/` folder. HTML embeds successfully retrieved images and is uploaded as an HTML document to the KB. PDF cannot be sent directly to the KB because the browser's Save as PDF dialog must be completed by the user; choose Markdown or HTML for direct delivery, or upload a PDF after saving it. Remote PDF jobs fail with an explanation; remote Markdown remains supported. HTTP(S) media access is included in the extension’s installation permissions; no per-page media prompt is needed. Chrome’s extension site-access settings can restrict this access; exports report inaccessible resources in the document. Media retrieval is limited to 50 resources, 8 MB per resource, and 20 MB total.
+Markdown exports with companion files download as a ZIP containing the `.md` plus a `media/` folder. HTML embeds successfully retrieved images and is uploaded as an HTML document to the KB. PDF delivery includes referenced file companions. HTTP(S) media access is included in the extension’s installation permissions; no per-page media prompt is needed. Chrome’s extension site-access settings can restrict this access; exports report inaccessible resources in the document. Media retrieval is limited to 50 resources, 8 MB per resource, and 20 MB total.
 
 ## Collapse and select conversation sections
 
@@ -82,7 +82,7 @@ curl --fail-with-body http://127.0.0.1:4318/jobs \
   -d '{"url":"https://chatgpt.com/c/YOUR-CONVERSATION-ID","format":"md"}'
 ```
 
-Remote capture supports `"format":"md"`. PDF jobs are rejected because they require the interactive browser print dialog. The response contains a job `id`. Check its result:
+Remote capture supports `"format":"md"` and `"format":"pdf"`. Remote PDF delivery creates a semantic PDF from captured Markdown. The response contains a job `id`. Check its result:
 
 ```sh
 curl --fail-with-body "http://127.0.0.1:4318/jobs/JOB-ID" \

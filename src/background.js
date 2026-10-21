@@ -32,7 +32,7 @@ async function printPdf(conversation) {
   if (!Array.isArray(conversation?.messages) || !conversation.messages.length || !conversation.layoutHtml && conversation.messages.some(message => typeof message.html !== 'string' || !message.html.trim())) {
     throw new Error('The styled page snapshot is missing. Select PDF again from the conversation capture widget to recapture the layout.');
   }
-  const rendered = await render(conversation, 'pdf', false);
+  const rendered = await render(conversation, 'html', false);
   const encodedHtml = rendered.files?.[0]?.base64;
   if (!encodedHtml) throw new Error('Could not prepare the browser print view.');
   const binaryHtml = Uint8Array.from(atob(encodedHtml), character => character.charCodeAt(0));
@@ -121,7 +121,7 @@ async function permitted(origin) {
   if (!(await chrome.permissions.contains({ origins: [`${origin}/*`] }))) throw new Error(`Allow this site in the browser's extension site access settings: ${origin}`);
 }
 async function sendToKB(conversation, format, target = {}) {
-  if (format === 'pdf') throw new Error('PDF export uses the browser print dialog. Choose Markdown or HTML for direct knowledge-base delivery, or save the print view as PDF first.');
+  if (!['md', 'html', 'pdf'].includes(format)) throw new Error('Choose Markdown, HTML, or PDF.');
   conversation = await permissionFilteredMedia(conversation);
   const config = validateSettings(await settings());
   await permitted(config.appUrl);
@@ -185,7 +185,6 @@ async function poll() {
     let result;
     try {
       const job = validateJob(incoming, config.captureSites);
-      if (job.format === 'pdf') throw new Error('Remote PDF jobs cannot open the interactive browser print dialog. Use a Markdown job or download a local PDF from the capture widget.');
       // Persist an uncertain failure before any capture/upload; a restart will report it, not retry it.
       await chrome.storage.local.set({ pendingResult: { id: job.id, queueUrl: config.queueUrl, result: { state: 'failed', error: 'Capture interrupted. Check the KB before submitting a new job.' } } });
       await permitted(httpUrl(job.url).origin);
@@ -300,12 +299,11 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
       if (!message.conversation || !Array.isArray(message.conversation.messages)) throw new Error('No conversation is ready to save.');
       const conversation = message.conversation;
       if (JSON.stringify(conversation).length > 24_000_000) throw new Error('Conversation and inline media exceed the 24 MB capture limit.');
-      if (['html', 'pdf'].includes(message.format) && (!conversation.messages.length || !conversation.layoutHtml && conversation.messages.some(item => typeof item.html !== 'string' || !item.html.trim()))) {
+      if ((message.format === 'html' || message.format === 'pdf' && message.destination === 'download') && (!conversation.messages.length || !conversation.layoutHtml && conversation.messages.some(item => typeof item.html !== 'string' || !item.html.trim()))) {
         throw new Error('The styled page snapshot is missing. Select HTML or PDF again from the conversation capture widget to recapture the layout.');
       }
       const filteredConversation = await permissionFilteredMedia(conversation);
       if (message.destination === 'kb') {
-        if (message.format === 'pdf') throw new Error('PDF uses the browser print dialog. Choose Markdown or HTML for direct knowledge-base delivery, or save the print view as PDF first.');
         const saved = await sendToKB(filteredConversation, message.format);
         return { name: saved.name, appUrl: saved.appUrl };
       }
@@ -322,7 +320,6 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
     if (message.type === 'export') {
       if (!fromExtension) throw new Error('Use the on-page capture widget to export.');
       if (message.destination === 'kb') {
-        if (message.format === 'pdf') throw new Error('PDF uses the browser print dialog. Choose Markdown or HTML for direct knowledge-base delivery, or save the print view as PDF first.');
         return sendToKB(message.conversation, message.format);
       }
       const filteredConversation = await permissionFilteredMedia(message.conversation);

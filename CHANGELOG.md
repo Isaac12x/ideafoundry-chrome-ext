@@ -2,8 +2,10 @@
 
 ## Unreleased
 
+- Refine the closed capture widget into a keyboard-accessible, responsive launcher with a full-card hit target and clear open state.
+- Restore direct PDF delivery to the knowledge base and remote jobs using generated PDF bytes with embedded images and linked companion files. Local PDF downloads retain Chromium's styled print layout.
 - Add export-only shared DOM/layout snapshots for standalone HTML and Chromium print-based PDF; inline computed layout styles, preserve selected collapsed content, and embed resolved media.
-- Make PDF open the browser print dialog so the PDF uses Chromium's HTML/CSS renderer. Choose “Save as PDF” to download; PDF-to-KB and remote PDF jobs report that interactive limitation.
+- Keep the browser print dialog for local styled PDF downloads; direct knowledge-base and remote PDF files use semantic Markdown rendering.
 - Allow standalone styled HTML downloads and direct HTML knowledge-base uploads. Markdown output remains unchanged.
 - Preserve SVG dimensions and local gradients, individual table borders, and layout context after unchecked content is pruned.
 - Sanitize standalone and print snapshots, retaining safe links and inert media attachments while removing active content and remote resource loads.
