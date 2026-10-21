@@ -66,7 +66,7 @@ export function createCaptureControls(doc = document, win = window) {
         .tools{display:flex;gap:6px;flex-wrap:wrap;padding:10px 12px 7px}
         .tools button{min-height:28px;padding:4px 7px;font-size:10px}
         .count{padding:2px 14px 9px;color:var(--muted);font-size:11px}
-        .capture-meta{padding:13px 18px 5px}.capture-meta h2{margin:0 0 4px;font:500 19px/1.2 Georgia,"Iowan Old Style",serif;overflow-wrap:anywhere}.capture-meta p{margin:0;color:var(--muted);font-size:11px}.capture-tools{padding:12px 18px 14px;border-top:1px solid var(--line)}.capture-tools .format{display:flex;gap:8px;margin:0 0 10px}.capture-tools label{display:flex;align-items:center;gap:6px;padding:7px 10px;border:1px solid var(--line);background:#f7f7f0;cursor:pointer}.capture-tools label:has(:checked){border-color:var(--forest);background:var(--wash)}.capture-tools .actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}.capture-tools .actions button{min-height:38px;font-size:12px}.capture-tools .actions [data-action="send-kb"]{grid-column:1/-1;background:var(--forest);border-color:var(--forest);color:var(--paper)}.capture-tools .actions [data-action="settings"]{background:transparent}.capture-status{min-height:17px;margin:9px 0 0;color:var(--forest);font-size:11px;overflow-wrap:anywhere}.capture-status.is-error{color:#8a3b28}.preview{margin:0 14px 12px}.preview summary{cursor:pointer;color:var(--muted);font-size:11px}.preview pre{max-height:190px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;background:#f0efe8;padding:10px;font:11px/1.5 ui-monospace,monospace}
+        .capture-meta{padding:13px 18px 5px}.capture-meta h2{margin:0 0 4px;font:500 19px/1.2 Georgia,"Iowan Old Style",serif;overflow-wrap:anywhere}.capture-meta p{margin:0;color:var(--muted);font-size:11px}.capture-tools{padding:12px 18px 14px;border-top:1px solid var(--line)}.capture-tools .format{display:flex;gap:8px;margin:0 0 10px}.capture-tools label{display:flex;align-items:center;gap:6px;padding:7px 10px;border:1px solid var(--line);background:#f7f7f0;cursor:pointer}.capture-tools label:has(:checked){border-color:var(--forest);background:var(--wash)}.capture-tools .format-hint{margin:0 0 9px;color:var(--muted);font-size:11px}.capture-tools .actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}.capture-tools .actions button{min-height:38px;font-size:12px}.capture-tools .actions [data-action="send-kb"]{grid-column:1/-1;background:var(--forest);border-color:var(--forest);color:var(--paper)}.capture-tools .actions [data-action="send-kb"]:disabled{opacity:.55;cursor:not-allowed}.capture-tools .actions [data-action="settings"]{background:transparent}.capture-status{min-height:17px;margin:9px 0 0;color:var(--forest);font-size:11px;overflow-wrap:anywhere}.capture-status.is-error{color:#8a3b28}.preview{margin:0 14px 12px}.preview summary{cursor:pointer;color:var(--muted);font-size:11px}.preview pre{max-height:190px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;background:#f0efe8;padding:10px;font:11px/1.5 ui-monospace,monospace}
         .list:not(:empty){min-height:96px;max-height:min(38vh,360px);overflow:auto;overscroll-behavior:contain;padding:0 10px 12px}
         .row{display:grid;grid-template-columns:17px minmax(0,1fr) auto;align-items:start;gap:9px;padding:10px 5px;border-top:1px solid #e6ebe5}
         .row input{width:15px;height:15px;margin:2px 0 0;accent-color:var(--forest)}
@@ -90,7 +90,7 @@ export function createCaptureControls(doc = document, win = window) {
       </style>
       <section id="idea-capture-panel" data-idea-panel aria-label="Conversation capture" hidden>
         <header><span data-export-status>IdeaFoundry / Capture</span><button type="button" data-action="toggle-panel" aria-expanded="false">Open</button></header>
-        <div class="panel-body" hidden><div class="capture-meta"><h2 data-title>Conversation capture</h2><p data-summary></p><p data-warning></p></div><div class="tools"><button type="button" data-action="select-all">Select all</button><button type="button" data-action="select-none">Select none</button><button type="button" data-action="collapse-all">Collapse all</button><button type="button" data-action="expand-all">Expand all</button><button type="button" data-action="copy-diagnostics">Copy diagnostics</button></div><div class="count" aria-live="polite"></div><div class="empty" hidden><p data-empty-message></p><button type="button" data-action="retry">Retry detection</button><button type="button" data-action="copy-diagnostics">Copy diagnostics</button></div><div class="diagnostics"><p data-diagnostics-status aria-live="polite"></p><textarea data-diagnostics-fallback readonly hidden aria-label="Diagnostics to copy manually"></textarea></div><details class="preview" data-preview><summary>Review captured conversation</summary><pre data-preview-text></pre></details><div class="list"></div><div class="capture-tools"><div class="format" role="group" aria-label="File format"><label><input type="radio" name="format" value="md" checked> Markdown</label><label><input type="radio" name="format" value="pdf"> PDF</label></div><div class="actions"><button type="button" data-action="download">Download file</button><button type="button" data-action="settings">Settings</button><button type="button" data-action="send-kb">Send to knowledge base ↗</button></div><p class="capture-status" data-capture-status role="status" aria-live="polite"></p></div></div>
+        <div class="panel-body" hidden><div class="capture-meta"><h2 data-title>Conversation capture</h2><p data-summary></p><p data-warning></p></div><div class="tools"><button type="button" data-action="select-all">Select all</button><button type="button" data-action="select-none">Select none</button><button type="button" data-action="collapse-all">Collapse all</button><button type="button" data-action="expand-all">Expand all</button><button type="button" data-action="copy-diagnostics">Copy diagnostics</button></div><div class="count" aria-live="polite"></div><div class="empty" hidden><p data-empty-message></p><button type="button" data-action="retry">Retry detection</button><button type="button" data-action="copy-diagnostics">Copy diagnostics</button></div><div class="diagnostics"><p data-diagnostics-status aria-live="polite"></p><textarea data-diagnostics-fallback readonly hidden aria-label="Diagnostics to copy manually"></textarea></div><details class="preview" data-preview><summary>Review captured conversation</summary><pre data-preview-text></pre></details><div class="list"></div><div class="capture-tools"><div class="format" role="group" aria-label="File format"><label><input type="radio" name="format" value="md" checked> Markdown</label><label><input type="radio" name="format" value="html"> HTML</label><label><input type="radio" name="format" value="pdf"> PDF</label></div><p class="format-hint" data-format-hint></p><div class="actions"><button type="button" data-action="download">Download file</button><button type="button" data-action="settings">Settings</button><button type="button" data-action="send-kb">Send to knowledge base ↗</button></div><p class="capture-status" data-capture-status role="status" aria-live="polite"></p></div></div>
       </section>
       <aside id="idea-capture-margin-controls" aria-label="Conversation section controls" hidden>
         <button type="button" data-idea-section-id aria-expanded="true" aria-label="Collapse current section"></button>
@@ -117,6 +117,7 @@ export function createCaptureControls(doc = document, win = window) {
   const exportStatus = shadow.querySelector('[data-export-status]');
   const panelHeader = shadow.querySelector('#idea-capture-panel>header');
   const captureActions = shadow.querySelector('.capture-tools');
+  const formatHint = shadow.querySelector('[data-format-hint]');
   const defaultHeaderLabel = 'IdeaFoundry / Capture';
   let busy = false;
   function setExportFeedback(message, tone = 'idle') {
@@ -180,7 +181,7 @@ export function createCaptureControls(doc = document, win = window) {
       setExportFeedback(busyMessage, 'busy');
       showCaptureStatus(busyMessage, 'busy');
       if (activeButton) activeButton.textContent = destination === 'kb' ? 'Sending…' : 'Preparing…';
-      const conversation = await capture('export');
+      const conversation = await capture('export', true, ['html', 'pdf'].includes(format));
       if (conversation.media?.length) {
         setExportFeedback('Reading page media…', 'busy');
         showCaptureStatus('Reading page media…', 'busy');
@@ -193,10 +194,10 @@ export function createCaptureControls(doc = document, win = window) {
         showCaptureStatus('Uploading to your knowledge base…', 'busy');
       }
       const result = await request({ type: 'widget-export', destination, format, conversation });
-      const successMessage = destination === 'kb'
+      const successMessage = result.printDialog ? 'Print dialog opened. Choose “Save as PDF” to save your file.' : destination === 'kb'
         ? `Saved to knowledge base: ${result.name}${result.appUrl ? `. Open ${result.appUrl}` : ''}`
         : 'Download started.';
-      setExportFeedback(destination === 'kb' ? `Saved: ${result.name}` : 'Download started.', 'idle');
+      setExportFeedback(result.printDialog ? 'Choose “Save as PDF” in the print dialog.' : destination === 'kb' ? `Saved: ${result.name}` : 'Download started.', 'idle');
       showCaptureStatus(successMessage, 'idle');
     } catch (error) {
       setExportFeedback(error.message, 'error');
@@ -207,6 +208,7 @@ export function createCaptureControls(doc = document, win = window) {
       if (sendButton) sendButton.textContent = 'Send to knowledge base ↗';
       if (downloadButton) downloadButton.textContent = 'Download file';
       for (const button of captureActions.querySelectorAll('button')) button.disabled = false;
+      onFormatChange();
     }
   }
   async function resolvePageMedia(items) {
@@ -262,6 +264,13 @@ export function createCaptureControls(doc = document, win = window) {
     if (action === 'download' || action === 'send-kb') void exportFromWidget(action === 'send-kb' ? 'kb' : 'download');
     if (action === 'settings') void request({ type: 'open-settings' }).catch(error => { showCaptureStatus(error.message, 'error'); setExportFeedback(error.message, 'error'); });
   };
+  const onFormatChange = () => {
+    const format = shadow.querySelector('[name="format"]:checked')?.value || 'md';
+    const sendButton = captureActions.querySelector('[data-action="send-kb"]');
+    const pdf = format === 'pdf';
+    sendButton.disabled = pdf;
+    formatHint.textContent = pdf ? 'PDF opens the browser print dialog. Choose “Save as PDF”; use Markdown or HTML for direct knowledge-base delivery.' : format === 'html' ? 'HTML keeps the captured page styling and can be sent to your knowledge base.' : '';
+  };
   const onListChange = event => {
     const input = event.target.closest('input[data-section-id]');
     if (!input) return;
@@ -310,6 +319,8 @@ export function createCaptureControls(doc = document, win = window) {
   tools.addEventListener('click', onToolsClick);
   empty.addEventListener('click', onEmptyClick);
   captureActions.addEventListener('click', onCaptureClick);
+  captureActions.addEventListener('change', onFormatChange);
+  onFormatChange();
   list.addEventListener('change', onListChange);
   list.addEventListener('click', onListClick);
   doc.addEventListener('change', onDocChange);
@@ -772,9 +783,9 @@ export function createCaptureControls(doc = document, win = window) {
   const routePoll = win.setInterval(() => { if (route !== win.location.href) refresh(); }, 700);
   refresh();
 
-  function capture(mode = 'preview', shouldRefresh = true) {
+  function capture(mode = 'preview', shouldRefresh = true, includeLayout = false) {
     if (shouldRefresh) refresh();
-    const conversation = extractConversation(doc, win.location.href, { includeNodes: true });
+    const conversation = extractConversation(doc, win.location.href, { includeNodes: true, includeLayout });
     const idByRaw = new Map();
     conversation.sections.forEach(section => {
       const identity = section.identityNode || section.nodes[0];
@@ -791,6 +802,13 @@ export function createCaptureControls(doc = document, win = window) {
     if (mode === 'export' && conversation.messages.length === 0) throw new Error('Select at least one section before exporting.');
     const includedMessageIndexes = new Set(conversation.messages.map(message => message.messageIndex));
     conversation.media = (conversation.media || []).filter(item => includedMessageIndexes.has(item.messageIndex));
+    if (conversation.layoutHtml) {
+      const tree = doc.createElement('template');
+      tree.innerHTML = conversation.layoutHtml;
+      const includedSections = new Set([...idByRaw].filter(([, id]) => selected.get(id) !== false).map(([raw]) => raw));
+      tree.content.querySelectorAll('[data-idea-export-section]').forEach(node => { if (!includedSections.has(node.getAttribute('data-idea-export-section'))) node.remove(); });
+      conversation.layoutHtml = tree.innerHTML;
+    }
     delete conversation.nodes;
     return conversation;
   }
@@ -810,6 +828,7 @@ export function createCaptureControls(doc = document, win = window) {
     toggleButton.removeEventListener('click', onTogglePanel); tools.removeEventListener('click', onToolsClick);
     empty.removeEventListener('click', onEmptyClick);
     captureActions.removeEventListener('click', onCaptureClick);
+    captureActions.removeEventListener('change', onFormatChange);
     list.removeEventListener('change', onListChange); list.removeEventListener('click', onListClick);
     restoreClasses();
     for (const header of headers.values()) header.remove(); headers.clear();

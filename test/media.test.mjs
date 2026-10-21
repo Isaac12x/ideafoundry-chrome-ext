@@ -89,6 +89,25 @@ test('SVG data URLs with charset parameters decode and sanitize', async () => {
   }
 });
 
+test('sanitized SVG attachments retain local gradient paint references and drop remote active content', async () => {
+  const dom = new JSDOM('');
+  const previous = { DOMParser: globalThis.DOMParser, XMLSerializer: globalThis.XMLSerializer };
+  globalThis.DOMParser = dom.window.DOMParser;
+  globalThis.XMLSerializer = dom.window.XMLSerializer;
+  try {
+    const source = '<svg xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="g"><stop stop-color="#285b42"/><stop offset="1" stop-color="#98bca1"/></linearGradient></defs><rect fill="url(#g)" width="20" height="20" onclick="run()"/><image href="https://evil.test/pixel.png"/></svg>';
+    const input = conversation([{ id: 'svg-gradient', kind: 'image', url: `data:image/svg+xml,${encodeURIComponent(source)}` }]);
+    const resolved = await resolveMedia(input);
+    const saved = new TextDecoder().decode(Uint8Array.from(atob(resolved.media[0].data), c => c.charCodeAt(0)));
+    assert.match(saved, /fill="url\(#g\)"/);
+    assert.doesNotMatch(saved, /onclick|evil\.test|run\(\)/i);
+  } finally {
+    if (previous.DOMParser === undefined) delete globalThis.DOMParser; else globalThis.DOMParser = previous.DOMParser;
+    if (previous.XMLSerializer === undefined) delete globalThis.XMLSerializer; else globalThis.XMLSerializer = previous.XMLSerializer;
+    dom.window.close();
+  }
+});
+
 test('HTTP media without a filename extension uses its MIME extension', async () => {
   const input = conversation([{ id: 'endpoint', kind: 'image', url: 'https://cdn.example/download?id=chart' }]);
   const resolved = await resolveMedia(input, async () => new Response(new Uint8Array([1, 2]), { headers: { 'content-type': 'image/png' } }));

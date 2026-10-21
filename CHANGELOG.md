@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Add export-only shared DOM/layout snapshots for standalone HTML and Chromium print-based PDF; inline computed layout styles, preserve selected collapsed content, and embed resolved media.
+- Make PDF open the browser print dialog so the PDF uses Chromium's HTML/CSS renderer. Choose “Save as PDF” to download; PDF-to-KB and remote PDF jobs report that interactive limitation.
+- Allow standalone styled HTML downloads and direct HTML knowledge-base uploads. Markdown output remains unchanged.
+- Preserve SVG dimensions and local gradients, individual table borders, and layout context after unchecked content is pruned.
+- Sanitize standalone and print snapshots, retaining safe links and inert media attachments while removing active content and remote resource loads.
+- Reject incomplete styled export snapshots instead of silently producing blank HTML or PDF files.
+
 - Preserve root-only capture URLs when saving and loading settings; `/*` matches non-root paths only.
 - Update widget visibility when settings change or a site navigates without reloading.
 - Read capture URL rules through the background worker while keeping private connection settings restricted.

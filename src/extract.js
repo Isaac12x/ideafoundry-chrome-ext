@@ -282,6 +282,107 @@ export function extractConversation(doc = document, url = location.href, options
   const media = [];
   const mediaOrdinals = new Map();
   let td;
+  const layoutProperties = ['display','position','inset','top','right','bottom','left','box-sizing','width','max-width','min-width','height','min-height','max-height','overflow','overflow-x','overflow-y','margin','padding','color','background-color','background-image','background-size','background-position','background-repeat','font','font-size','font-weight','font-family','line-height','letter-spacing','text-align','text-decoration','text-transform','text-indent','white-space','word-break','overflow-wrap','list-style','list-style-position','list-style-type','border','border-top','border-right','border-bottom','border-left','border-radius','border-collapse','border-spacing','table-layout','box-shadow','vertical-align','opacity','order','flex','flex-direction','flex-wrap','flex-grow','flex-shrink','flex-basis','align-items','align-self','justify-content','gap','grid','grid-area','grid-column','grid-row','grid-template-columns','grid-template-rows','grid-auto-flow','justify-self','object-fit','columns','column-count','column-gap','column-rule','break-inside','break-before','break-after','fill','fill-opacity','fill-rule','stroke','stroke-width','stroke-linecap','stroke-linejoin','stroke-dasharray','stroke-dashoffset','stroke-opacity'];
+  const layoutStyleValues = element => {
+    const collapsed = [];
+    for (let current = element; current?.nodeType === 1; current = current.parentElement) {
+      if (current.classList.contains('idea-capture-section-collapsed')) {
+        current.classList.remove('idea-capture-section-collapsed');
+        collapsed.push(current);
+      }
+    }
+    try {
+      const computed = doc.defaultView.getComputedStyle(element);
+      return Object.fromEntries(layoutProperties.map(property => [property, computed.getPropertyValue(property)]));
+    } finally {
+      collapsed.forEach(node => node.classList.add('idea-capture-section-collapsed'));
+    }
+  };
+  const inlineLayoutStyles = (source, clone, originalForClone) => {
+    const copies = [clone, ...clone.querySelectorAll('*')];
+    copies.forEach(element => {
+      const original = element === clone ? source : originalForClone.get(element);
+      if (!original) return;
+      const computed = layoutStyleValues(original);
+      const declarations = layoutProperties.map(property => `${property}:${computed[property]}`).filter(value => !value.endsWith(':'));
+      element.setAttribute('style', declarations.join(';'));
+      for (const attribute of [...element.attributes]) {
+        if (/^on/i.test(attribute.name) || attribute.name === 'srcdoc') element.removeAttribute(attribute.name);
+      }
+    });
+  };
+  const captureLayoutTree = messages => {
+    const sourceNodes = messages.map(message => message.node).filter(node => node?.nodeType === 1);
+    if (!sourceNodes.length) return '';
+    const ancestors = new Set();
+    for (let current = sourceNodes[0]; current; current = current.parentElement) ancestors.add(current);
+    let root = sourceNodes[0].parentElement;
+    while (root && !sourceNodes.every(node => root === node || root.contains(node))) root = root.parentElement;
+    while (root && !ancestors.has(root)) root = root.parentElement;
+    if (!root) return '';
+    const pageRoot = sourceNodes[0].closest('main,[role="main"],#thread');
+    if (pageRoot && sourceNodes.every(node => pageRoot === node || pageRoot.contains(node))) root = pageRoot;
+    const clone = root.cloneNode(true);
+    const originals = [root, ...root.querySelectorAll('*')];
+    const clones = [clone, ...clone.querySelectorAll('*')];
+    const cloneBySource = new Map(originals.map((node, index) => [node, clones[index]]));
+    const selected = [];
+    for (const message of messages) {
+      const target = message.node;
+      const targetClone = cloneBySource.get(target);
+      if (!targetClone?.parentNode || !message.html) continue;
+      const fragment = doc.createElement('template');
+      fragment.innerHTML = message.html;
+      const roots = [...fragment.content.childNodes].filter(node => node.nodeType === 1);
+      let replacement;
+      if (roots.length === 1 && fragment.content.childNodes.length === 1 && message.contentNode === target) {
+        replacement = roots[0];
+      } else {
+        replacement = doc.createElement('div');
+        replacement.append(fragment.content);
+        const computed = doc.defaultView.getComputedStyle(target);
+        const styles = layoutStyleValues(target);
+        replacement.setAttribute('style', `display:${styles.display};width:${styles.width};max-width:${styles['max-width']};margin:${styles.margin};padding:${styles.padding};box-sizing:${styles['box-sizing']};color:${styles.color};background-color:${styles['background-color']};order:${styles.order};flex:${styles.flex};align-self:${styles['align-self']};justify-self:${styles['justify-self']};grid-area:${styles['grid-area']};grid-column:${styles['grid-column']};grid-row:${styles['grid-row']}`);
+      }
+      replacement.setAttribute('data-idea-export-section', message.sectionId || '');
+      replacement.setAttribute('aria-label', message.role);
+      if (targetClone === clone) {
+        clone.replaceChildren(...replacement.childNodes);
+        clone.setAttribute('data-idea-export-section', message.sectionId || '');
+        clone.setAttribute('aria-label', message.role);
+        selected.push(clone);
+        continue;
+      }
+      targetClone.replaceWith(replacement);
+      selected.push(replacement);
+    }
+    if (!selected.length) return '';
+    const keep = new Set();
+    const ancestorPath = new Set();
+    for (const element of selected) {
+      for (let current = element; current; current = current.parentElement) { keep.add(current); ancestorPath.add(current); }
+      element.querySelectorAll('*').forEach(child => keep.add(child));
+    }
+    for (const element of [...clone.querySelectorAll('*')].reverse()) if (!keep.has(element)) element.remove();
+    for (const ancestor of ancestorPath) if (!selected.includes(ancestor)) for (const child of [...ancestor.childNodes]) if (child.nodeType !== 1) child.remove();
+    // Retain the page's real layout ancestors (main/thread/turn containers)
+    // while removing every unselected sibling and page chrome branch.
+    const paths = new Set();
+    for (const element of selected) for (let current = element; current; current = current.parentElement) paths.add(current);
+    for (const element of paths) {
+      const original = originals[clones.indexOf(element)];
+      if (!original) continue;
+      const computed = layoutStyleValues(original);
+      // Ancestor dimensions were measured with unselected branches present.
+      // Keeping fixed heights or explicit grid rows leaves large blank areas
+      // after pruning, so let the retained conversation content size them.
+      computed.height = 'auto'; computed['min-height'] = '0'; computed['max-height'] = 'none';
+      computed.overflow = 'visible'; computed['grid-template-rows'] = 'none';
+      element.setAttribute('style', layoutProperties.map(property => `${property}:${computed[property]}`).filter(value => !value.endsWith(':')).join(';'));
+      for (const attribute of [...element.attributes]) if (/^on/i.test(attribute.name) || ['src','srcset','poster','action','formaction','srcdoc'].includes(attribute.name)) element.removeAttribute(attribute.name);
+    }
+    return clone.outerHTML;
+  };
   const convert = (node, messageRole, messageIndex) => {
     if (!includeMarkdown) return '';
     if (!isVisibleConversationNode(node)) return '';
@@ -329,6 +430,10 @@ export function extractConversation(doc = document, url = location.href, options
         filename,
         mime: element.getAttribute('type') || '',
         messageRole, messageIndex,
+        ...(options.includeLayout ? { layoutStyle: (() => {
+          const computed = layoutStyleValues(originalForClone.get(element) || element);
+          return layoutProperties.map(property => `${property}:${computed[property]}`).filter(value => !value.endsWith(':')).join(';');
+        })() } : {}),
         ...(error ? { error } : {}),
       };
       media.push(item);
@@ -361,7 +466,7 @@ export function extractConversation(doc = document, url = location.href, options
       if (!value || value.startsWith('data:')) return '';
       return value.split(',')[0].trim().split(/\s+/)[0] || '';
     };
-    const mediaSelector = 'img[src],img[srcset],audio[src],video[src],audio source[src],video source[src],object[data],embed[src],iframe[src],canvas,svg[aria-label]';
+    const mediaSelector = `img[src],img[srcset],audio[src],video[src],audio source[src],video source[src],object[data],embed[src],iframe[src],canvas${options.includeLayout ? '' : ',svg[aria-label]'}`;
     const mediaElements = [...copy.querySelectorAll(mediaSelector)];
     for (const element of mediaElements) {
       if (element.closest('a[href]') && mediaAnchors.has(element.closest('a[href]'))) continue;
@@ -393,7 +498,7 @@ export function extractConversation(doc = document, url = location.href, options
       if (placeholders?.length) button.replaceWith(doc.createTextNode(placeholders.join('\n')));
       else button.remove();
     });
-    copy.querySelectorAll('svg,[data-idea-capture-control],[data-idea-capture-owned]').forEach(n => n.remove());
+    copy.querySelectorAll(`${options.includeLayout ? '' : 'svg,'}[data-idea-capture-control],[data-idea-capture-owned]`).forEach(n => n.remove());
     copy.querySelectorAll('a[href],img[src]').forEach(n => {
       const attr = n.tagName === 'A' ? 'href' : 'src';
       try {
@@ -402,7 +507,32 @@ export function extractConversation(doc = document, url = location.href, options
         else n.setAttribute(attr, link.href);
       } catch { n.removeAttribute(attr); }
     });
-    return td.turndown(copy.innerHTML).trim();
+    if (options.includeLayout) {
+      inlineLayoutStyles(node, cloned, originalForClone);
+      // Inline computed SVG paint values so charts and diagrams do not depend
+      // on the source page's stylesheet after export.
+      for (const svg of cloned.querySelectorAll('svg')) {
+        const originalSvg = originalForClone.get(svg);
+        const svgNodes = [svg, ...svg.querySelectorAll('*')];
+        for (const child of svgNodes) {
+          const original = child === svg ? originalSvg : originalForClone.get(child);
+          if (!original) continue;
+          const computed = doc.defaultView.getComputedStyle(original);
+          const styles = ['fill','fill-opacity','fill-rule','stroke','stroke-width','stroke-linecap','stroke-linejoin','stroke-dasharray','stroke-dashoffset','stroke-opacity','color','opacity'];
+          for (const property of styles) {
+            const value = computed.getPropertyValue(property);
+            if (value) child.style.setProperty(property, value);
+          }
+          for (const attribute of [...child.attributes]) if (/^on/i.test(attribute.name)) child.removeAttribute(attribute.name);
+        }
+        svg.querySelectorAll('script,foreignObject,animate,animateMotion,animateTransform,set').forEach(child => child.remove());
+        for (const child of [svg, ...svg.querySelectorAll('*')]) for (const name of ['href','xlink:href']) {
+          const value = child.getAttribute(name);
+          if (value && !value.startsWith('#') && !value.startsWith('data:image/')) child.removeAttribute(name);
+        }
+      }
+    }
+    return { markdown: td.turndown(copy.innerHTML).trim(), ...(options.includeLayout ? { html: cloned.outerHTML } : {}) };
   };
   let provider = 'Other';
   let candidates = [];
@@ -492,10 +622,12 @@ export function extractConversation(doc = document, url = location.href, options
         if (nestedCandidates.length === 1 && nestedCandidates[0].node === node) contentNode = wrapper;
       }
     }
-    const markdown = (Array.isArray(contentNode) ? contentNode : [contentNode])
+    const converted = (Array.isArray(contentNode) ? contentNode : [contentNode])
       .map(part => convert(part, ({ user: 'User', assistant: 'Assistant', system: 'System' })[role] || 'Message', messageIndex))
-      .filter(Boolean).join('\n\n').trim();
-    return { node, nodes, contentNode, providerId: messageId(node), messageIndex, role: ({ user: 'User', assistant: 'Assistant', system: 'System' })[role] || 'Message', markdown };
+      .filter(Boolean);
+    const markdown = converted.map(item => item.markdown).join('\n\n').trim();
+    const html = options.includeLayout ? converted.map(item => item.html).join('\n') : undefined;
+    return { node, nodes, contentNode, providerId: messageId(node), messageIndex, role: ({ user: 'User', assistant: 'Assistant', system: 'System' })[role] || 'Message', markdown, ...(html ? { html } : {}) };
   }).filter(message => !includeMarkdown || message.markdown);
   let warning = 'Captures messages currently loaded on the page. Load older messages before exporting; detected media is included when available, and hidden branches are not included.';
   if (unlabeledChatGptTurns) warning = 'Some ChatGPT messages did not expose a speaker label. Their order was inferred from visible turn structure; review the preview before saving. Only loaded content is included.';
@@ -503,9 +635,10 @@ export function extractConversation(doc = document, url = location.href, options
   if (!messages.length && provider === 'Other') {
     const main = doc.querySelector('main, [role="main"], article');
     if (main && hasMeaningfulContent(main)) {
-      const markdown = convert(main, 'Page content', 0);
+      const converted = convert(main, 'Page content', 0);
+      const markdown = converted.markdown;
       if (!includeMarkdown || markdown) {
-        messages.push({ node: main, contentNode: main, providerId: null, messageIndex: 0, role: 'Page content', markdown });
+        messages.push({ node: main, contentNode: main, providerId: null, messageIndex: 0, role: 'Page content', markdown, ...(converted.html ? { html: converted.html } : {}) });
         warning = 'Generic page capture: speaker boundaries could not be identified. Review the preview before saving. Only loaded content is included.';
       }
     }
@@ -533,7 +666,9 @@ export function extractConversation(doc = document, url = location.href, options
     id, label, messageCount: sectionMessages.length,
     ...(options.includeNodes ? { nodes, identityNode, collapseNodes: collapseNodes || nodes } : {}),
   }));
+  const layoutHtml = options.includeLayout ? captureLayoutTree(messages) : undefined;
   const publicMessages = messages.map(({ node, nodes, contentNode, providerId, ...message }) => message);
   const streaming = !!doc.querySelector('[data-is-streaming="true"], [data-testid="stop-button"], button[aria-label="Stop response"]');
-  return { title: doc.title.replace(/\s*[-|–]\s*(ChatGPT|Claude|Gemini)\s*$/i, '').trim() || 'Conversation', url, provider, capturedAt: new Date().toISOString(), warning, messages: publicMessages, sections: publicSections, media, streaming };
+  const layout = options.includeLayout ? Object.fromEntries(['color','background-color','font-family','font-size','line-height','margin','padding'].map(property => [property, layoutStyleValues(doc.body || doc.documentElement)[property]])) : undefined;
+  return { title: doc.title.replace(/\s*[-|–]\s*(ChatGPT|Claude|Gemini)\s*$/i, '').trim() || 'Conversation', url, provider, capturedAt: new Date().toISOString(), warning, messages: publicMessages, sections: publicSections, media, streaming, ...(layout ? { layout, layoutHtml } : {}) };
 }

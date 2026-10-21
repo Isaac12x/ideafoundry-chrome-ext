@@ -310,7 +310,8 @@ function sanitizeSvg(bytes) {
   for (const element of doc.querySelectorAll('*')) for (const attribute of [...element.attributes]) {
     const name = attribute.name.toLowerCase();
     const value = attribute.value.trim();
-    if (name.startsWith('on') || name === 'style' || (['href', 'xlink:href'].includes(name) && value && !value.startsWith('#')) || /url\s*\(|@import|expression\s*\(/i.test(value)) element.removeAttribute(attribute.name);
+    const unsafeCssUrl = /url\s*\((?!\s*["']?#[-\w]+["']?\s*\))/i.test(value);
+    if (name.startsWith('on') || name === 'style' || (['href', 'xlink:href'].includes(name) && value && !value.startsWith('#')) || unsafeCssUrl || /@import|expression\s*\(/i.test(value)) element.removeAttribute(attribute.name);
   }
   return new TextEncoder().encode(new XMLSerializer().serializeToString(doc.documentElement));
 }

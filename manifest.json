@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "IdeaFoundry · Conversation capture",
-  "version": "0.3.7",
-  "description": "Save LLM conversations as Markdown or PDF, or send them directly to your IdeaFoundry knowledge base.",
+  "version": "0.3.8",
+  "description": "Save LLM conversations as Markdown, styled HTML, or a browser-printed PDF; send Markdown or HTML to IdeaFoundry.",
   "minimum_chrome_version": "120",
   "permissions": ["activeTab", "scripting", "storage", "downloads", "alarms", "offscreen", "contextMenus"],
   "host_permissions": ["http://*/*", "https://*/*"],

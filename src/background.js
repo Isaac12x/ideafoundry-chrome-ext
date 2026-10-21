@@ -14,11 +14,50 @@ async function ensureRenderer() {
   try { await rendering; } finally { rendering = null; }
 }
 async function render(conversation, format, download, assetBase = null) {
-  if (!['md', 'pdf'].includes(format)) throw new Error('Choose Markdown or PDF.');
+  if (!['md', 'html', 'pdf'].includes(format)) throw new Error('Choose Markdown, HTML, or PDF.');
   await ensureRenderer();
   const result = await chrome.runtime.sendMessage({ target: 'offscreen', conversation, format, download, assetBase });
   if (!result?.ok) throw new Error(result?.error || 'File generation failed.');
   return result;
+}
+function openExportStore() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open('idea-capture-exports', 1);
+    request.onupgradeneeded = () => request.result.createObjectStore('print', { keyPath: 'token' });
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+async function printPdf(conversation) {
+  if (!Array.isArray(conversation?.messages) || !conversation.messages.length || !conversation.layoutHtml && conversation.messages.some(message => typeof message.html !== 'string' || !message.html.trim())) {
+    throw new Error('The styled page snapshot is missing. Select PDF again from the conversation capture widget to recapture the layout.');
+  }
+  const rendered = await render(conversation, 'pdf', false);
+  const encodedHtml = rendered.files?.[0]?.base64;
+  if (!encodedHtml) throw new Error('Could not prepare the browser print view.');
+  const binaryHtml = Uint8Array.from(atob(encodedHtml), character => character.charCodeAt(0));
+  const html = new TextDecoder().decode(binaryHtml);
+  const token = crypto.randomUUID();
+  const db = await openExportStore();
+  await new Promise((resolve, reject) => {
+    const transaction = db.transaction('print', 'readwrite');
+    const store = transaction.objectStore('print');
+    const cursorRequest = store.openCursor();
+    cursorRequest.onsuccess = () => {
+      const cursor = cursorRequest.result;
+      if (!cursor) return;
+      if (!cursor.value.expiresAt || cursor.value.expiresAt < Date.now()) cursor.delete();
+      cursor.continue();
+    };
+    store.put({ token, html, expiresAt: Date.now() + 15 * 60_000 });
+    transaction.oncomplete = resolve; transaction.onerror = () => reject(transaction.error);
+  });
+  try {
+    await chrome.tabs.create({ url: `${chrome.runtime.getURL('print.html')}?token=${encodeURIComponent(token)}`, active: true });
+  } catch (error) {
+    db.transaction('print', 'readwrite').objectStore('print').delete(token);
+    throw error;
+  } finally { db.close(); }
 }
 async function capture(tabId, mode = 'preview', resolvePageMedia = false) {
   const tab = await chrome.tabs.get(tabId);
@@ -82,6 +121,7 @@ async function permitted(origin) {
   if (!(await chrome.permissions.contains({ origins: [`${origin}/*`] }))) throw new Error(`Allow this site in the browser's extension site access settings: ${origin}`);
 }
 async function sendToKB(conversation, format, target = {}) {
+  if (format === 'pdf') throw new Error('PDF export uses the browser print dialog. Choose Markdown or HTML for direct knowledge-base delivery, or save the print view as PDF first.');
   conversation = await permissionFilteredMedia(conversation);
   const config = validateSettings(await settings());
   await permitted(config.appUrl);
@@ -145,6 +185,7 @@ async function poll() {
     let result;
     try {
       const job = validateJob(incoming, config.captureSites);
+      if (job.format === 'pdf') throw new Error('Remote PDF jobs cannot open the interactive browser print dialog. Use a Markdown job or download a local PDF from the capture widget.');
       // Persist an uncertain failure before any capture/upload; a restart will report it, not retry it.
       await chrome.storage.local.set({ pendingResult: { id: job.id, queueUrl: config.queueUrl, result: { state: 'failed', error: 'Capture interrupted. Check the KB before submitting a new job.' } } });
       await permitted(httpUrl(job.url).origin);
@@ -259,11 +300,16 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
       if (!message.conversation || !Array.isArray(message.conversation.messages)) throw new Error('No conversation is ready to save.');
       const conversation = message.conversation;
       if (JSON.stringify(conversation).length > 24_000_000) throw new Error('Conversation and inline media exceed the 24 MB capture limit.');
+      if (['html', 'pdf'].includes(message.format) && (!conversation.messages.length || !conversation.layoutHtml && conversation.messages.some(item => typeof item.html !== 'string' || !item.html.trim()))) {
+        throw new Error('The styled page snapshot is missing. Select HTML or PDF again from the conversation capture widget to recapture the layout.');
+      }
       const filteredConversation = await permissionFilteredMedia(conversation);
       if (message.destination === 'kb') {
+        if (message.format === 'pdf') throw new Error('PDF uses the browser print dialog. Choose Markdown or HTML for direct knowledge-base delivery, or save the print view as PDF first.');
         const saved = await sendToKB(filteredConversation, message.format);
         return { name: saved.name, appUrl: saved.appUrl };
       }
+      if (message.format === 'pdf') return printPdf(filteredConversation).then(() => ({ name: `${filteredConversation.title || 'conversation'}.pdf`, printDialog: true }));
       const file = await render(filteredConversation, message.format, true);
       await chrome.downloads.download({ url: file.url, filename: file.name, saveAs: true });
       return { name: file.name };
@@ -275,8 +321,13 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
     }
     if (message.type === 'export') {
       if (!fromExtension) throw new Error('Use the on-page capture widget to export.');
-      if (message.destination === 'kb') return sendToKB(message.conversation, message.format);
-      const file = await render(await permissionFilteredMedia(message.conversation), message.format, true);
+      if (message.destination === 'kb') {
+        if (message.format === 'pdf') throw new Error('PDF uses the browser print dialog. Choose Markdown or HTML for direct knowledge-base delivery, or save the print view as PDF first.');
+        return sendToKB(message.conversation, message.format);
+      }
+      const filteredConversation = await permissionFilteredMedia(message.conversation);
+      if (message.format === 'pdf') return printPdf(filteredConversation).then(() => ({ name: `${filteredConversation.title || 'conversation'}.pdf`, printDialog: true }));
+      const file = await render(filteredConversation, message.format, true);
       await chrome.downloads.download({ url: file.url, filename: file.name, saveAs: true });
       return { name: file.name };
     }

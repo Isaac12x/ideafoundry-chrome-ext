@@ -1,6 +1,6 @@
 # IdeaFoundry Conversation Capture
 
-A Chrome Manifest V3 extension that saves LLM conversations as Markdown or PDF and sends either format directly to the knowledge base in `../idea-app`. Includes an authenticated queue service so a server can request capture by URL using your signed-in Chrome session.
+A Chrome Manifest V3 extension that saves LLM conversations as Markdown, standalone styled HTML, or a browser-printed PDF. Markdown and HTML can be sent directly to the knowledge base in `../idea-app`. Includes an authenticated queue service so a server can request capture by URL using your signed-in Chrome session.
 
 ## Install
 
@@ -17,20 +17,20 @@ Open the browser's extensions page (`chrome://extensions`, `edge://extensions`, 
 
 1. Open a conversation and load the messages you want to keep.
 2. Use the injected section controls to expand or collapse turns and check the sections you want to export. Each section contains one user prompt and its following replies, up to the next user prompt.
-3. Open the extension's on-page capture widget from the toolbar. Choose sections and Markdown or PDF there.
+3. Open the extension's on-page capture widget from the toolbar. Choose sections and Markdown, HTML, or PDF there.
 4. Choose **Download file** or **Send to knowledge base** in the widget. Settings and diagnostics are available in the same panel.
 
 ChatGPT, Claude, and Gemini have dedicated extractors. Other sites with message-role attributes preserve speaker labels; other pages with a main/article region get a generic page preview. Arbitrary site layouts cannot be guaranteed. Generic page captures require manual review and are rejected for remote jobs. Sites that change their markup may require an extractor update.
 
-Only messages currently present in the page DOM are captured. Load older messages before exporting. The extension preserves cited webpage links and captures visible image/media references and linked downloadable documents. Images keep their position in the transcript, including in PDF. Audio, video, and documents are represented by links and companion files; PDF does not play media. Unavailable resources receive an in-place note. Hidden branches and inaccessible artifacts cannot be recovered. Markdown preserves code fences, links, lists, and tables; PDFs render Markdown headings, emphasis, links, lists, code blocks, and tables as formatted content. Bundled Roboto supports Latin, Greek, and Cyrillic; use Markdown for scripts/emoji without font coverage.
+Only messages currently present in the page DOM are captured. Load older messages before exporting. HTML and PDF capture the selected conversation's shared layout containers and inline computed styles; HTML embeds retrieved images and is a standalone file. PDF opens Chromium's print dialog; choose **Save as PDF** there. Browser print settings control page size, scale, margins, and printed backgrounds. Selection is preserved. Markdown retains semantic text and links. Only selected message DOM and its layout ancestors are serialized; provider chrome and external stylesheets are omitted, unavailable images become notes, and external web fonts/background images may use a local fallback.
 
-Exports with companion files download as a ZIP containing the requested `.md` or `.pdf` plus a `media/` folder. Extract the ZIP before opening the Markdown so relative image links resolve. KB exports upload the document and companion files together, using IdeaFoundry file-serving links so images display in its Markdown preview. Local exports keep portable relative paths. HTTP(S) media access is included in the extension’s installation permissions; no per-page media prompt is needed. Chrome’s extension site-access settings can restrict this access; exports report inaccessible resources in the document. Remote jobs use the extension’s site access and report unavailable resources in the document. Media retrieval is limited to 50 resources, 8 MB per resource, and 20 MB total. Select fewer sections if the resource count is exceeded; resources exceeding byte limits are marked unavailable.
+Markdown exports with companion files download as a ZIP containing the `.md` plus a `media/` folder. HTML embeds successfully retrieved images and is uploaded as an HTML document to the KB. PDF cannot be sent directly to the KB because the browser's Save as PDF dialog must be completed by the user; choose Markdown or HTML for direct delivery, or upload a PDF after saving it. Remote PDF jobs fail with an explanation; remote Markdown remains supported. HTTP(S) media access is included in the extension’s installation permissions; no per-page media prompt is needed. Chrome’s extension site-access settings can restrict this access; exports report inaccessible resources in the document. Media retrieval is limited to 50 resources, 8 MB per resource, and 20 MB total.
 
 ## Collapse and select conversation sections
 
 All paths on ChatGPT, Claude, and Gemini are eligible for automatic controls, including ChatGPT project conversations (`/g/.../c/...`). The closed launcher stays visible even when no messages have been recognized; open it to retry detection. Use **Copy diagnostics** in the opened widget to share structural selector counts and ancestry without conversation text or media URLs. This is available both when detection succeeds and when it fails. Layouts with `bg-user-message` prompts and unmarked replies use user-anchored structural recovery; inferred content is labeled “Message” and carries a review warning rather than an assumed speaker label. Refresh already-open chat tabs after installing or reloading the extension. On other sites with identifiable message roles, open the extension once to activate the controls. Generic page captures without speaker boundaries remain whole-page previews.
 
-Each turn has a checkbox and expand/collapse control. A compact chevron in the conversation’s side margin follows the expanded section you are reading, so you can collapse a long response without returning to its prompt. Clicking the blank left or right gutter alongside a section also toggles that section; sidebar navigation, links, and the composer retain their normal behavior. Collapsed sections hide their reply layouts, including gallery cards and reference controls, and keep a visible placeholder for expanding them again. The side chevron hides for a collapsed section. The floating widget starts closed; click it to open the bulk selection and collapse controls. All sections start selected and expanded. Collapse affects only the page display: **checked sections are exported even when collapsed**. Unchecked sections are omitted from both Markdown and PDF, including KB uploads. Selecting nothing prevents an export rather than silently exporting everything.
+Each turn has a checkbox and expand/collapse control. A compact chevron in the conversation’s side margin follows the expanded section you are reading, so you can collapse a long response without returning to its prompt. Clicking the blank left or right gutter alongside a section also toggles that section; sidebar navigation, links, and the composer retain their normal behavior. Collapsed sections hide their reply layouts, including gallery cards and reference controls, and keep a visible placeholder for expanding them again. The side chevron hides for a collapsed section. The floating widget starts closed; click it to open the bulk selection and collapse controls. All sections start selected and expanded. Collapse affects only the page display: **checked sections are exported even when collapsed**. Unchecked sections are omitted from Markdown, HTML, PDF, and KB uploads. Selecting nothing prevents an export rather than silently exporting everything.
 
 The widget reads the current selection again when you export. Selection and collapse state survive streaming updates and ordinary DOM refreshes within the conversation; newly added sections start selected. State resets when you navigate to another conversation or reload the page. Only messages loaded in the DOM can be grouped or exported.
 
@@ -82,7 +82,7 @@ curl --fail-with-body http://127.0.0.1:4318/jobs \
   -d '{"url":"https://chatgpt.com/c/YOUR-CONVERSATION-ID","format":"md"}'
 ```
 
-Use `"format":"pdf"` for PDF. The response contains a job `id`. Check its result:
+Remote capture supports `"format":"md"`. PDF jobs are rejected because they require the interactive browser print dialog. The response contains a job `id`. Check its result:
 
 ```sh
 curl --fail-with-body "http://127.0.0.1:4318/jobs/JOB-ID" \
@@ -105,7 +105,7 @@ Jobs persist across queue restarts. Result delivery is idempotent and retried by
 
 ## Testing against IdeaFoundry
 
-`npm run test:idea-app` drives the built extension against a real `../idea-app` Rails server: widget Markdown/PDF to the KB (with media companions), remote jobs created from the app's settings form and the JSON API, and a disallowed-origin failure. It writes only into the KB folder you give it, so never point it at your real instance (it refuses anything but `http://localhost|127.0.0.1`).
+`npm run test:idea-app` drives the built extension against a real `../idea-app` Rails server: widget Markdown/HTML to the KB, remote Markdown jobs, PDF job rejection, and a disallowed-origin failure. It writes only into the KB folder you give it, so never point it at your real instance (it refuses anything but `http://localhost|127.0.0.1`).
 
 ```sh
 # 1. Start an isolated server. It rsyncs the app (no storage/DBs) into a work dir, creates a
@@ -128,6 +128,6 @@ npx playwright install chromium
 npm run test:browser
 ```
 
-Unit tests cover provider extraction, Markdown fidelity, validation, authentication, claims, persistence, and timeout behavior. Browser tests load the built extension into an isolated Playwright Chromium profile (set `IDEA_BROWSER_CHANNEL=chrome|msedge` or `IDEA_BROWSER_PATH=/path/to/browser` to test another Chromium browser), load a local conversation fixture, and use a local server matching the IdeaFoundry KB contract. They exercise Markdown/PDF generation and upload, lock failures, remote jobs, origin rejection, and the on-page widget. The test copy grants fixture host permissions to avoid OS prompts; production declares HTTP(S) host access at installation. They do not access your personal browser profile or live conversations.
+Unit tests cover provider extraction, layout snapshots, standalone HTML, validation, authentication, claims, persistence, and timeout behavior. Browser tests load the built extension into an isolated Playwright Chromium profile (set `IDEA_BROWSER_CHANNEL=chrome|msedge` or `IDEA_BROWSER_PATH=/path/to/browser` to test another Chromium browser), load a local conversation fixture, and use a local server matching the IdeaFoundry KB contract. They exercise Markdown/HTML exports, Chromium's print-to-PDF output, KB delivery, lock failures, remote jobs, origin rejection, and the on-page widget. The test copy grants fixture host permissions to avoid OS prompts; production declares HTTP(S) host access at installation. They do not access your personal browser profile or live conversations.
 
 Chrome architecture references: [content scripts](https://developer.chrome.com/docs/extensions/develop/concepts/content-scripts), [optional permissions](https://developer.chrome.com/docs/extensions/develop/concepts/declare-permissions), [offscreen documents](https://developer.chrome.com/docs/extensions/reference/api/offscreen), and [alarms](https://developer.chrome.com/docs/extensions/reference/api/alarms).
