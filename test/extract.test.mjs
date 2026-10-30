@@ -188,6 +188,32 @@ test('ChatGPT collapses UI-only sibling rows within a prompt interval without re
   assert.equal(result.sections.flatMap(section => section.collapseNodes).some(node => node.matches('header,footer,form') || node.closest('header,footer,form')), false);
   dom.window.close();
 });
+test('ChatGPT discovers, exports and collapses detached reply siblings beside reported prose', () => {
+  const dom = new JSDOM(`<style>.idea-capture-section-collapsed{display:none}</style><main id="thread">
+    <div class="bg-user-message">Write a Python example</div>
+    <div class="reply-shell"><p class="reply-intro">Introductory explanation.</p><div class="markdown"><p>Here are two examples.</p></div>
+      <div class="generated-code-panel"><pre><code>print("first")</code></pre></div>
+      <div class="generated-code-panel"><pre><code>print("second")</code></pre></div>
+      <p class="streamed-follow-up">Use these examples in order.</p><p>Final note.</p>
+    </div>
+    <div class="bg-user-message">Next question</div><div class="markdown">Next answer</div>
+  </main>`, { url: 'https://chatgpt.com/c/123' });
+  const doc = dom.window.document;
+  const result = extractConversation(doc, dom.window.location.href, { includeNodes: true });
+  const codePanels = [...doc.querySelectorAll('.generated-code-panel')];
+  const firstCollapseNodes = result.sections[0].collapseNodes;
+  assert.deepEqual(result.messages.map(message => message.role), ['User', 'Message', 'Assistant', 'Message', 'User', 'Assistant']);
+  assert.match(result.messages.map(message => message.markdown).join('\n'), /print\("first"\)/);
+  assert.match(result.messages.map(message => message.markdown).join('\n'), /print\("second"\)/);
+  assert.match(result.messages.map(message => message.markdown).join('\n'), /Use these examples in order/);
+  assert.match(result.messages.map(message => message.markdown).join('\n'), /Introductory explanation/);
+  assert.match(result.messages.map(message => message.markdown).join('\n'), /Final note/);
+  assert.equal(codePanels.every(panel => firstCollapseNodes.some(node => node === panel || node.contains(panel))), true);
+  firstCollapseNodes.forEach(node => node.classList.add('idea-capture-section-collapsed'));
+  assert.equal(codePanels.every(panel => panel.closest('.idea-capture-section-collapsed')), true);
+  assert.equal(doc.querySelectorAll('.bg-user-message')[1].classList.contains('idea-capture-section-collapsed'), false);
+  dom.window.close();
+});
 test('ChatGPT inference keeps grouped neutral replies disjoint and splits composer branches safely', () => {
   const dom = new JSDOM(`<main id="thread">
     <div class="turn"><div class="bg-user-message">Grouped question</div><div><p>Grouped reply</p></div></div>

@@ -188,7 +188,7 @@ try {
       <div class="fullwidth-wrapper"><div class="toolbar">Planning conversation</div><section class="conversation-frame"><div id="thread"><div class="thread-inner">
         <div class="turn"><div class="user-message-bubble"><p>Compare the community interview and survey plans.</p></div><div class="markdown"><p>Interviews explain local context and motivations.</p><div class="image-gallery"><figure class="gallery-card">Interview notes</figure><figure class="gallery-card">Survey chart</figure><figure class="gallery-card">Field map</figure></div>${longResearch}<p><a href="${appUrl}/media/brief.pdf">Open the research brief</a></p></div></div>
         <div class="turn"><div class="user-message-bubble"><p>How should we scope the pilot?</p></div><div class="markdown"><p>Start with three interviews and a short survey.</p>${longConsent}</div></div>
-        <div class="turn"><div class="user-message-bubble"><p>What will the team learn?</p></div><div class="markdown"><p>Compare how each method changes the next decision.</p></div></div>
+        <div class="turn"><div class="user-message-bubble"><p>What will the team learn?</p></div><div class="markdown"><p>Compare how each method changes the next decision.</p>${Array.from({ length: 12 }, (_, i) => `<p>Final response detail ${i + 1}: record what participants learned, which evidence changed the team's decision, and what should happen next.</p>`).join('')}<p id="bottom-content-marker">End of the final answer.</p></div></div>
       </div></div><form class="composer"><div contenteditable="true" aria-label="Message composer">Ask anything</div></form></section></div>` });
     if (path.endsWith('/c/reported-layout')) return route.fulfill({ status: 200, contentType: 'text/html', body: `<!doctype html><title>Conversation · ChatGPT</title><style>
       *{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;font:15px/1.6 system-ui,sans-serif;color:#202522;background:#f6f7f6}
@@ -206,6 +206,7 @@ try {
         <div><div class="relative w-full min-w-0 text-size-chat leading-relaxed"><div class="flex flex-col items-end gap-1"><div class="bg-user-message text-user-message min-w-0 max-w-(--user-chat-width) overflow-hidden break-words"><div><div class="whitespace-pre-wrap">Compare the community interview and survey findings.</div></div></div></div></div></div>
         <div><div class="relative w-full min-w-0"><div class="reply-shell"><p>Interviews explain local context; surveys show how common each pattern is.</p><table><tbody><tr><td>Interviews</td><td>Context and motivations</td></tr><tr><td>Survey</td><td>Pattern frequency</td></tr></tbody></table><div class="gallery-shell"><div class="gallery" id="reported-gallery"><figure class="gallery-card"><img id="reported-evidence" alt="Study evidence"></figure><figure class="gallery-card" aria-hidden="true">Field notes</figure><figure class="gallery-card" aria-hidden="true">Survey map</figure></div></div><div class="reference-row"><span class="reference-chip" aria-hidden="true">Sources</span><span class="reference-chip" aria-hidden="true">+1</span></div><div class="action-row"><button type="button" aria-label="Copy response">Copy</button><button type="button" aria-label="More response actions">•••</button></div></div></div></div>
         <div id="reported-orphan-gallery" class="gallery-shell" aria-hidden="true"><div class="gallery"><figure class="gallery-card">Empty image card</figure><figure class="gallery-card">Empty image card</figure></div></div>
+        <div id="reported-sibling-code" aria-hidden="true"><pre><code>const decision = "keep this code with the reply";</code></pre></div>
         <div id="reported-orphan-references" class="reference-row" aria-hidden="true"><span class="reference-chip">Sources</span><span class="reference-chip">+1</span></div>
         <div id="reported-orphan-actions" class="action-row" aria-hidden="true"><button type="button">Copy</button><button type="button">•••</button></div>
         <div><div class="relative w-full min-w-0 text-size-chat leading-relaxed"><div class="flex flex-col items-end gap-1"><div class="bg-user-message text-user-message min-w-0 max-w-(--user-chat-width) overflow-hidden break-words"><div><div class="whitespace-pre-wrap">What should the pilot test first?</div></div></div></div></div></div>
@@ -406,6 +407,49 @@ try {
   assert.equal(await actualLayout.locator('#project-link').getAttribute('href'), '#project-link', 'sidebar navigation remains intact');
   assert.equal(await actualLayout.locator('.composer [contenteditable="true"]').textContent(), 'Ask anything', 'the composer remains intact');
   assert.equal(await actualLayout.locator('.markdown a').count(), 1, 'links in provider message content remain intact');
+  const dock = await actualLayout.evaluate(() => new Promise(resolve => requestAnimationFrame(() => {
+    const panel = document.querySelector('[data-idea-capture-owned="host"]').shadowRoot.querySelector('#idea-capture-panel');
+    const panelRect = panel.getBoundingClientRect();
+    const inputRect = document.querySelector('.composer [contenteditable="true"]').getBoundingClientRect();
+    resolve({ docked: panel.classList.contains('is-docked'), gap: inputRect.top - panelRect.bottom, inside: panelRect.left > inputRect.left + inputRect.width / 2 && panelRect.right < inputRect.right });
+  })));
+  assert.deepEqual(dock, { docked: true, gap: -1, inside: true }, 'the closed widget sits on the right of the chat input as a tab');
+  const grownGap = await actualLayout.evaluate(() => new Promise(resolve => {
+    const input = document.querySelector('.composer [contenteditable="true"]');
+    const before = input.getBoundingClientRect().top;
+    input.style.minHeight = `${input.getBoundingClientRect().height + 48}px`;
+    input.parentElement.style.height = `${input.parentElement.getBoundingClientRect().height + 48}px`;
+    setTimeout(() => requestAnimationFrame(() => {
+      const panelRect = document.querySelector('[data-idea-capture-owned="host"]').shadowRoot.querySelector('#idea-capture-panel').getBoundingClientRect();
+      const top = input.getBoundingClientRect().top;
+      input.style.minHeight = input.parentElement.style.height = '';
+      resolve({ moved: top < before, gap: top - panelRect.bottom });
+    }), 50);
+  }));
+  assert.deepEqual(grownGap, { moved: true, gap: -1 }, 'the tab follows the composer when it grows without DOM insertions');
+  await actualLayout.evaluate(() => document.querySelector('[data-idea-capture-owned="host"]').shadowRoot.querySelector('[data-action="toggle-panel"]').click());
+  const openDock = await actualLayout.evaluate(() => {
+    const panelRect = document.querySelector('[data-idea-capture-owned="host"]').shadowRoot.querySelector('#idea-capture-panel').getBoundingClientRect();
+    const inputRect = document.querySelector('.composer [contenteditable="true"]').getBoundingClientRect();
+    return { rightAligned: Math.abs(inputRect.right - 16 - panelRect.right) < 1, above: panelRect.bottom <= inputRect.top };
+  });
+  assert.deepEqual(openDock, { rightAligned: true, above: true }, 'the opened widget stays on the right, above the chat input');
+  await actualLayout.evaluate(() => document.querySelector('[data-idea-capture-owned="host"]').shadowRoot.querySelector('[data-action="toggle-panel"]').click());
+  // ChatGPT: unstyled textarea → display:contents wrappers → the bordered form is the visible box.
+  const contentsDock = await actualLayout.evaluate(() => new Promise(resolve => {
+    const form = document.querySelector('form.composer');
+    const original = form.outerHTML;
+    form.outerHTML = '<form class="composer" style="width:640px;height:auto;margin:0 auto 18px;padding:10px;border:1px solid #ccd4ce;border-radius:28px"><div style="display:contents"><div style="display:contents"><textarea style="display:block;width:100%;height:56px;border:0;background:transparent">Ask anything</textarea></div></div></form>';
+    setTimeout(() => requestAnimationFrame(() => {
+      const panel = document.querySelector('[data-idea-capture-owned="host"]').shadowRoot.querySelector('#idea-capture-panel');
+      const surface = document.querySelector('form.composer').getBoundingClientRect();
+      const gap = surface.top - panel.getBoundingClientRect().bottom;
+      const passThrough = getComputedStyle(panel).pointerEvents;
+      document.querySelector('form.composer').outerHTML = original;
+      resolve({ gap, passThrough });
+    }), 300);
+  }));
+  assert.deepEqual(contentsDock, { gap: -1, passThrough: 'none' }, 'the tab docks on the styled surface past display:contents wrappers and lets wheel/clicks reach the page');
   await actualLayout.screenshot({ path: 'artifacts/provider-layout-sections.png', fullPage: true });
   const reportedLayout = await context.newPage();
   await reportedLayout.setViewportSize({ width: 1440, height: 900 });
@@ -456,10 +500,12 @@ try {
   assert.equal(await reportedLayout.locator('.reference-chip').first().isVisible(), false, 'collapse removes citation chips with the reply');
   assert.equal(await reportedLayout.locator('.action-row').first().isVisible(), false, 'collapse removes the reply action row');
   assert.equal(await reportedLayout.locator('#reported-orphan-gallery').isVisible(), false, 'collapse removes an empty gallery shell beside the reply node');
+  assert.equal(await reportedLayout.locator('#reported-sibling-code').isVisible(), false, 'collapse hides a code block in a sibling wrapper beside the reply node');
   assert.equal(await reportedLayout.locator('#reported-orphan-references').isVisible(), false, 'collapse removes reference chips beside the reply node');
   assert.equal(await reportedLayout.locator('#reported-orphan-actions').isVisible(), false, 'collapse removes action controls beside the reply node');
   assert.equal(await reportedLayout.locator('.bg-user-message').nth(1).isVisible(), true, 'the adjacent prompt remains visible');
   assert.equal(await reportedSecondReply.isVisible(), true, 'the adjacent reply remains visible');
+  assert.equal(await reportedLayout.locator('#reported-sibling-code').isVisible(), false, 'the sibling code block stays hidden while its section is collapsed');
   assert.ok(reportedHeightBeforeCollapse - reportedHeightAfterFirstCollapse > 180, `collapse removes reply spacing and gallery height (${reportedHeightBeforeCollapse} -> ${reportedHeightAfterFirstCollapse})`);
   const secondReplyBounds = await reportedSecondReply.boundingBox();
   assert.ok(secondReplyBounds);
@@ -481,6 +527,7 @@ try {
   assert.equal(await reportedLayout.locator('.reference-chip').first().isVisible(), true, 'expanding restores reference chips');
   assert.equal(await reportedLayout.locator('.action-row').first().isVisible(), true, 'expanding restores the action row');
   assert.equal(await reportedLayout.locator('#reported-orphan-gallery').isVisible(), true, 'expanding restores the sibling empty gallery shell');
+  assert.equal(await reportedLayout.locator('#reported-sibling-code').isVisible(), true, 'expanding restores the sibling code block');
   assert.equal(await reportedLayout.locator('#reported-orphan-references').isVisible(), true, 'expanding restores sibling reference chips');
   assert.equal(await reportedLayout.locator('#reported-orphan-actions').isVisible(), true, 'expanding restores sibling action controls');
   await reportedHeaders.nth(1).locator('button[data-idea-section-id]').click();
@@ -498,6 +545,44 @@ try {
   assert.equal(await reportedLayout.locator('nav a').count(), 2, 'navigation remains outside captured messages');
   assert.equal(await reportedLayout.locator('.composer [contenteditable="true"]').textContent(), 'Ask anything', 'the composer remains outside captured messages');
   await reportedLayout.screenshot({ path: 'artifacts/reported-layout-sections.png', fullPage: true });
+  await actualLayout.locator('.composer').evaluate(node => {
+    node.style.position = 'fixed'; node.style.left = '220px'; node.style.right = '0'; node.style.bottom = '0'; node.style.zIndex = '1';
+  });
+  await actualLayout.evaluate(() => window.dispatchEvent(new Event('resize')));
+  await actualLayout.waitForTimeout(150);
+  const baselineBottomBounds = await actualLayout.evaluate(() => {
+    const thread = document.querySelector('#thread');
+    const marker = document.querySelector('#bottom-content-marker');
+    const originalStyle = thread.getAttribute('style');
+    const hadClearance = thread.hasAttribute('data-idea-capture-scroll-clearance');
+    thread.removeAttribute('data-idea-capture-scroll-clearance');
+    thread.style.removeProperty('--idea-capture-original-padding-bottom');
+    thread.style.removeProperty('--idea-capture-composer-clearance');
+    thread.scrollTop = thread.scrollHeight;
+    const baseline = { markerBottom: marker.getBoundingClientRect().bottom, composerTop: document.querySelector('.composer').getBoundingClientRect().top };
+    if (originalStyle === null) thread.removeAttribute('style'); else thread.setAttribute('style', originalStyle);
+    if (hadClearance) thread.setAttribute('data-idea-capture-scroll-clearance', '');
+    return baseline;
+  });
+  assert.ok(baselineBottomBounds.markerBottom > baselineBottomBounds.composerTop + 20, `without composer clearance, the final answer is hidden under the overlay: ${JSON.stringify(baselineBottomBounds)}`);
+  await actualThread.evaluate(node => { node.scrollTop = node.scrollHeight; });
+  const bottomContentBounds = await actualLayout.evaluate(() => {
+    const thread = document.querySelector('#thread');
+    const marker = document.querySelector('#bottom-content-marker').getBoundingClientRect();
+    const composer = document.querySelector('.composer').getBoundingClientRect();
+    const threadRect = thread.getBoundingClientRect();
+    return { markerTop: marker.top, markerBottom: marker.bottom, threadBottom: threadRect.bottom, composerTop: composer.top, scrollTop: thread.scrollTop, maxScroll: thread.scrollHeight - thread.clientHeight };
+  });
+  assert.ok(bottomContentBounds.scrollTop >= bottomContentBounds.maxScroll - 1, `the conversation reaches its true bottom: ${JSON.stringify(bottomContentBounds)}`);
+  assert.ok(bottomContentBounds.threadBottom > bottomContentBounds.composerTop + 40, `the composer overlays the scroll root in this fixture: ${JSON.stringify(bottomContentBounds)}`);
+  assert.ok(bottomContentBounds.markerBottom <= bottomContentBounds.composerTop + 1, `the final answer stays visible above the overlapping composer: ${JSON.stringify(bottomContentBounds)}`);
+  await actualLayout.locator('.composer').evaluate(node => { node.style.height = '136px'; });
+  await actualLayout.waitForTimeout(150);
+  await actualThread.evaluate(node => { node.scrollTop = node.scrollHeight; });
+  const grownComposerBounds = await actualLayout.evaluate(() => ({ markerBottom: document.querySelector('#bottom-content-marker').getBoundingClientRect().bottom, composerTop: document.querySelector('.composer').getBoundingClientRect().top, scrollTop: document.querySelector('#thread').scrollTop, maxScroll: document.querySelector('#thread').scrollHeight - document.querySelector('#thread').clientHeight }));
+  assert.ok(grownComposerBounds.scrollTop >= grownComposerBounds.maxScroll - 1, `the scroll root reaches its bottom after composer growth: ${JSON.stringify(grownComposerBounds)}`);
+  assert.ok(grownComposerBounds.markerBottom <= grownComposerBounds.composerTop + 1, `the final answer remains visible when the composer grows: ${JSON.stringify(grownComposerBounds)}`);
+  await actualLayout.screenshot({ path: 'artifacts/provider-layout-composer-bottom.png', fullPage: false });
   const reportedSingleLayout = await context.newPage();
   await reportedSingleLayout.goto('https://chatgpt.com/g/g-p-demo/c/reported-single-layout');
   await reportedSingleLayout.locator('.idea-capture-section-header').first().waitFor();

@@ -32,6 +32,14 @@ export function createCaptureControls(doc = document, win = window) {
   let geometryRoot = null;
   const sectionMediaNodes = new Map();
   let railFrame = 0;
+  let dockFrame = 0;
+  let dockBox = null;
+  let clearanceOverlayNode = null;
+  let clearanceRoot = null;
+  let clearanceRootHadAttribute = null;
+  let clearanceRootStyles = null;
+  // ChatGPT grows its composer upward via attribute changes the MutationObserver ignores.
+  const dockResize = win.ResizeObserver ? new win.ResizeObserver(() => scheduleDock()) : null;
   let cachedContentBounds = null;
   let preserveActiveSection = false;
   let emptyMessage = 'No conversation messages found yet. Open a conversation, then retry.';
@@ -85,6 +93,15 @@ export function createCaptureControls(doc = document, win = window) {
         #idea-capture-margin-controls button[data-direction="left"]::after{transform:translate(-50%,-50%) scaleX(-1)}
         #idea-capture-margin-controls button:hover{background:var(--wash);border-color:#9db5a3}
         #idea-capture-margin-controls button:active{transform:scale(.96)}
+        #idea-capture-panel.is-docked{left:auto;right:var(--dock-right);bottom:var(--dock-bottom);width:min(440px,var(--dock-width))}
+        #idea-capture-panel.is-docked:not(:has(.panel-body[hidden])){max-height:var(--dock-max-height)}
+        #idea-capture-panel.is-docked:has(.panel-body[hidden]){width:min(236px,var(--dock-width));background:var(--dock-bg);color:var(--dock-ink);border-color:var(--dock-line);border-bottom-color:transparent;border-radius:var(--dock-radius) var(--dock-radius) 0 0;box-shadow:0 -4px 14px #10251c12}
+        #idea-capture-panel.is-docked:has(.panel-body[hidden])>header{min-height:30px;padding:3px 4px 3px 13px;border-bottom:0;font-size:11px;font-weight:600;letter-spacing:.02em}
+        #idea-capture-panel.is-docked:has(.panel-body[hidden])>header [data-export-status]{font-size:inherit;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+        #idea-capture-panel.is-docked:has(.panel-body[hidden])>header:not(.is-busy):not(.is-error) [data-export-status]{opacity:.72}
+        #idea-capture-panel.is-docked:has(.panel-body[hidden]){pointer-events:none}
+        #idea-capture-panel.is-docked:has(.panel-body[hidden]) [data-action="toggle-panel"]{pointer-events:auto;min-height:24px;padding:2px 10px;border-color:color-mix(in srgb,currentColor 20%,transparent);border-radius:calc(var(--dock-radius) - 4px);background:transparent;color:inherit}
+        #idea-capture-panel.is-docked:has(.panel-body[hidden]) [data-action="toggle-panel"]:hover{background:color-mix(in srgb,currentColor 9%,transparent)}
         @media(max-width:420px){#idea-capture-panel{right:10px;bottom:10px;width:calc(100vw - 20px);max-height:82vh}#idea-capture-panel>header{padding:12px 13px}.tools{padding-inline:10px}.tools button{font-size:9px}.capture-meta{padding-inline:14px}.capture-tools{padding-inline:14px}}
         @media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;transition:none!important}}
       </style>
@@ -144,6 +161,7 @@ export function createCaptureControls(doc = document, win = window) {
     toggleButton.setAttribute('aria-expanded', 'true');
     toggleButton.textContent = 'Close';
     body.hidden = false;
+    syncDock();
   }
   function showCaptureStatus(message, tone = 'idle') {
     captureStatus.textContent = message;
@@ -236,6 +254,7 @@ export function createCaptureControls(doc = document, win = window) {
     toggleButton.setAttribute('aria-expanded', String(open));
     toggleButton.textContent = open ? 'Close' : 'Open';
     body.hidden = !open;
+    syncDock();
   };
   const onRailClick = event => {
     if (event.target !== railButton || !railButton.dataset.ideaSectionId) return;
@@ -366,6 +385,7 @@ export function createCaptureControls(doc = document, win = window) {
     syncHeaders();
     applyCollapse();
     syncRail();
+    scheduleDock();
     if (activeSection && activeKind) [...list.children].find(row => row.dataset.sectionId === activeSection)?.querySelector(activeKind === 'input' ? 'input' : 'button')?.focus();
   }
   async function copyDiagnostics() {
@@ -657,6 +677,123 @@ export function createCaptureControls(doc = document, win = window) {
     railButton.setAttribute('aria-label', `Collapse section: ${section.label}`);
     railButton.title = `Collapse section: ${section.label}`;
   }
+  // The chat input's visible box: the outermost styled ancestor that is still
+  // composer-sized, so the closed widget can sit on its top edge like a tab.
+  function composerBox() {
+    const viewportHeight = win.innerHeight || doc.documentElement.clientHeight;
+    const inputs = [...doc.querySelectorAll('textarea, [contenteditable="true"], [role="textbox"]')].reverse();
+    for (const input of inputs) {
+      if (input.closest(`[${OWNED}]`)) continue;
+      const inputRect = input.getBoundingClientRect();
+      if (inputRect.width < 160 || inputRect.height <= 0 || inputRect.top < viewportHeight * 0.35 || inputRect.bottom > viewportHeight + 1) continue;
+      let box = input;
+      for (let node = input.parentElement; node && node !== doc.body && node !== doc.documentElement; node = node.parentElement) {
+        const rect = node.getBoundingClientRect();
+        // display:contents wrappers (ChatGPT has several) have no box; climb past them.
+        if (!rect.width && !rect.height) continue;
+        if (rect.width > inputRect.width * 1.3 + 64 || rect.top < inputRect.top - 160) break;
+        const style = win.getComputedStyle(node);
+        if (parseFloat(style.borderTopWidth) > 0 || parseFloat(style.borderTopLeftRadius) > 0 || style.boxShadow !== 'none' || !/^(transparent|rgba\(0, 0, 0, 0\))$/.test(style.backgroundColor)) box = node;
+        if (node.matches('form')) break;
+      }
+      return box;
+    }
+    return null;
+  }
+  function syncDock() {
+    const box = composerBox();
+    if (box !== dockBox) { dockResize?.disconnect(); clearanceOverlayNode = null; dockBox = box; if (box) dockResize?.observe(box); }
+    const rect = box?.getBoundingClientRect();
+    syncConversationClearance(rect);
+    const docked = !!rect && rect.width >= 160 && rect.top > 60;
+    panel.classList.toggle('is-docked', docked);
+    if (!docked) return;
+    const style = win.getComputedStyle(box);
+    const viewport = win.innerWidth || doc.documentElement.clientWidth;
+    const viewportHeight = win.innerHeight || doc.documentElement.clientHeight;
+    const radius = Math.min(parseFloat(style.borderTopLeftRadius) || 0, 22);
+    const inset = Math.max(12, radius);
+    const transparent = /^(transparent|rgba\(0, 0, 0, 0\))$/.test(style.backgroundColor);
+    const vars = {
+      // Tab and open panel share the composer's inset right edge.
+      '--dock-right': `${Math.max(8, viewport - rect.right + inset)}px`,
+      // ponytail: 1px overlap hides the composer's top border under the tab.
+      '--dock-bottom': `${viewportHeight - rect.top - (body.hidden ? 1 : -8)}px`,
+      '--dock-width': `${rect.width - inset * 2}px`,
+      '--dock-max-height': `${Math.max(240, rect.top - 16)}px`,
+      '--dock-radius': `${Math.max(8, radius * 0.6)}px`,
+      '--dock-bg': transparent ? 'var(--paper)' : style.backgroundColor,
+      '--dock-ink': transparent ? 'var(--ink)' : style.color,
+      '--dock-line': parseFloat(style.borderTopWidth) > 0 ? style.borderTopColor : 'color-mix(in srgb,currentColor 16%,transparent)'
+    };
+    for (const [name, value] of Object.entries(vars)) panel.style.setProperty(name, value);
+  }
+  // ChatGPT positions its composer over the conversation scroller. Extend the
+  // scroller's scroll range by the visible composer height so the final reply
+  // can be brought fully above it.
+  function syncConversationClearance(composerRect) {
+    const conversationRoot = isChatGptPage() ? conversationGeometryRoot() : null;
+    let activeRoot = null;
+    let style = null;
+    for (let node = conversationRoot; node && node !== doc.body && node !== doc.documentElement; node = node.parentElement) {
+      const candidateStyle = win.getComputedStyle?.(node);
+      const overflowY = candidateStyle?.overflowY || candidateStyle?.overflow || '';
+      const hasScrollRange = node.scrollHeight > node.clientHeight;
+      if (/(auto|scroll|overlay)/.test(overflowY) && (hasScrollRange || node === conversationRoot && node.matches?.('#thread'))) {
+        activeRoot = node;
+        style = candidateStyle;
+        break;
+      }
+    }
+    const rootRect = activeRoot?.getBoundingClientRect();
+    const scrollBottom = Math.min(rootRect?.bottom ?? 0, win.innerHeight || doc.documentElement.clientHeight);
+    let overlayRect = null;
+    let nextOverlayNode = null;
+    for (let node = dockBox; node && node !== doc.body && node !== doc.documentElement; node = node.parentElement) {
+      const position = win.getComputedStyle?.(node)?.position;
+      if (!/^(fixed|sticky|absolute)$/.test(position || '')) continue;
+      if (!nextOverlayNode) nextOverlayNode = node;
+      const rect = node.getBoundingClientRect();
+      const overlapsHorizontally = rect.right > (rootRect?.left ?? Infinity) && rect.left < (rootRect?.right ?? -Infinity);
+      if (overlapsHorizontally && rect.top < scrollBottom && rect.bottom >= scrollBottom - 1) { overlayRect = rect; nextOverlayNode = node; break; }
+    }
+    if (nextOverlayNode !== clearanceOverlayNode) {
+      if (clearanceOverlayNode) dockResize?.unobserve(clearanceOverlayNode);
+      clearanceOverlayNode = nextOverlayNode;
+      if (clearanceOverlayNode && clearanceOverlayNode !== dockBox) dockResize?.observe(clearanceOverlayNode);
+    }
+    const active = sections.length && activeRoot && overlayRect && composerRect?.width >= 160 && overlayRect.top > 60;
+    if (!active) activeRoot = null;
+    if (clearanceRoot !== activeRoot) {
+      restoreConversationClearance();
+      if (activeRoot) {
+        clearanceRoot = activeRoot;
+        clearanceRootHadAttribute = activeRoot.hasAttribute('data-idea-capture-scroll-clearance');
+        clearanceRootStyles = ['--idea-capture-original-padding-bottom', '--idea-capture-composer-clearance']
+          .map(name => [name, activeRoot.style.getPropertyValue(name), activeRoot.style.getPropertyPriority(name)]);
+        activeRoot.setAttribute('data-idea-capture-scroll-clearance', '');
+        activeRoot.style.setProperty('--idea-capture-original-padding-bottom', `${parseFloat(style.paddingBottom) || 0}px`);
+      }
+    }
+    if (!clearanceRoot) return;
+    const clearance = Math.max(0, scrollBottom - overlayRect.top) + 20;
+    clearanceRoot.style.setProperty('--idea-capture-composer-clearance', `${clearance}px`);
+  }
+  function restoreConversationClearance() {
+    if (!clearanceRoot) return;
+    for (const [name, value, priority] of clearanceRootStyles || []) {
+      if (value) clearanceRoot.style.setProperty(name, value, priority);
+      else clearanceRoot.style.removeProperty(name);
+    }
+    if (!clearanceRootHadAttribute) clearanceRoot.removeAttribute('data-idea-capture-scroll-clearance');
+    clearanceRoot = null;
+    clearanceRootStyles = null;
+    clearanceRootHadAttribute = null;
+  }
+  function scheduleDock() {
+    if (dockFrame || destroyed) return;
+    dockFrame = win.requestAnimationFrame(() => { dockFrame = 0; syncDock(); });
+  }
   function updateActiveSection() {
     if (destroyed || !sections.length) return;
     const section = sectionAtViewportCenter();
@@ -683,6 +820,7 @@ export function createCaptureControls(doc = document, win = window) {
   function onPointerDown(event) { onUserScrollIntent(event); }
   function onResize() {
     cachedContentBounds = null;
+    scheduleDock();
     if (preserveActiveSection) syncRail();
     else scheduleActiveSection();
   }
@@ -773,6 +911,8 @@ export function createCaptureControls(doc = document, win = window) {
   observer.observe(doc.body || doc.documentElement, { subtree: true, childList: true, characterData: true });
   const onRoute = scheduleRefresh;
   doc.addEventListener('scroll', scheduleActiveSection, true);
+  doc.addEventListener('scroll', scheduleDock, true);
+  doc.addEventListener('input', scheduleDock, true);
   doc.addEventListener('wheel', onUserScrollIntent, { capture: true, passive: true });
   doc.addEventListener('touchstart', onUserScrollIntent, { capture: true, passive: true });
   doc.addEventListener('keydown', onScrollKeyDown, true);
@@ -812,7 +952,7 @@ export function createCaptureControls(doc = document, win = window) {
     delete conversation.nodes;
     return conversation;
   }
-  function open() { toggleButton.setAttribute('aria-expanded', 'true'); toggleButton.textContent = 'Close'; body.hidden = false; panel.hidden = false; refresh(); }
+  function open() { toggleButton.setAttribute('aria-expanded', 'true'); toggleButton.textContent = 'Close'; body.hidden = false; panel.hidden = false; syncDock(); refresh(); }
   return { capture, refresh, open, destroy() {
     if (destroyed) return;
     destroyed = true;
@@ -824,6 +964,11 @@ export function createCaptureControls(doc = document, win = window) {
     doc.removeEventListener('keydown', onScrollKeyDown, true);
     doc.removeEventListener('pointerdown', onPointerDown, true);
     if (railFrame) win.cancelAnimationFrame(railFrame);
+    if (dockFrame) win.cancelAnimationFrame(dockFrame);
+    dockResize?.disconnect();
+    clearanceOverlayNode = null;
+    restoreConversationClearance();
+    doc.removeEventListener('scroll', scheduleDock, true); doc.removeEventListener('input', scheduleDock, true);
     rail.removeEventListener('click', onRailClick);
     toggleButton.removeEventListener('click', onTogglePanel); tools.removeEventListener('click', onToolsClick);
     empty.removeEventListener('click', onEmptyClick);
@@ -851,6 +996,7 @@ export function installCollapseStyle(doc = document) {
       .idea-capture-section-label{min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:550}
       .idea-capture-section-header button{min-height:27px;padding:3px 8px;font:600 10px/1.2 "Avenir Next","Trebuchet MS",sans-serif;cursor:pointer;border:1px solid #ccd8ce;border-radius:4px;background:#fbfaf5;color:inherit;white-space:nowrap}
       .idea-capture-section-header button:hover{background:#e8efe8}
+      [data-idea-capture-scroll-clearance]{padding-bottom:calc(var(--idea-capture-original-padding-bottom,0px) + var(--idea-capture-composer-clearance,0px))!important}
       .idea-capture-section-header button:focus-visible,.idea-capture-section-header input:focus-visible{outline:2px solid #397650;outline-offset:2px}
       @media(max-width:520px){.idea-capture-section-header{gap:7px;padding-inline:7px;margin-block:5px}.idea-capture-section-header button{font-size:9px;padding-inline:6px}}`;
     (doc.head || doc.documentElement).append(style);

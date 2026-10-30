@@ -147,6 +147,27 @@ test('inline controls preserve selection through updates, collapse reversibly, a
   dom.window.close();
 });
 
+test('a collapsed latest section absorbs and exports content appended by a streaming reply', async t => {
+  const dom = new JSDOM(`<style>.idea-capture-section-collapsed{display:none!important}</style><main id="thread">
+    <div class="turn"><div class="bg-user-message">Show a Python example</div>
+      <div class="reply-shell"><div class="markdown">Starting answer.</div></div>
+    </div>
+  </main>`, { url: 'https://chatgpt.com/c/stream', pretendToBeVisual: true });
+  const { document } = dom.window;
+  const controls = createCaptureControls(document, dom.window);
+  t.after(() => { controls.destroy(); dom.window.close(); });
+  const shadow = document.querySelector('[data-idea-capture-owned="host"]').shadowRoot;
+  shadow.querySelector('button.collapse').click();
+  const streamedCode = document.createElement('div');
+  streamedCode.className = 'generated-code-panel';
+  streamedCode.innerHTML = '<pre><code>print("arrived after collapse")</code></pre>';
+  document.querySelector('.reply-shell').append(streamedCode);
+  await new Promise(resolve => setTimeout(resolve, 240));
+  assert.ok(streamedCode.closest('.idea-capture-section-collapsed'), 'the refresh adds late streamed content to the collapsed section');
+  const exported = controls.capture('export');
+  assert.match(exported.messages.map(message => message.markdown).join('\n'), /arrived after collapse/);
+});
+
 test('section headers stay in chronological DOM order while later and earlier turns are toggled', () => {
   const dom = new JSDOM(`<!doctype html><html><body><main style="display:flex;flex-direction:column">
     <article data-testid="conversation-turn-0" style="order:1"><div data-message-author-role="user">First prompt</div><div data-message-author-role="assistant">First reply</div></article>
