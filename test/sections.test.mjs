@@ -147,6 +147,68 @@ test('inline controls preserve selection through updates, collapse reversibly, a
   dom.window.close();
 });
 
+test('controller collapses read-only code surfaces and panels without hiding a neighbor or composer', t => {
+  const dom = new JSDOM(`<style>.idea-capture-section-collapsed{display:none!important}</style><main id="thread">
+    <div class="bg-user-message">Explain SQL</div>
+    <div class="markdown"><p>Example</p><pre id="readonly-code" role="textbox" aria-readonly="true"><code>SELECT * FROM orders;</code></pre></div>
+    <div class="streamed-tail"><section id="code-panel"><header>Code actions</header><pre><code>const value = 1;</code></pre><textarea readonly>const value = 1;</textarea></section>
+      <div class="bg-user-message">Next</div></div><div class="markdown">Next answer <pre id="next-code"><code>keep visible</code></pre></div>
+    <form class="composer"><textarea>Draft</textarea><pre id="composer-code" role="textbox" aria-readonly="true"><code>keep composer content</code></pre></form>
+  </main>`, { url: 'https://chatgpt.com/c/123', pretendToBeVisual: true });
+  const { document } = dom.window;
+  installCollapseStyle(document);
+  const controls = createCaptureControls(document, dom.window);
+  t.after(() => { controls.destroy(); dom.window.close(); });
+
+  const headers = [...document.querySelectorAll('.idea-capture-section-header')];
+  assert.equal(headers.length, 2);
+  headers[0].querySelector('button').click();
+  assert.ok(document.querySelector('#readonly-code').closest('.idea-capture-section-collapsed'));
+  assert.ok(document.querySelector('#code-panel').classList.contains('idea-capture-section-collapsed'));
+  assert.ok(document.querySelector('#code-panel textarea').closest('.idea-capture-section-collapsed'));
+  assert.equal(document.querySelectorAll('.bg-user-message')[1].classList.contains('idea-capture-section-collapsed'), false);
+  assert.equal(document.querySelector('#next-code').closest('.idea-capture-section-collapsed'), null);
+  assert.equal(document.querySelector('form.composer').classList.contains('idea-capture-section-collapsed'), false);
+  assert.equal(document.querySelector('#composer-code').closest('.idea-capture-section-collapsed'), null);
+});
+
+test('controller leaves a read-only textarea outside a marked code frame visible', t => {
+  const dom = new JSDOM(`<style>.idea-capture-section-collapsed{display:none!important}</style><main id="thread">
+    <div class="bg-user-message">Question</div>
+    <div class="markdown"><p>Answer</p><pre><code>SELECT 1;</code></pre><textarea readonly placeholder="Draft">keep visible</textarea></div>
+    <div class="bg-user-message">Next</div><div class="markdown">Next answer</div>
+  </main>`, { url: 'https://chatgpt.com/c/123', pretendToBeVisual: true });
+  const { document } = dom.window;
+  installCollapseStyle(document);
+  const controls = createCaptureControls(document, dom.window);
+  t.after(() => { controls.destroy(); dom.window.close(); });
+  document.querySelector('.idea-capture-section-header button').click();
+  assert.ok(document.querySelector('pre').closest('.idea-capture-section-collapsed'));
+  assert.equal(document.querySelector('textarea').closest('.idea-capture-section-collapsed'), null);
+  assert.equal(document.querySelectorAll('.bg-user-message')[1].classList.contains('idea-capture-section-collapsed'), false);
+});
+
+test('a collapsed latest section absorbs and exports content appended by a streaming reply', async t => {
+  const dom = new JSDOM(`<style>.idea-capture-section-collapsed{display:none!important}</style><main id="thread">
+    <div class="turn"><div class="bg-user-message">Show a Python example</div>
+      <div class="reply-shell"><div class="markdown">Starting answer.</div></div>
+    </div>
+  </main>`, { url: 'https://chatgpt.com/c/stream', pretendToBeVisual: true });
+  const { document } = dom.window;
+  const controls = createCaptureControls(document, dom.window);
+  t.after(() => { controls.destroy(); dom.window.close(); });
+  const shadow = document.querySelector('[data-idea-capture-owned="host"]').shadowRoot;
+  shadow.querySelector('button.collapse').click();
+  const streamedCode = document.createElement('div');
+  streamedCode.className = 'generated-code-panel';
+  streamedCode.innerHTML = '<pre><code>print("arrived after collapse")</code></pre>';
+  document.querySelector('.reply-shell').append(streamedCode);
+  await new Promise(resolve => setTimeout(resolve, 240));
+  assert.ok(streamedCode.closest('.idea-capture-section-collapsed'), 'the refresh adds late streamed content to the collapsed section');
+  const exported = controls.capture('export');
+  assert.match(exported.messages.map(message => message.markdown).join('\n'), /arrived after collapse/);
+});
+
 test('section headers stay in chronological DOM order while later and earlier turns are toggled', () => {
   const dom = new JSDOM(`<!doctype html><html><body><main style="display:flex;flex-direction:column">
     <article data-testid="conversation-turn-0" style="order:1"><div data-message-author-role="user">First prompt</div><div data-message-author-role="assistant">First reply</div></article>
