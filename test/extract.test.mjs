@@ -188,6 +188,24 @@ test('ChatGPT collapses UI-only sibling rows within a prompt interval without re
   assert.equal(result.sections.flatMap(section => section.collapseNodes).some(node => node.matches('header,footer,form') || node.closest('header,footer,form')), false);
   dom.window.close();
 });
+test('ChatGPT collapses a read-only code textbox while leaving the next prompt and composer untouched', () => {
+  const dom = new JSDOM(`<style>.idea-capture-section-collapsed{display:none}</style><main id="thread">
+    <div class="bg-user-message">Explain SQL</div>
+    <div class="markdown"><p>Example</p><pre id="code" role="textbox" aria-readonly="true"><code>SELECT * FROM orders;</code></pre></div>
+    <div class="bg-user-message">Next</div><div class="markdown">Next answer</div>
+    <form><textarea aria-label="Message composer"></textarea></form>
+  </main>`, { url: 'https://chatgpt.com/c/123' });
+  const doc = dom.window.document;
+  const result = extractConversation(doc, dom.window.location.href, { includeNodes: true });
+  const code = doc.querySelector('#code');
+  assert.ok(result.sections[0].collapseNodes.some(node => node === code || node.contains(code)));
+  assert.doesNotMatch(result.messages.map(message => message.markdown).join('\n'), /aria-readonly|Message composer/);
+  result.sections[0].collapseNodes.forEach(node => node.classList.add('idea-capture-section-collapsed'));
+  assert.ok(code.closest('.idea-capture-section-collapsed'));
+  assert.equal(doc.querySelectorAll('.bg-user-message')[1].classList.contains('idea-capture-section-collapsed'), false);
+  assert.equal(doc.querySelector('form').classList.contains('idea-capture-section-collapsed'), false);
+  dom.window.close();
+});
 test('ChatGPT discovers, exports and collapses detached reply siblings beside reported prose', () => {
   const dom = new JSDOM(`<style>.idea-capture-section-collapsed{display:none}</style><main id="thread">
     <div class="bg-user-message">Write a Python example</div>

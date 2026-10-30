@@ -4,6 +4,7 @@
 
 - Preserve native scroll geometry when the ChatGPT composer is sticky inside the conversation scroll root, preventing bottom padding from pulling the composer and capture tab upward.
 - Capture and collapse ChatGPT reply fragments that stream beside reported prose, including code panels appended after a section is collapsed.
+- Collapse read-only code textboxes and detached code frames with their section while keeping editable composers, neighboring prompts, and unrelated readonly fields available.
 - Add export-only shared DOM/layout snapshots for standalone HTML and Chromium print-based PDF; inline computed layout styles, preserve selected collapsed content, and embed resolved media.
 - Make PDF open the browser print dialog so the PDF uses Chromium's HTML/CSS renderer. Choose “Save as PDF” to download; PDF-to-KB and remote PDF jobs report that interactive limitation.
 - Allow standalone styled HTML downloads and direct HTML knowledge-base uploads. Markdown output remains unchanged.

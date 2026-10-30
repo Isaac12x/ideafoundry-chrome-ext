@@ -149,7 +149,36 @@ function chatGptCommonAncestor(nodes) {
 // as buttons and screen-reader labels are removed from the export clone, but
 // they must not split one reply into a pile of inferred messages.
 const inferredBarrierSelector = `${chatGptUserBubbleSelector},script,style,nav,aside,header,footer,form,textarea,input,select,[contenteditable="true"],[role="navigation"],[role="complementary"],[role="toolbar"],[class*="sidebar" i],[class*="composer" i],[data-testid*="composer" i],[data-testid*="header" i],[aria-label*="composer" i],[hidden],[aria-hidden="true"],[data-idea-capture-control],[data-idea-capture-owned]`;
-const collapseUnsafeSelector = `nav,aside,header,footer,form,textarea,input:not([data-idea-section-id]),select,[contenteditable="true"],[role="navigation"],[role="complementary"],[role="textbox"],[class*="sidebar" i],[class*="composer" i],[data-testid*="composer" i],[aria-label*="composer" i]`;
+const collapseUnsafeSelector = `nav,aside,header,footer,form,textarea,input:not([data-idea-section-id]),select,[contenteditable="true"],[role="navigation"],[role="complementary"],[class*="sidebar" i],[class*="composer" i],[data-testid*="composer" i],[aria-label*="composer" i]`;
+export function isReadOnlyCodeSurface(node) {
+  return !!node?.matches?.('[role="textbox"]') && node.matches('pre[aria-readonly="true"]') && !!node.querySelector('code');
+}
+export function isCollapsibleCodePanel(node) {
+  if (!node?.querySelector?.('pre code')) return false;
+  const hasToolbar = [...node.children].some(child => child.matches('header, [role="toolbar"], [class*="code-toolbar" i], [data-testid*="code-toolbar" i]') ||
+    (child.querySelector('button') && !child.querySelector('pre, textarea, input')));
+  const hasDirectCode = [...node.children].some(child => child.matches('pre') && child.querySelector('code'));
+  const hasCodeFrame = node.matches('[class*="code-panel" i], [data-testid*="code-panel" i]') || (hasToolbar && hasDirectCode);
+  if (!hasCodeFrame) return false;
+  if (node.matches('html, body, main, [role="main"], article, [data-testid^="conversation-turn-"], [data-turn-id], [data-message-id]')) return false;
+  if (node.matches('form, nav, aside, footer, [role="navigation"], [role="complementary"], [contenteditable="true"], [class*="sidebar" i], [class*="composer" i], [data-testid*="composer" i], [aria-label*="composer" i]') ||
+      node.querySelector('form, nav, aside, footer, [role="navigation"], [role="complementary"], [contenteditable="true"], [class*="sidebar" i], [class*="composer" i], [data-testid*="composer" i], [aria-label*="composer" i]')) return false;
+  if ([...node.querySelectorAll('textarea, input:not([data-idea-section-id])')].some(editor => !editor.readOnly)) return false;
+  if ([...node.querySelectorAll('[role="textbox"]')].some(textbox => !isReadOnlyCodeSurface(textbox) &&
+      !(textbox.matches('textarea[readonly]') && textbox.closest('pre')?.querySelector('code')))) return false;
+  if ([...node.querySelectorAll('p, h1, h2, h3, h4, h5, h6, table, blockquote, ul, ol')]
+    .some(content => !content.closest('pre, header, [role="toolbar"], [class*="code-toolbar" i], [data-testid*="code-toolbar" i]'))) return false;
+  return true;
+}
+function collapseUnsafe(node) {
+  if (node.matches?.(collapseUnsafeSelector)) return true;
+  // Read-only code surfaces may use textbox semantics for selection. They are
+  // rendered content; editable textboxes remain protected.
+  return node.matches?.('[role="textbox"]') && !isReadOnlyCodeSurface(node);
+}
+function containsCollapseUnsafe(node) {
+  return collapseUnsafe(node) || [...node.querySelectorAll(`${collapseUnsafeSelector}, [role="textbox"]`)].some(collapseUnsafe);
+}
 const exportExcludedSelector = `script,style,nav,aside,header,footer,form,textarea,input,select,[contenteditable="true"],[role="navigation"],[role="complementary"],[role="toolbar"],[class*="sidebar" i],[class*="toolbar" i],[class*="composer" i],[data-testid*="composer" i],[data-testid*="header" i],[aria-label*="composer" i],[hidden],[aria-hidden="true"],.sr-only,[data-idea-capture-control],[data-idea-capture-owned]`;
 
 function inferredContentNodes(source) {
@@ -176,12 +205,13 @@ function inferredUncoveredContentNodes(source, existingCandidates) {
 function sectionCollapseNodes(section, root, sections) {
   if (!section.identityNode || !root.contains(section.identityNode)) return [...new Set(section.nodes)];
   const sources = [...new Set([section.identityNode, ...section.nodes])].filter(node => root.contains(node));
-  const foreignBubbles = sections.filter(other => other !== section).map(other => other.identityNode).filter(Boolean);
+  const foreignBubbles = sections.filter(other => other !== section)
+    .flatMap(other => [other.identityNode, ...other.nodes]).filter(Boolean);
   const nextIdentity = sections.slice(sections.indexOf(section) + 1).map(other => other.identityNode)
     .find(node => node && root.contains(node));
   const presentationHint = /action|toolbar|control|reaction|gallery|reference|citation|source/i;
   const isPresentationBranch = node => {
-    if (node.matches?.(collapseUnsafeSelector) || node.querySelector?.(collapseUnsafeSelector)) return false;
+    if (containsCollapseUnsafe(node)) return false;
     if (foreignBubbles.some(foreign => node === foreign || node.contains(foreign))) return false;
     const hint = `${node.id || ''} ${node.className?.baseVal || node.className || ''} ${node.getAttribute?.('data-testid') || ''} ${node.getAttribute?.('aria-label') || ''}`
       .split(/\s+/).some(value => presentationHint.test(value));
@@ -191,19 +221,29 @@ function sectionCollapseNodes(section, root, sections) {
       node.querySelector?.('button,[aria-hidden="true"],[hidden],.sr-only,[role="toolbar"],[role="presentation"]') || false;
   };
   const safeWrapper = node => {
-    if (node.matches?.(collapseUnsafeSelector)) return null;
+    if (collapseUnsafe(node)) return null;
+    if (isCollapsibleCodePanel(node)) {
+      for (let ancestor = node.parentElement; ancestor && ancestor !== root; ancestor = ancestor.parentElement) {
+        if (collapseUnsafe(ancestor)) return null;
+        if (foreignBubbles.some(foreign => ancestor === foreign || ancestor.contains(foreign))) break;
+      }
+      return node;
+    }
     let best = node;
     for (let ancestor = node.parentElement; ancestor && ancestor !== root; ancestor = ancestor.parentElement) {
-      if (ancestor.matches(collapseUnsafeSelector)) break;
+      if (collapseUnsafe(ancestor)) break;
       if (foreignBubbles.some(foreign => ancestor === foreign || ancestor.contains(foreign))) break;
-      if (ancestor.querySelector(collapseUnsafeSelector)) break;
+      if (containsCollapseUnsafe(ancestor)) break;
       best = ancestor;
     }
     return best;
   };
   const safePieces = node => {
-    if (node.matches?.(collapseUnsafeSelector)) return [];
-    if (node.querySelector(collapseUnsafeSelector)) {
+    if (foreignBubbles.includes(node)) return [];
+    if (foreignBubbles.some(foreign => node.contains(foreign))) return [...node.children].flatMap(child => safePieces(child));
+    if (isCollapsibleCodePanel(node)) return [safeWrapper(node)].filter(Boolean);
+    if (collapseUnsafe(node)) return [];
+    if (containsCollapseUnsafe(node)) {
       return [...node.children].flatMap(child => safePieces(child));
     }
     return [safeWrapper(node)].filter(Boolean);
@@ -219,7 +259,7 @@ function sectionCollapseNodes(section, root, sections) {
     for (let parent = source.parentElement; parent && root.contains(parent); pathNode = parent, parent = parent.parentElement) {
       for (const sibling of parent.children) {
         if (sibling === pathNode || !(pathNode.compareDocumentPosition(sibling) & 4)) continue;
-        if (nextIdentity && (sibling === nextIdentity || sibling.contains(nextIdentity) ||
+        if (nextIdentity && (sibling === nextIdentity ||
             (sibling.compareDocumentPosition(nextIdentity) & 2))) continue;
         if (isPresentationBranch(sibling) || hasMeaningfulContent(sibling) || sibling.matches?.('pre,code') || sibling.querySelector?.('pre,code')) {
           targets.push(...safePieces(sibling));

@@ -1,4 +1,4 @@
-import { chatGptConversationRoot, extractConversation } from './extract.js';
+import { chatGptConversationRoot, extractConversation, isCollapsibleCodePanel, isReadOnlyCodeSurface } from './extract.js';
 import { collectDiagnostics } from './diagnostics.js';
 import { markdown } from './shared.js';
 
@@ -441,11 +441,23 @@ export function createCaptureControls(doc = document, win = window) {
   function collapseTargets(section) {
     const foreignNodes = sections.filter(candidate => candidate.id !== section.id)
       .flatMap(candidate => [...candidate.nodes, ...(candidate.collapseNodes || [])]);
+    const hasEditableTextbox = node => [...node.querySelectorAll?.('[role="textbox"]') || []].some(candidate => !isReadOnlyCodeSurface(candidate));
+    const hasUnsafeAncestor = node => {
+      for (let ancestor = node.parentElement; ancestor && ancestor !== doc.body && ancestor !== doc.documentElement; ancestor = ancestor.parentElement) {
+        if (ancestor.matches('form, textarea, input:not([data-idea-section-id]), [contenteditable="true"], [class*="sidebar" i], [class*="composer" i], [data-testid*="composer" i], [aria-label*="composer" i]')) return true;
+        if (ancestor.matches('[role="textbox"]') && !isReadOnlyCodeSurface(ancestor)) return true;
+      }
+      return false;
+    };
     const safeCollapseNode = node => node?.isConnected
       && node !== doc.body && node !== doc.documentElement
       && !node.matches?.('main, [role="main"], footer, [role="contentinfo"], nav, [role="navigation"], aside, [role="complementary"]')
       && !foreignNodes.some(foreign => node.contains(foreign))
-      && !node.querySelector?.('textarea, input:not([data-idea-section-id]), [contenteditable="true"], [role="textbox"]');
+      && !hasUnsafeAncestor(node)
+      && (isCollapsibleCodePanel(node) || (
+        !node.querySelector?.('textarea, input:not([data-idea-section-id]), [contenteditable="true"]')
+        && !hasEditableTextbox(node)
+      ));
     if (section.collapseNodes?.length) {
       const targets = section.collapseNodes.filter(safeCollapseNode);
       return targets.filter(target => !targets.some(ancestor => ancestor !== target && ancestor.contains(target)));

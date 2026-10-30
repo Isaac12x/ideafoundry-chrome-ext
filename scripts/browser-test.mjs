@@ -203,7 +203,7 @@ try {
       *{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;font:15px/1.6 system-ui,sans-serif;color:#202522;background:#f6f7f6}
       nav{position:fixed;inset:0 auto 0 0;width:210px;padding:24px;background:#ecefeb;border-right:1px solid #d7ddd8}nav a{display:block;padding:10px;color:#24543b}
       .frame{position:fixed;inset:0 0 0 210px;display:flex;flex-direction:column}.toolbar{height:54px;padding:14px 24px;background:white;border-bottom:1px solid #e1e5e2}
-      #thread{flex:1;min-height:0;overflow:auto;padding:18px 24px 30px}#thread>div{width:min(700px,100%);margin:0 auto 8px}#thread>div:nth-child(even){margin-bottom:28px;padding:14px 18px;background:white;border-radius:12px}
+      #thread{flex:1;min-height:0;overflow:auto;padding:18px 24px 30px}#thread>div{width:min(700px,100%);margin:0 auto 8px}#thread>div:has(.reply-shell){margin-bottom:28px;padding:14px 18px;background:white;border-radius:12px}
       .relative{position:relative;width:100%;min-width:0}.flex{display:flex}.flex-col{flex-direction:column}.items-end{align-items:flex-end}.gap-1{gap:4px}
       .bg-user-message{width:max-content;max-width:min(580px,100%);padding:12px 16px;border-radius:16px;background:#e7eee9}.whitespace-pre-wrap{white-space:pre-wrap}
       #thread p{margin:0 0 12px}#thread table{border-collapse:collapse;margin:10px 0}#thread td{padding:7px 10px;border:1px solid #d9dfda}
@@ -215,7 +215,7 @@ try {
         <div><div class="relative w-full min-w-0 text-size-chat leading-relaxed"><div class="flex flex-col items-end gap-1"><div class="bg-user-message text-user-message min-w-0 max-w-(--user-chat-width) overflow-hidden break-words"><div><div class="whitespace-pre-wrap">Compare the community interview and survey findings.</div></div></div></div></div></div>
         <div><div class="relative w-full min-w-0"><div class="reply-shell"><p>Interviews explain local context; surveys show how common each pattern is.</p><table><tbody><tr><td>Interviews</td><td>Context and motivations</td></tr><tr><td>Survey</td><td>Pattern frequency</td></tr></tbody></table><div class="gallery-shell"><div class="gallery" id="reported-gallery"><figure class="gallery-card"><img id="reported-evidence" alt="Study evidence"></figure><figure class="gallery-card" aria-hidden="true">Field notes</figure><figure class="gallery-card" aria-hidden="true">Survey map</figure></div></div><div class="reference-row"><span class="reference-chip" aria-hidden="true">Sources</span><span class="reference-chip" aria-hidden="true">+1</span></div><div class="action-row"><button type="button" aria-label="Copy response">Copy</button><button type="button" aria-label="More response actions">•••</button></div></div></div></div>
         <div id="reported-orphan-gallery" class="gallery-shell" aria-hidden="true"><div class="gallery"><figure class="gallery-card">Empty image card</figure><figure class="gallery-card">Empty image card</figure></div></div>
-        <div id="reported-sibling-code" aria-hidden="true"><pre><code>const decision = "keep this code with the reply";</code></pre></div>
+        <section id="reported-sibling-code" aria-label="Example code" style="margin:12px 0;padding:12px;border:1px solid #d9dfda;border-radius:10px;background:#f7f8f6"><div style="display:flex;align-items:center;gap:8px;padding-bottom:8px"><span>JavaScript</span><button type="button" aria-label="Copy code">Copy code</button><button type="button" aria-label="Open editor">Open editor</button></div><pre role="textbox" aria-readonly="true"><code>const externalPanelCode = "preserve this standalone code panel";</code></pre><textarea readonly aria-label="Code editor">const editorNote = "preserve the original code";</textarea></section>
         <div id="reported-orphan-references" class="reference-row" aria-hidden="true"><span class="reference-chip">Sources</span><span class="reference-chip">+1</span></div>
         <div id="reported-orphan-actions" class="action-row" aria-hidden="true"><button type="button">Copy</button><button type="button">•••</button></div>
         <div><div class="relative w-full min-w-0 text-size-chat leading-relaxed"><div class="flex flex-col items-end gap-1"><div class="bg-user-message text-user-message min-w-0 max-w-(--user-chat-width) overflow-hidden break-words"><div><div class="whitespace-pre-wrap">What should the pilot test first?</div></div></div></div></div></div>
@@ -472,7 +472,9 @@ try {
   await reportedLayout.locator('.idea-capture-section-header').first().waitFor();
   assert.equal(await reportedLayout.locator('.idea-capture-section-header').count(), 2, 'the reported user bubble layout creates two prompt sections');
   assert.equal(await reportedLayout.locator('.bg-user-message').count(), 2);
-  assert.equal(await reportedLayout.locator('#thread [data-message-author-role], #thread [data-role], #thread [data-turn-role], #thread [data-testid], #thread [role], #thread article, #thread .markdown, #thread .prose, #thread .assistant-turn').count(), 0, 'the reported fixture uses no role, test ID, article, or fabricated assistant markers');
+  assert.equal(await reportedLayout.locator('#thread [data-message-author-role], #thread [data-role], #thread [data-turn-role], #thread [data-testid], #thread [role]:not([role="textbox"]), #thread article, #thread .markdown, #thread .prose, #thread .assistant-turn').count(), 0, 'the reported fixture uses no role, test ID, article, or fabricated assistant markers beyond the native editor surface');
+  assert.equal(await reportedLayout.locator('#reported-sibling-code pre[role="textbox"][aria-readonly="true"]').count(), 1, 'the code panel exposes a read-only code editor surface');
+  assert.equal(await reportedLayout.locator('#reported-sibling-code button').count(), 2, 'the code panel includes its copy and editor actions');
   await reportedLayout.evaluate(() => {
     const canvas = document.createElement('canvas'); canvas.width = 96; canvas.height = 64;
     const context = canvas.getContext('2d'); context.fillStyle = '#e8f0eb'; context.fillRect(0, 0, 96, 64); context.fillStyle = '#247a52'; context.fillRect(8, 8, 80, 48);
@@ -499,6 +501,9 @@ try {
   assert.equal(refreshedReportedCapture.conversation.messages.filter(message => message.role === 'Message').some(message => /Compare the community interview|What should the pilot test first/.test(message.markdown)), false);
   const reportedFirstReply = reportedLayout.locator('#thread p').first();
   const reportedSecondReply = reportedLayout.locator('#thread p').nth(1);
+  const reportedCodePanelHandle = await reportedLayout.locator('#reported-sibling-code').elementHandle();
+  assert.ok(reportedCodePanelHandle);
+  const composerTextBeforeReportedCollapse = await reportedLayout.locator('.composer [contenteditable="true"]').textContent();
   await mkdir('artifacts', { recursive: true });
   await reportedLayout.screenshot({ path: 'artifacts/reported-layout-before-collapse.png', fullPage: true });
   const firstReplyBounds = await reportedFirstReply.boundingBox();
@@ -506,6 +511,7 @@ try {
   const reportedHeightBeforeCollapse = await reportedLayout.locator('#thread').evaluate(node => node.scrollHeight);
   await reportedLayout.mouse.click(250, firstReplyBounds.y + firstReplyBounds.height / 2);
   await reportedLayout.waitForFunction(() => document.querySelectorAll('.idea-capture-section-collapsed').length >= 2);
+  await reportedLayout.screenshot({ path: 'artifacts/reported-layout-code-panel-after-collapse.png', fullPage: true });
   const reportedHeightAfterFirstCollapse = await reportedLayout.locator('#thread').evaluate(node => node.scrollHeight);
   assert.equal(await reportedLayout.locator('.bg-user-message').first().isVisible(), false, 'a left margin collapse hides the prompt');
   assert.equal(await reportedLayout.locator('#reported-gallery img').isVisible(), false, 'the same left margin collapse hides reply media');
@@ -516,11 +522,15 @@ try {
   assert.equal(await reportedLayout.locator('.action-row').first().isVisible(), false, 'collapse removes the reply action row');
   assert.equal(await reportedLayout.locator('#reported-orphan-gallery').isVisible(), false, 'collapse removes an empty gallery shell beside the reply node');
   assert.equal(await reportedLayout.locator('#reported-sibling-code').isVisible(), false, 'collapse hides a code block in a sibling wrapper beside the reply node');
+  assert.equal(await reportedLayout.locator('#reported-sibling-code textarea').isVisible(), false, 'collapse hides the editor surface inside the code panel');
+  assert.deepEqual(await reportedLayout.locator('#reported-sibling-code button').evaluateAll(nodes => nodes.map(node => getComputedStyle(node).display !== 'none' && node.getBoundingClientRect().height > 0)), [false, false], 'collapse hides both code panel header actions with its shell');
   assert.equal(await reportedLayout.locator('#reported-orphan-references').isVisible(), false, 'collapse removes reference chips beside the reply node');
   assert.equal(await reportedLayout.locator('#reported-orphan-actions').isVisible(), false, 'collapse removes action controls beside the reply node');
   assert.equal(await reportedLayout.locator('.bg-user-message').nth(1).isVisible(), true, 'the adjacent prompt remains visible');
   assert.equal(await reportedSecondReply.isVisible(), true, 'the adjacent reply remains visible');
   assert.equal(await reportedLayout.locator('#reported-sibling-code').isVisible(), false, 'the sibling code block stays hidden while its section is collapsed');
+  const codePanelGeometryWhileCollapsed = await reportedLayout.locator('#reported-sibling-code').evaluate(node => ({ display: getComputedStyle(node).display, height: node.getBoundingClientRect().height }));
+  assert.equal(codePanelGeometryWhileCollapsed.display, 'none', `the complete code panel is removed from layout: ${JSON.stringify(codePanelGeometryWhileCollapsed)}`);
   assert.ok(reportedHeightBeforeCollapse - reportedHeightAfterFirstCollapse > 180, `collapse removes reply spacing and gallery height (${reportedHeightBeforeCollapse} -> ${reportedHeightAfterFirstCollapse})`);
   const secondReplyBounds = await reportedSecondReply.boundingBox();
   assert.ok(secondReplyBounds);
@@ -532,6 +542,7 @@ try {
   assert.equal(collapsedReportedExport.ok, true, collapsedReportedExport.error);
   assert.equal(collapsedReportedExport.conversation.messages.length, 4, 'collapsed prompts and replies remain exportable');
   assert.match(collapsedReportedExport.conversation.messages[1].markdown, /local context/);
+  assert.match(collapsedReportedExport.conversation.messages[1].markdown, /preserve this standalone code panel/, 'collapsing the page does not remove adjacent panel code from exported conversation text');
   assert.match(collapsedReportedExport.conversation.messages[3].markdown, /three participants/);
   assert.equal(collapsedReportedExport.conversation.media.length, 1, 'collapsed reply media remains exportable');
   const reportedHeaders = reportedLayout.locator('.idea-capture-section-header');
@@ -543,10 +554,41 @@ try {
   assert.equal(await reportedLayout.locator('.action-row').first().isVisible(), true, 'expanding restores the action row');
   assert.equal(await reportedLayout.locator('#reported-orphan-gallery').isVisible(), true, 'expanding restores the sibling empty gallery shell');
   assert.equal(await reportedLayout.locator('#reported-sibling-code').isVisible(), true, 'expanding restores the sibling code block');
+  const expandedCodePanelGeometry = await reportedLayout.locator('#reported-sibling-code').evaluate(node => ({ height: node.getBoundingClientRect().height, parent: node.parentElement?.id, next: node.nextElementSibling?.id }));
+  assert.ok(expandedCodePanelGeometry.height > 0, `expanding restores the code panel geometry: ${JSON.stringify(expandedCodePanelGeometry)}`);
+  assert.equal(expandedCodePanelGeometry.parent, 'thread');
+  assert.equal(expandedCodePanelGeometry.next, 'reported-orphan-references', 'the code panel keeps its DOM order beside the neighboring controls');
+  assert.equal(await reportedLayout.locator('#reported-sibling-code').evaluate((node, original) => node === original, reportedCodePanelHandle), true, 'expanding restores the same code panel node');
   assert.equal(await reportedLayout.locator('#reported-orphan-references').isVisible(), true, 'expanding restores sibling reference chips');
   assert.equal(await reportedLayout.locator('#reported-orphan-actions').isVisible(), true, 'expanding restores sibling action controls');
   await reportedHeaders.nth(1).locator('button[data-idea-section-id]').click();
   assert.equal(await reportedLayout.locator('.idea-capture-section-collapsed').count(), 0, 'the second section can also be restored after export');
+  // Simulate a delayed code renderer inserting a panel after the section is
+  // collapsed. It should inherit the section's hidden state without shifting
+  // the following prompt or response.
+  await reportedHeaders.nth(0).locator('button[data-idea-section-id]').click();
+  await reportedLayout.waitForFunction(() => document.querySelector('#reported-sibling-code')?.getBoundingClientRect().height === 0);
+  await reportedLayout.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  const latePrompt = reportedLayout.locator('.bg-user-message').nth(1);
+  const latePromptHandle = await latePrompt.elementHandle();
+  const latePromptText = await latePrompt.textContent();
+  const latePromptBefore = await latePrompt.boundingBox();
+  await reportedLayout.locator('#reported-sibling-code').evaluate(node => {
+    const late = document.createElement('section'); late.id = 'reported-late-code';
+    late.innerHTML = '<div class="code-panel-toolbar"><span>Python</span><button type="button">Copy</button></div><pre role="textbox" aria-readonly="true"><code>late_value = "rendered after collapse"</code></pre><textarea readonly aria-label="Late code editor">late editor value</textarea>';
+    node.after(late);
+  });
+  await reportedLayout.waitForFunction(() => document.querySelector('#reported-late-code')?.getBoundingClientRect().height === 0);
+  await reportedLayout.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  assert.equal(await reportedLayout.locator('#reported-late-code').isVisible(), false, 'a late-added code panel stays hidden while its section is collapsed');
+  assert.equal(await latePrompt.isVisible(), true, 'late code insertion does not hide the adjacent prompt');
+  assert.equal(await latePrompt.textContent(), latePromptText, 'late code insertion preserves adjacent prompt content');
+  assert.equal(await latePrompt.evaluate((node, original) => node === original, latePromptHandle), true, 'late code insertion preserves the adjacent prompt node');
+  const latePromptAfter = await latePrompt.boundingBox();
+  assert.ok(latePromptBefore && latePromptAfter && Math.abs(latePromptBefore.x - latePromptAfter.x) < 1 && Math.abs(latePromptBefore.y - latePromptAfter.y) < 1, `late code added while collapsed does not shift its neighboring prompt: ${JSON.stringify({ before: latePromptBefore, after: latePromptAfter })}`);
+  await reportedHeaders.nth(0).locator('button[data-idea-section-id]').click();
+  assert.equal(await reportedLayout.locator('#reported-late-code').isVisible(), true, 'expanding restores code added after collapse');
+  assert.equal(await reportedLayout.locator('.composer [contenteditable="true"]').textContent(), composerTextBeforeReportedCollapse, 'neighboring composer content remains intact throughout code-panel collapse');
   assert.ok(await reportedLayout.locator('#thread').evaluate(node => node.scrollHeight) > reportedHeightAfterFirstCollapse + 180, 'expanding restores the removed vertical space');
   await reportedLayout.locator('#idea-capture-panel [data-action="toggle-panel"]').click();
   const reportedChecks = reportedLayout.locator('#idea-capture-panel input[data-section-id]');
