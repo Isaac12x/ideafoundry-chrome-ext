@@ -186,6 +186,63 @@ test('ChatGPT conversation can scroll the final reply above its fixed composer',
   assert.equal(thread.style.paddingBottom, '12px');
 });
 
+test('a sticky composer inside the ChatGPT scroll root keeps its native scrollport geometry', async t => {
+  const dom = new JSDOM(`<!doctype html><html><body><main id="thread" style="overflow-y:auto">
+    <div data-message-author-role="user">Question</div><div data-message-author-role="assistant">Final answer</div>
+    <form style="position:sticky;bottom:0"><textarea></textarea></form>
+  </main></body></html>`, { url: 'https://chatgpt.com/c/1', pretendToBeVisual: true });
+  Object.defineProperty(dom.window, 'innerWidth', { configurable: true, value: 1200 });
+  Object.defineProperty(dom.window, 'innerHeight', { configurable: true, value: 800 });
+  const { document } = dom.window;
+  const thread = document.querySelector('#thread');
+  const form = thread.querySelector('form');
+  const textarea = form.querySelector('textarea');
+  setRect(thread, { left: 160, right: 1000, top: 0, bottom: 800 });
+  setRect(form, { left: 280, right: 880, top: 680, bottom: 800 });
+  setRect(textarea, { left: 300, right: 860, top: 690, bottom: 760 });
+
+  const controls = createCaptureControls(document, dom.window);
+  t.after(() => { controls.destroy(); dom.window.close(); });
+  await new Promise(resolve => dom.window.requestAnimationFrame(resolve));
+
+  assert.equal(thread.hasAttribute('data-idea-capture-scroll-clearance'), false, 'a sticky composer in the scroll root already participates in its layout');
+  assert.equal(thread.style.getPropertyValue('--idea-capture-composer-clearance'), '', 'the extension leaves the scrollport bottom edge unchanged');
+  const panel = document.querySelector('[data-idea-capture-owned="host"]').shadowRoot.querySelector('#idea-capture-panel');
+  assert.equal(panel.classList.contains('is-docked'), true, 'the capture tab still docks to the visible composer');
+
+  thread.dispatchEvent(new dom.window.Event('scroll'));
+  await new Promise(resolve => dom.window.requestAnimationFrame(resolve));
+  assert.equal(thread.hasAttribute('data-idea-capture-scroll-clearance'), false, 'scroll updates do not introduce clearance that shifts the sticky edge');
+  assert.equal(thread.style.paddingBottom, '');
+});
+
+test('an absolute composer inside a sticky wrapper also keeps the scroll root unchanged', async t => {
+  const dom = new JSDOM(`<!doctype html><html><body><main id="thread" style="overflow-y:auto">
+    <div data-message-author-role="user">Question</div><div data-message-author-role="assistant">Final answer</div>
+    <div id="sticky-wrapper" style="position:sticky;bottom:0"><form style="position:absolute;background:white;border:1px solid black"><textarea></textarea></form></div>
+  </main></body></html>`, { url: 'https://chatgpt.com/c/1', pretendToBeVisual: true });
+  Object.defineProperty(dom.window, 'innerWidth', { configurable: true, value: 1200 });
+  Object.defineProperty(dom.window, 'innerHeight', { configurable: true, value: 800 });
+  const { document } = dom.window;
+  const thread = document.querySelector('#thread');
+  const wrapper = document.querySelector('#sticky-wrapper');
+  const form = wrapper.querySelector('form');
+  const textarea = form.querySelector('textarea');
+  setRect(thread, { left: 160, right: 1000, top: 0, bottom: 800 });
+  // The absolute form reaches the scrollport edge while its sticky wrapper ends
+  // two pixels above it, so overlay selection sees the form rather than wrapper.
+  setRect(wrapper, { left: 280, right: 880, top: 690, bottom: 798 });
+  setRect(form, { left: 280, right: 880, top: 680, bottom: 800 });
+  setRect(textarea, { left: 300, right: 860, top: 690, bottom: 770 });
+
+  const controls = createCaptureControls(document, dom.window);
+  t.after(() => { controls.destroy(); dom.window.close(); });
+  await new Promise(resolve => dom.window.requestAnimationFrame(resolve));
+
+  assert.equal(thread.hasAttribute('data-idea-capture-scroll-clearance'), false, 'sticky ancestors keep their native edge even when an absolute child is selected as the overlay');
+  assert.equal(thread.style.getPropertyValue('--idea-capture-composer-clearance'), '');
+});
+
 test('unmarked replies collapse with their prompt and direct media keeps margin controls outside the gallery', t => {
   const dom = new JSDOM(`<!doctype html><html><body><main>
     <div class="prompt-branch"><div class="bg-user-message">Question</div></div>

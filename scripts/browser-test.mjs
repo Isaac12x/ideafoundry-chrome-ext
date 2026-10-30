@@ -159,6 +159,14 @@ try {
   await context.route('https://chatgpt.com/**', route => {
     const path = new URL(route.request().url()).pathname;
     if (path.endsWith('/project')) return route.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><title>Empty project · ChatGPT</title><main><p>Project conversations will appear here.</p></main>' });
+    if (path.endsWith('/c/sticky-composer-wheel')) return route.fulfill({ status: 200, contentType: 'text/html', body: `<!doctype html><title>Sticky composer wheel repro · ChatGPT</title><style>
+      *{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;font:15px/1.6 system-ui,sans-serif;color:#202522;background:#f6f7f6}
+      #thread{height:100vh;width:100vw;overflow:auto;overscroll-behavior:contain;display:flex;flex-direction:column;padding:20px 24px 0}
+      .messages{width:min(680px,100%);margin:0 auto;flex:none}.turn{margin:0 0 18px}.user-message-bubble,.markdown{margin:0 0 12px;padding:14px 18px;border-radius:12px;background:#fff}.user-message-bubble{width:max-content;margin-left:auto;background:#e7eee9}.markdown p{margin:0 0 18px}.markdown p:last-child{margin-bottom:0}
+      .composer{position:sticky;bottom:0;z-index:2;flex:none;width:min(680px,100%);height:88px;margin:0 auto;padding:14px 20px 18px;background:#fff;border:1px solid #dfe4e0;border-bottom:0;border-radius:14px 14px 0 0}
+      .composer [contenteditable=true]{width:100%;height:52px;padding:12px 16px;border:1px solid #ccd4ce;border-radius:16px;background:#fff}
+      </style><main id="thread"><div class="messages"><div class="turn"><div class="user-message-bubble"><p>Summarize the research discussion.</p></div><div class="markdown">${Array.from({ length: 24 }, (_, i) => `<p>Conversation answer ${i + 1}: preserve the research context, evidence, and decision links as the discussion continues.</p>`).join('')}<p id="sticky-bottom-marker">End of the final answer.</p></div></div></div><form class="composer"><div contenteditable="true" aria-label="Message composer">Ask anything</div></form></main>
+      <script>addEventListener('DOMContentLoaded',()=>{const c=document.querySelector('.composer'),t=document.querySelector('#thread'),m=document.querySelector('#sticky-bottom-marker'),r=c.getBoundingClientRect();window.__nativeComposerGeometry={x:r.x,y:r.y,width:r.width,height:r.height,top:r.top,bottom:r.bottom,paddingBottom:getComputedStyle(t).paddingBottom};t.scrollTop=t.scrollHeight;const cr=c.getBoundingClientRect(),mr=m.getBoundingClientRect(),tr=t.getBoundingClientRect();window.__nativeComposerGeometry.nativeBottom={scrollTop:t.scrollTop,maxScroll:t.scrollHeight-t.clientHeight,composerTop:cr.top,composerBottom:cr.bottom,threadBottom:tr.bottom,markerBottom:mr.bottom,markerVisibleAboveComposer:mr.bottom<=cr.top};t.scrollTop=0;},{once:true});</script>` });
     if (path.endsWith('/c/role-wrapper-layout')) return route.fulfill({ status: 200, contentType: 'text/html', body: `<!doctype html><title>Gallery planning · ChatGPT</title><style>
       *{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;font:15px/1.6 system-ui,sans-serif;color:#202522;background:#f6f7f6}
       main#thread{height:100vh;width:100vw;overflow:auto;overscroll-behavior:contain;padding:22px 0}
@@ -189,7 +197,8 @@ try {
         <div class="turn"><div class="user-message-bubble"><p>Compare the community interview and survey plans.</p></div><div class="markdown"><p>Interviews explain local context and motivations.</p><div class="image-gallery"><figure class="gallery-card">Interview notes</figure><figure class="gallery-card">Survey chart</figure><figure class="gallery-card">Field map</figure></div>${longResearch}<p><a href="${appUrl}/media/brief.pdf">Open the research brief</a></p></div></div>
         <div class="turn"><div class="user-message-bubble"><p>How should we scope the pilot?</p></div><div class="markdown"><p>Start with three interviews and a short survey.</p>${longConsent}</div></div>
         <div class="turn"><div class="user-message-bubble"><p>What will the team learn?</p></div><div class="markdown"><p>Compare how each method changes the next decision.</p>${Array.from({ length: 12 }, (_, i) => `<p>Final response detail ${i + 1}: record what participants learned, which evidence changed the team's decision, and what should happen next.</p>`).join('')}<p id="bottom-content-marker">End of the final answer.</p></div></div>
-      </div></div><form class="composer"><div contenteditable="true" aria-label="Message composer">Ask anything</div></form></section></div>` });
+      </div></div><form class="composer"><div contenteditable="true" aria-label="Message composer">Ask anything</div></form></section></div>
+      <script>addEventListener('DOMContentLoaded',()=>{const r=document.querySelector('.composer').getBoundingClientRect();window.__nativeComposerGeometry={x:r.x,y:r.y,width:r.width,height:r.height,top:r.top,bottom:r.bottom};},{once:true});</script>` });
     if (path.endsWith('/c/reported-layout')) return route.fulfill({ status: 200, contentType: 'text/html', body: `<!doctype html><title>Conversation · ChatGPT</title><style>
       *{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;font:15px/1.6 system-ui,sans-serif;color:#202522;background:#f6f7f6}
       nav{position:fixed;inset:0 auto 0 0;width:210px;padding:24px;background:#ecefeb;border-right:1px solid #d7ddd8}nav a{display:block;padding:10px;color:#24543b}
@@ -345,6 +354,12 @@ try {
   await actualLayout.setViewportSize({ width: 1440, height: 900 });
   await actualLayout.goto('https://chatgpt.com/g/g-p-demo/c/actual-layout');
   await actualLayout.locator('.idea-capture-section-header').first().waitFor();
+  const nativeComposerGeometry = await actualLayout.evaluate(() => {
+    const native = window.__nativeComposerGeometry;
+    const rect = document.querySelector('.composer').getBoundingClientRect();
+    return { native, injected: { x: rect.x, y: rect.y, width: rect.width, height: rect.height, top: rect.top, bottom: rect.bottom } };
+  });
+  assert.deepEqual(nativeComposerGeometry.injected, nativeComposerGeometry.native, `extension injection preserves the page's composer geometry: ${JSON.stringify(nativeComposerGeometry)}`);
   assert.equal(await actualLayout.locator('.idea-capture-section-header').count(), 3, 'class-based provider markup creates one section for each prompt');
   assert.equal(await actualLayout.locator('#thread [data-message-author-role], #thread [data-role], #thread [data-turn-role], #thread [data-testid], #thread [role], #thread article').count(), 0, 'the provider fixture contains no role, test ID, or article hints');
   const actualTabId = await worker.evaluate(async () => (await chrome.tabs.query({ url: 'https://chatgpt.com/g/g-p-demo/c/actual-layout' }))[0].id);
@@ -576,6 +591,31 @@ try {
   assert.ok(bottomContentBounds.scrollTop >= bottomContentBounds.maxScroll - 1, `the conversation reaches its true bottom: ${JSON.stringify(bottomContentBounds)}`);
   assert.ok(bottomContentBounds.threadBottom > bottomContentBounds.composerTop + 40, `the composer overlays the scroll root in this fixture: ${JSON.stringify(bottomContentBounds)}`);
   assert.ok(bottomContentBounds.markerBottom <= bottomContentBounds.composerTop + 1, `the final answer stays visible above the overlapping composer: ${JSON.stringify(bottomContentBounds)}`);
+  const dockAfterWheel = async () => actualLayout.evaluate(() => {
+    const thread = document.querySelector('#thread');
+    const composer = document.querySelector('.composer');
+    const input = composer.querySelector('[contenteditable="true"]');
+    const panel = document.querySelector('[data-idea-capture-owned="host"]').shadowRoot.querySelector('#idea-capture-panel');
+    const cr = composer.getBoundingClientRect(), ir = input.getBoundingClientRect(), pr = panel.getBoundingClientRect();
+    return { composer: { top: cr.top, bottom: cr.bottom, height: cr.height }, input: { top: ir.top, bottom: ir.bottom }, panel: { top: pr.top, bottom: pr.bottom }, inputPanelOffset: ir.top - pr.bottom, thread: { scrollTop: thread.scrollTop, maxScroll: thread.scrollHeight - thread.clientHeight }, pageScrollY: window.scrollY, clearance: getComputedStyle(thread).getPropertyValue('--idea-capture-composer-clearance'), markerBottom: document.querySelector('#bottom-content-marker').getBoundingClientRect().bottom };
+  });
+  const wheelBaseline = await dockAfterWheel();
+  const threadBox = await actualThread.boundingBox();
+  await actualLayout.mouse.move(threadBox.x + threadBox.width * 0.7, threadBox.y + threadBox.height - 120);
+  const wheelSamples = [];
+  for (let i = 0; i < 6; i++) {
+    await actualLayout.mouse.wheel(0, 720);
+    await actualLayout.waitForTimeout(40);
+    wheelSamples.push(await dockAfterWheel());
+  }
+  const wheelAfter = await dockAfterWheel();
+  const wheelEvidence = { nativeComposerGeometry, before: wheelBaseline, samples: wheelSamples, after: wheelAfter };
+  console.log('Fixed-composer wheel fixture passed (six real bottom-wheel samples).');
+  await writeFile('artifacts/dock-wheel-repro.json', JSON.stringify(wheelEvidence, null, 2));
+  assert.ok(wheelAfter.thread.scrollTop >= wheelAfter.thread.maxScroll - 1, `real wheel input keeps #thread at its true bottom: ${JSON.stringify(wheelAfter)}`);
+  assert.ok(Math.abs(wheelAfter.inputPanelOffset - wheelBaseline.inputPanelOffset) <= 1, `the capture widget stays at a stable offset from the composer input after bottom wheel events: ${JSON.stringify({ before: wheelBaseline, after: wheelAfter })}`);
+  assert.deepEqual(wheelAfter.composer, wheelBaseline.composer, `wheel events do not move the fixed composer: ${JSON.stringify({ before: wheelBaseline, after: wheelAfter })}`);
+  assert.ok(wheelAfter.markerBottom <= wheelAfter.composer.top + 1, `the final answer remains visible after repeated wheel events at the bottom: ${JSON.stringify(wheelAfter)}`);
   await actualLayout.locator('.composer').evaluate(node => { node.style.height = '136px'; });
   await actualLayout.waitForTimeout(150);
   await actualThread.evaluate(node => { node.scrollTop = node.scrollHeight; });
@@ -583,6 +623,63 @@ try {
   assert.ok(grownComposerBounds.scrollTop >= grownComposerBounds.maxScroll - 1, `the scroll root reaches its bottom after composer growth: ${JSON.stringify(grownComposerBounds)}`);
   assert.ok(grownComposerBounds.markerBottom <= grownComposerBounds.composerTop + 1, `the final answer remains visible when the composer grows: ${JSON.stringify(grownComposerBounds)}`);
   await actualLayout.screenshot({ path: 'artifacts/provider-layout-composer-bottom.png', fullPage: false });
+  const stickyRepro = await context.newPage();
+  await stickyRepro.setViewportSize({ width: 1440, height: 900 });
+  await stickyRepro.goto('https://chatgpt.com/g/p-demo/c/sticky-composer-wheel');
+  await stickyRepro.locator('.idea-capture-section-header').first().waitFor();
+  await stickyRepro.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  const stickyNativeGeometry = await stickyRepro.evaluate(() => {
+    const before = window.__nativeComposerGeometry;
+    const r = document.querySelector('.composer').getBoundingClientRect();
+    return { before, afterInjection: { x: r.x, y: r.y, width: r.width, height: r.height, top: r.top, bottom: r.bottom, paddingBottom: getComputedStyle(document.querySelector('#thread')).paddingBottom } };
+  });
+  const nativeComposerRect = ({ x, y, width, height, top, bottom }) => ({ x, y, width, height, top, bottom });
+  assert.deepEqual(nativeComposerRect(stickyNativeGeometry.afterInjection), nativeComposerRect(stickyNativeGeometry.before), `injection preserves native sticky composer geometry: ${JSON.stringify(stickyNativeGeometry)}`);
+  const stickyThread = stickyRepro.locator('#thread');
+  const stickyBox = await stickyThread.boundingBox();
+  const stickySample = () => stickyRepro.evaluate(() => {
+    const thread = document.querySelector('#thread'), composer = document.querySelector('.composer');
+    const input = composer.querySelector('[contenteditable="true"]');
+    const panel = document.querySelector('[data-idea-capture-owned="host"]').shadowRoot.querySelector('#idea-capture-panel');
+    const cr = composer.getBoundingClientRect(), ir = input.getBoundingClientRect(), pr = panel.getBoundingClientRect();
+    const threadRect = thread.getBoundingClientRect();
+    return { composerTop: cr.top, composerBottom: cr.bottom, composerHeight: cr.height, expectedStickyBottom: threadRect.bottom, inputTop: ir.top, panelTop: pr.top, panelBottom: pr.bottom, dockGap: cr.top - pr.bottom, inputPanelOffset: ir.top - pr.bottom, scrollTop: thread.scrollTop, maxScroll: thread.scrollHeight - thread.clientHeight, pageScrollY: window.scrollY, clearance: getComputedStyle(thread).getPropertyValue('--idea-capture-composer-clearance'), paddingBottom: getComputedStyle(thread).paddingBottom, markerBottom: document.querySelector('#sticky-bottom-marker').getBoundingClientRect().bottom };
+  });
+  const messageWheelY = stickyBox.y + stickyBox.height * 0.58;
+  await stickyRepro.mouse.move(stickyBox.x + stickyBox.width * 0.7, messageWheelY);
+  for (let i = 0; i < 40; i++) {
+    const current = await stickySample();
+    if (current.scrollTop >= current.maxScroll - 1) break;
+    await stickyRepro.mouse.wheel(0, 720);
+    await stickyRepro.waitForTimeout(40);
+  }
+  const stickyBeforeWheels = await stickySample();
+  await stickyRepro.screenshot({ path: 'artifacts/sticky-composer-wheel-at-bottom-before.png' });
+  const wheelAt = async y => {
+    await stickyRepro.mouse.move(stickyBox.x + stickyBox.width * 0.7, y);
+    const samples = [];
+    for (let i = 0; i < 6; i++) {
+      await stickyRepro.mouse.wheel(0, 720);
+      await stickyRepro.waitForTimeout(40);
+      samples.push(await stickySample());
+    }
+    return samples;
+  };
+  const messageAreaSamples = await wheelAt(messageWheelY);
+  const nearComposerSamples = await wheelAt(stickyBeforeWheels.composerTop - 20);
+  await stickyRepro.screenshot({ path: 'artifacts/sticky-composer-wheel-at-bottom-after.png' });
+  const allStickyWheelSamples = [...messageAreaSamples, ...nearComposerSamples];
+  const stickyWheelEvidence = { nativeComposerGeometry: stickyNativeGeometry, beforeRepeatedWheels: stickyBeforeWheels, messageAreaSamples, nearComposerSamples };
+  console.log(`Sticky-composer wheel fixture: ${JSON.stringify({ nativeBottom: stickyNativeGeometry.before.nativeBottom, atBottom: stickyBeforeWheels, messageAreaSamples: messageAreaSamples.length, nearComposerSamples: nearComposerSamples.length })}`);
+  await writeFile('artifacts/sticky-composer-wheel-repro.json', JSON.stringify(stickyWheelEvidence, null, 2));
+  assert.equal(stickyNativeGeometry.afterInjection.paddingBottom, stickyNativeGeometry.before.paddingBottom, `injection leaves sticky scroller padding unchanged: ${JSON.stringify(stickyNativeGeometry)}`);
+  assert.ok(stickyBeforeWheels.scrollTop >= stickyBeforeWheels.maxScroll - 1, `wheel input reaches the true bottom of the sticky-composer scroller: ${JSON.stringify(stickyBeforeWheels)}`);
+  for (const sample of allStickyWheelSamples) {
+    assert.ok(Math.abs(sample.dockGap + 1) <= 1, `the widget stays aligned with the selected sticky composer surface through bottom wheel events: ${JSON.stringify({ before: stickyBeforeWheels, sample })}`);
+    assert.ok(Math.abs(sample.composerBottom - sample.expectedStickyBottom) <= 1, `the sticky composer stays at the scrollport bottom: ${JSON.stringify({ before: stickyBeforeWheels, sample })}`);
+    assert.equal(sample.paddingBottom, stickyNativeGeometry.before.paddingBottom, `the extension preserves sticky scroller padding: ${JSON.stringify({ native: stickyNativeGeometry, sample })}`);
+    assert.ok(sample.markerBottom <= sample.composerTop + 1, `the final answer remains visible above the sticky composer: ${JSON.stringify(sample)}`);
+  }
   const reportedSingleLayout = await context.newPage();
   await reportedSingleLayout.goto('https://chatgpt.com/g/g-p-demo/c/reported-single-layout');
   await reportedSingleLayout.locator('.idea-capture-section-header').first().waitFor();

@@ -762,7 +762,19 @@ export function createCaptureControls(doc = document, win = window) {
       clearanceOverlayNode = nextOverlayNode;
       if (clearanceOverlayNode && clearanceOverlayNode !== dockBox) dockResize?.observe(clearanceOverlayNode);
     }
-    const active = sections.length && activeRoot && overlayRect && composerRect?.width >= 160 && overlayRect.top > 60;
+    // A sticky composer inside the scroll root participates in its layout. Adding
+    // padding to that same scrollport moves its sticky edge, which can pull the
+    // composer (and the docked tab) up into the conversation as scrolling grows.
+    // Keep the native scrollport geometry for sticky composers that remain in flow.
+    let stickyInsideRoot = false;
+    if (activeRoot && overlayRect && dockBox && activeRoot.contains(dockBox)) {
+      for (let node = dockBox; node && node !== activeRoot; node = node.parentElement) {
+        const position = win.getComputedStyle?.(node)?.position;
+        if (position === 'fixed') break;
+        if (position === 'sticky') { stickyInsideRoot = true; break; }
+      }
+    }
+    const active = sections.length && activeRoot && overlayRect && composerRect?.width >= 160 && overlayRect.top > 60 && !stickyInsideRoot;
     if (!active) activeRoot = null;
     if (clearanceRoot !== activeRoot) {
       restoreConversationClearance();
