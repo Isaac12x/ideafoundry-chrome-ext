@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Fuse the ChatGPT composer input top border to the composer surface while preserving native scrolling, and keep the floating panel inside the available viewport.
+- Keep the ChatGPT capture tab attached to the top border of the visible typing input with a one-pixel overlap; preserve native scrolling and keep the floating panel inside the available viewport.
 - Preserve native scroll geometry when the ChatGPT composer is sticky inside the conversation scroll root, preventing bottom padding from pulling the composer and capture tab upward.
 - Capture and collapse ChatGPT reply fragments that stream beside reported prose, including code panels appended after a section is collapsed.
 - Collapse read-only code textboxes and detached code frames with their section while keeping editable composers, neighboring prompts, and unrelated readonly fields available.

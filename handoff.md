@@ -248,7 +248,7 @@ Root confirmed that the new extraction and controller regressions fail against t
 
 ## 2026-11-01 — ChatGPT composer border and panel docking
 
-The ChatGPT composer now paints its top edge as a single fused one-pixel border. Docking follows composer movement and resizing, respects disabled and clipped states, ignores readonly decoys, and leaves provider headers in their normal stacking order. The open capture panel fits the visible viewport and keeps its body scrollable when opened at the top of the surface. Native conversation scroll geometry is preserved.
+The ChatGPT capture tab now sits on the top border of the visible typing input with a one-pixel overlap. Docking follows input movement and resizing, respects disabled and clipped states, ignores readonly decoys, and leaves provider headers in their normal stacking order. The open capture panel fits the visible viewport and keeps its body scrollable when opened at the top of the surface. Native conversation scroll geometry is preserved.
 
 Root's isolated final-tree verification passed 103 unit tests, the production build, and the full browser suite (`/tmp/idea-border-final-check.log`). Independent Chromium review also covered partial clipping, transparent radius-only inner editors, disabled surfaces, transformed surfaces, readonly decoys, hit testing, and body scrolling with the surface at the top of the viewport. Fixtures are synthetic; no authenticated live ChatGPT page was verified. Generated artifacts remain ignored.
 
