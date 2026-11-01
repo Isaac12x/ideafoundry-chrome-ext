@@ -249,18 +249,30 @@ test('ChatGPT docks the closed tab to the visible rounded input surface, not its
   assert.equal(thread.hasAttribute('data-idea-capture-scroll-clearance'), false, 'input anchoring does not alter native scroll geometry');
 });
 
-test('ChatGPT keeps the open capture panel usable when no input edge is available', async t => {
+test('ChatGPT keeps a compact launcher available when no input edge is available', async t => {
   const dom = new JSDOM('<!doctype html><html><body><main><p>Conversation without a composer</p></main></body></html>', { url: 'https://chatgpt.com/c/1', pretendToBeVisual: true });
   const controls = createCaptureControls(dom.window.document, dom.window);
   t.after(() => { controls.destroy(); dom.window.close(); });
   const panel = dom.window.document.querySelector('[data-idea-capture-owned="host"]').shadowRoot.querySelector('#idea-capture-panel');
   await new Promise(resolve => dom.window.requestAnimationFrame(resolve));
-  assert.equal(panel.hidden, true, 'a closed launcher does not suggest an input edge that is absent');
+  assert.equal(panel.hidden, false, 'the compact launcher remains available without a detected composer');
+  assert.equal(panel.querySelector('.panel-body').hidden, true, 'the panel still starts closed');
   controls.open();
   assert.equal(panel.hidden, false, 'opening the capture controls remains available to callers');
 });
 
-test('ChatGPT hides the closed tab when the prompt has no painted edge and retains its identity while disabled', async t => {
+test('ChatGPT reattaches its widget if an SPA removes the shadow host during a rebuild', async t => {
+  const dom = new JSDOM('<!doctype html><html><body><main><div data-message-author-role="user">Question</div><div data-message-author-role="assistant">Answer</div></main></body></html>', { url: 'https://chatgpt.com/c/1', pretendToBeVisual: true });
+  const controls = createCaptureControls(dom.window.document, dom.window);
+  t.after(() => { controls.destroy(); dom.window.close(); });
+  const host = dom.window.document.querySelector('[data-idea-capture-owned="host"]');
+  host.remove();
+  await new Promise(resolve => dom.window.setTimeout(resolve, 0));
+  assert.equal(host.isConnected, true, 'the existing controller restores its shadow host after a page rebuild');
+  assert.ok(host.shadowRoot.querySelector('[data-idea-panel]'));
+});
+
+test('ChatGPT keeps the launcher undocked when the prompt has no painted edge and retains its identity while disabled', async t => {
   const dom = new JSDOM(`<!doctype html><html><body><main><form data-testid="composer">
     <div id="surface" style="border-radius:20px"><textarea id="prompt-textarea"></textarea></div>
   </form></main></body></html>`, { url: 'https://chatgpt.com/c/1', pretendToBeVisual: true });
@@ -275,7 +287,8 @@ test('ChatGPT hides the closed tab when the prompt has no painted edge and retai
   t.after(() => { controls.destroy(); dom.window.close(); });
   const panel = document.querySelector('[data-idea-capture-owned="host"]').shadowRoot.querySelector('#idea-capture-panel');
   await new Promise(resolve => dom.window.requestAnimationFrame(resolve));
-  assert.equal(panel.hidden, true, 'a decorative radius without painted fill, border, or shadow is not an input edge');
+  assert.equal(panel.hidden, false, 'the closed launcher remains reachable');
+  assert.equal(panel.classList.contains('is-docked'), false, 'a decorative radius without painted fill, border, or shadow is not an input edge');
 
   surface.style.border = '1px solid rgb(180, 190, 180)';
   await new Promise(resolve => dom.window.requestAnimationFrame(resolve));
