@@ -1,9 +1,6 @@
 import { bytesToBase64, filename, markdown } from './shared.js';
 import MarkdownIt from 'markdown-it';
 
-export const MEDIA_MAX_ITEM_BYTES = 8 * 1024 * 1024;
-export const MEDIA_MAX_TOTAL_BYTES = 20 * 1024 * 1024;
-export const MEDIA_MAX_COUNT = 50;
 const MEDIA_MIME = /^(image\/(png|jpeg|gif|webp|avif|svg\+xml|bmp|tiff?)|audio\/[\w.+-]+|video\/[\w.+-]+|application\/(pdf|octet-stream|zip|msword|rtf|json|xml|vnd\.[\w.+-]+)|text\/(plain|markdown|csv))$/i;
 const PLACEHOLDER = /\{\{idea-media:([a-zA-Z0-9_-]{1,100})\}\}/g;
 const pdfMarkdown = new MarkdownIt({ html: false, linkify: false, breaks: false }).use(md => {
@@ -174,7 +171,7 @@ function bytesFromDataUrl(value) {
   const mime = metadata[0] || 'text/plain';
   const base64 = metadata.slice(1).some(parameter => parameter.toLowerCase() === 'base64');
   let bytes;
-  if (base64) bytes = Uint8Array.from(atob(match[2]), char => char.charCodeAt(0));
+  if (base64) bytes = decodeBase64(match[2]);
   else {
     const output = [];
     const encoder = new TextEncoder();
@@ -208,8 +205,6 @@ function safeFilename(item, index, mime) {
 
 export async function resolveMedia(conversation, fetchImpl = fetch) {
   const media = Array.isArray(conversation.media) ? conversation.media : [];
-  if (media.length > MEDIA_MAX_COUNT) throw new Error(`This capture has more than ${MEDIA_MAX_COUNT} media items. Select fewer sections and retry.`);
-  let total = 0;
   const capturePrefix = globalThis.crypto?.randomUUID?.().replace(/-/g, '').slice(0, 8) || `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
   const usedNames = new Set();
   const resolved = [];
@@ -217,13 +212,9 @@ export async function resolveMedia(conversation, fetchImpl = fetch) {
     const item = { ...media[index] };
     try {
       if (item.error) throw new Error(item.error);
-      if (total >= MEDIA_MAX_TOTAL_BYTES) throw new Error('Media exceeds the 20 MB total export limit.');
-      const remaining = MEDIA_MAX_TOTAL_BYTES - total;
-      const itemLimit = Math.min(MEDIA_MAX_ITEM_BYTES, remaining);
       let bytes, mime;
       if (item.data) {
-        if (item.data.length > Math.ceil(itemLimit * 4 / 3) + 8) throw new Error(itemLimit < MEDIA_MAX_ITEM_BYTES ? 'Media exceeds the 20 MB total export limit.' : 'Media exceeds the 8 MB per-file limit.');
-        bytes = Uint8Array.from(atob(item.data), char => char.charCodeAt(0));
+        bytes = decodeBase64(item.data);
         mime = item.mime || item.resolvedMime || '';
       } else if (item.url?.startsWith('data:')) {
         ({ bytes, mime } = bytesFromDataUrl(item.url));
@@ -234,15 +225,10 @@ export async function resolveMedia(conversation, fetchImpl = fetch) {
         if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) throw new Error('Unsupported or unsafe media URL.');
         const response = await fetchImpl(url.href, { credentials: 'omit', redirect: 'error', signal: AbortSignal.timeout(15_000) });
         if (!response.ok) throw new Error(`Download failed (${response.status}).`);
-        const length = Number(response.headers.get('content-length'));
-        if (Number.isFinite(length) && length > itemLimit) throw new Error(itemLimit < MEDIA_MAX_ITEM_BYTES ? 'Media exceeds the 20 MB total export limit.' : 'Media exceeds the 8 MB per-file limit.');
-        bytes = await readBounded(response, itemLimit, amount => { total += amount; });
+        bytes = await readResponse(response);
         mime = (response.headers.get('content-type') || item.mime || 'application/octet-stream').split(';')[0].trim().toLowerCase();
       }
       if (!bytes?.length) throw new Error('Media file is empty.');
-      if (bytes.length > MEDIA_MAX_ITEM_BYTES) throw new Error('Media exceeds the 8 MB per-file limit.');
-      if (!(!item.data && !item.url?.startsWith('data:') && !item.url?.startsWith('blob:'))) total += bytes.length;
-      if (total > MEDIA_MAX_TOTAL_BYTES) { total = MEDIA_MAX_TOTAL_BYTES; throw new Error('Media exceeds the 20 MB total export limit.'); }
       mime = String(mime || item.mime || 'application/octet-stream').split(';')[0].trim().toLowerCase();
       if (!MEDIA_MIME.test(mime)) throw new Error(`Unsupported media type: ${mime}.`);
       if (mime === 'image/svg+xml') bytes = sanitizeSvg(bytes);
@@ -259,7 +245,6 @@ export async function resolveMedia(conversation, fetchImpl = fetch) {
       delete item.error;
     } catch (error) {
       item.error = error?.message || 'Media could not be downloaded.';
-      if (item.error.includes('20 MB total')) total = MEDIA_MAX_TOTAL_BYTES;
       delete item.data;
     }
     resolved.push(item);
@@ -271,12 +256,16 @@ export async function resolveMedia(conversation, fetchImpl = fetch) {
   return { ...conversation, warning, media: resolved };
 }
 
-async function readBounded(response, limit, onBytes = () => {}) {
-  const limitMessage = limit < MEDIA_MAX_ITEM_BYTES ? 'Media exceeds the 20 MB total export limit.' : 'Media exceeds the 8 MB per-file limit.';
+function decodeBase64(value) {
+  const binary = atob(value);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index);
+  return bytes;
+}
+
+async function readResponse(response) {
   if (!response.body?.getReader) {
     const blob = await response.blob();
-    onBytes(blob.size);
-    if (blob.size > limit) throw new Error(limitMessage);
     return new Uint8Array(await blob.arrayBuffer());
   }
   const reader = response.body.getReader();
@@ -287,12 +276,6 @@ async function readBounded(response, limit, onBytes = () => {}) {
       const { done, value } = await reader.read();
       if (done) break;
       length += value.byteLength;
-      onBytes(value.byteLength);
-      if (length > limit) {
-        await reader.cancel();
-        if (limit < MEDIA_MAX_ITEM_BYTES && length > limit) onBytes(0); // caller is stopped by the exhausted budget below
-        throw new Error(limitMessage);
-      }
       chunks.push(value);
     }
   } finally { reader.releaseLock(); }
@@ -350,18 +333,18 @@ function kbAssetUrl(assetBase, name) {
 export function mediaFileEntries(conversation, assetBase = null) {
   const { conversation: rendered, assets } = renderMediaMarkdown(conversation, { flatAssets: true, assetBase });
   const names = new Map(assets.map(item => [item.id, flatCompanionName(item, assetBase)]));
-  return [{ name: filename(conversation.title, 'md'), mime: 'text/markdown;charset=utf-8', bytes: new TextEncoder().encode(markdown(rendered)) }, ...assets.map(item => ({ name: names.get(item.id), mime: item.mime, bytes: Uint8Array.from(atob(item.data), c => c.charCodeAt(0)) }))];
+  return [{ name: filename(conversation.title, 'md'), mime: 'text/markdown;charset=utf-8', bytes: new TextEncoder().encode(markdown(rendered)) }, ...assets.map(item => ({ name: names.get(item.id), mime: item.mime, bytes: decodeBase64(item.data) }))];
 }
 
 export function mediaArchiveEntries(conversation) {
   const { conversation: rendered, assets } = renderMediaMarkdown(conversation, { includeMediaDirectory: true });
-  return [{ name: filename(conversation.title, 'md'), mime: 'text/markdown;charset=utf-8', bytes: new TextEncoder().encode(markdown(rendered)) }, ...assets.map(item => ({ name: `media/${item.filename}`, mime: item.mime, bytes: Uint8Array.from(atob(item.data), c => c.charCodeAt(0)) }))];
+  return [{ name: filename(conversation.title, 'md'), mime: 'text/markdown;charset=utf-8', bytes: new TextEncoder().encode(markdown(rendered)) }, ...assets.map(item => ({ name: `media/${item.filename}`, mime: item.mime, bytes: decodeBase64(item.data) }))];
 }
 
 export function mediaCompanionEntries(conversation, { includeImages = false, assetBase = null } = {}) {
   return (conversation.media || [])
     .filter(item => item.data && !item.error && (includeImages || item.kind !== 'image'))
-    .map(item => ({ name: assetBase ? flatCompanionName(item, assetBase) : `media/${item.filename}`, mime: item.mime, bytes: Uint8Array.from(atob(item.data), c => c.charCodeAt(0)) }));
+    .map(item => ({ name: assetBase ? flatCompanionName(item, assetBase) : `media/${item.filename}`, mime: item.mime, bytes: decodeBase64(item.data) }));
 }
 
 // stamp is unique per export: Rails renames colliding uploads (-2), which would orphan KB links.
@@ -376,7 +359,7 @@ export async function preparePdfMedia(conversation) {
   const media = await Promise.all((conversation.media || []).map(async item => {
     if (item.kind !== 'image' || item.error || !item.data || !item.mime?.startsWith('image/')) return item;
     try {
-      const bytes = Uint8Array.from(atob(item.data), c => c.charCodeAt(0));
+      const bytes = decodeBase64(item.data);
       const blob = new Blob([bytes], { type: item.mime });
       let bitmap;
       try { bitmap = await createImageBitmap(blob); }
@@ -389,7 +372,7 @@ export async function preparePdfMedia(conversation) {
           image.src = url;
         });
       }
-      if (!bitmap.width || !bitmap.height || bitmap.width * bitmap.height > 20_000_000) { bitmap.close(); throw new Error('Image dimensions exceed the PDF limit.'); }
+      if (!bitmap.width || !bitmap.height) { bitmap.close(); throw new Error('Image dimensions are invalid for PDF rendering.'); }
       if ((item.mime === 'image/png' || item.mime === 'image/jpeg') && !item.mime.includes('svg')) {
         bitmap.close();
         return { ...item, pdfData: `data:${item.mime};base64,${item.data}` };
@@ -402,7 +385,6 @@ export async function preparePdfMedia(conversation) {
       bitmap.close();
       const output = canvas.convertToBlob ? await canvas.convertToBlob({ type: 'image/png' }) : await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
       if (!output) throw new Error('Image could not be prepared for PDF.');
-      if (output.size > MEDIA_MAX_ITEM_BYTES) throw new Error('Rasterized image exceeds the 8 MB PDF limit.');
       const encoded = bytesToBase64(new Uint8Array(await output.arrayBuffer()));
       return { ...item, pdfData: `data:image/png;base64,${encoded}` };
     } catch (error) { return { ...item, pdfError: error?.message || 'Image could not be embedded in the PDF.' }; }
@@ -419,6 +401,7 @@ const crcTable = (() => {
 function crc32(bytes) { let crc = 0xffffffff; for (const byte of bytes) crc = crcTable[(crc ^ byte) & 0xff] ^ (crc >>> 8); return (crc ^ 0xffffffff) >>> 0; }
 function write16(view, offset, value) { view.setUint16(offset, value, true); }
 function write32(view, offset, value) { view.setUint32(offset, value >>> 0, true); }
+function write64(view, offset, value) { view.setBigUint64(offset, BigInt(value), true); }
 
 export function makeZip(entries) {
   const encoder = new TextEncoder();
@@ -428,17 +411,34 @@ export function makeZip(entries) {
     const name = encoder.encode(entry.name);
     const bytes = entry.bytes instanceof Uint8Array ? entry.bytes : new Uint8Array(entry.bytes);
     const crc = crc32(bytes);
-    const header = new Uint8Array(30 + name.length); const view = new DataView(header.buffer);
+    const largeSize = bytes.length >= 0xffffffff;
+    const localExtra = largeSize ? new Uint8Array(20) : new Uint8Array(0);
+    if (largeSize) { const extra = new DataView(localExtra.buffer); write16(extra, 0, 0x0001); write16(extra, 2, 16); write64(extra, 4, bytes.length); write64(extra, 12, bytes.length); }
+    const header = new Uint8Array(30 + name.length + localExtra.length); const view = new DataView(header.buffer);
     write32(view, 0, 0x04034b50); write16(view, 4, 20); write16(view, 6, 0x0800); write16(view, 8, 0);
-    write32(view, 14, crc); write32(view, 18, bytes.length); write32(view, 22, bytes.length); write16(view, 26, name.length); header.set(name, 30);
+    if (largeSize) write16(view, 4, 45);
+    write32(view, 14, crc); write32(view, 18, largeSize ? 0xffffffff : bytes.length); write32(view, 22, largeSize ? 0xffffffff : bytes.length); write16(view, 26, name.length); write16(view, 28, localExtra.length); header.set(name, 30); header.set(localExtra, 30 + name.length);
     local.push(header, bytes);
-    const directory = new Uint8Array(46 + name.length); const dv = new DataView(directory.buffer);
+    const largeOffset = offset >= 0xffffffff;
+    const centralExtra = largeSize || largeOffset ? new Uint8Array(4 + (largeSize ? 16 : 0) + (largeOffset ? 8 : 0)) : new Uint8Array(0);
+    if (centralExtra.length) { const extra = new DataView(centralExtra.buffer); write16(extra, 0, 0x0001); write16(extra, 2, centralExtra.length - 4); let cursor = 4; if (largeSize) { write64(extra, cursor, bytes.length); write64(extra, cursor + 8, bytes.length); cursor += 16; } if (largeOffset) write64(extra, cursor, offset); }
+    const directory = new Uint8Array(46 + name.length + centralExtra.length); const dv = new DataView(directory.buffer);
     write32(dv, 0, 0x02014b50); write16(dv, 4, 20); write16(dv, 6, 20); write16(dv, 8, 0x0800); write16(dv, 10, 0);
-    write32(dv, 16, crc); write32(dv, 20, bytes.length); write32(dv, 24, bytes.length); write16(dv, 28, name.length); write32(dv, 42, offset); directory.set(name, 46);
+    if (largeSize || largeOffset) { write16(dv, 4, 45); write16(dv, 6, 45); }
+    write32(dv, 16, crc); write32(dv, 20, largeSize ? 0xffffffff : bytes.length); write32(dv, 24, largeSize ? 0xffffffff : bytes.length); write16(dv, 28, name.length); write16(dv, 30, centralExtra.length); write32(dv, 42, largeOffset ? 0xffffffff : offset); directory.set(name, 46); directory.set(centralExtra, 46 + name.length);
     central.push(directory); offset += header.length + bytes.length;
   }
   const centralBytes = central.reduce((sum, part) => sum + part.length, 0);
+  const needsZip64 = entries.length >= 0xffff || centralBytes >= 0xffffffff || offset >= 0xffffffff;
+  const tail = [];
+  if (needsZip64) {
+    const record = new Uint8Array(56); const rv = new DataView(record.buffer);
+    write32(rv, 0, 0x06064b50); write64(rv, 4, 44); write16(rv, 12, 45); write16(rv, 14, 45); write32(rv, 16, 0); write32(rv, 20, 0); write64(rv, 24, entries.length); write64(rv, 32, entries.length); write64(rv, 40, centralBytes); write64(rv, 48, offset);
+    const locator = new Uint8Array(20); const lv = new DataView(locator.buffer);
+    write32(lv, 0, 0x07064b50); write32(lv, 4, 0); write64(lv, 8, offset + centralBytes); write32(lv, 16, 1);
+    tail.push(record, locator);
+  }
   const end = new Uint8Array(22); const ev = new DataView(end.buffer);
-  write32(ev, 0, 0x06054b50); write16(ev, 8, entries.length); write16(ev, 10, entries.length); write32(ev, 12, centralBytes); write32(ev, 16, offset);
-  return new Blob([...local, ...central, end], { type: 'application/zip' });
+  write32(ev, 0, 0x06054b50); write16(ev, 8, needsZip64 ? 0xffff : entries.length); write16(ev, 10, needsZip64 ? 0xffff : entries.length); write32(ev, 12, needsZip64 ? 0xffffffff : centralBytes); write32(ev, 16, needsZip64 ? 0xffffffff : offset);
+  return new Blob([...local, ...central, ...tail, end], { type: 'application/zip' });
 }

@@ -35,8 +35,10 @@ async function printPdf(conversation) {
   const rendered = await render(conversation, 'pdf', false);
   const encodedHtml = rendered.files?.[0]?.base64;
   if (!encodedHtml) throw new Error('Could not prepare the browser print view.');
-  const binaryHtml = Uint8Array.from(atob(encodedHtml), character => character.charCodeAt(0));
-  const html = new TextDecoder().decode(binaryHtml);
+  const binaryHtml = atob(encodedHtml);
+  const htmlBytes = new Uint8Array(binaryHtml.length);
+  for (let index = 0; index < binaryHtml.length; index++) htmlBytes[index] = binaryHtml.charCodeAt(index);
+  const html = new TextDecoder().decode(htmlBytes);
   const token = crypto.randomUUID();
   const db = await openExportStore();
   await new Promise((resolve, reject) => {
@@ -71,9 +73,8 @@ async function capture(tabId, mode = 'preview', resolvePageMedia = false) {
   if (!result?.ok) throw new Error(result?.error || 'Could not read this page.');
   const conversation = result.conversation;
   if ((mode === 'export' || resolvePageMedia) && conversation.media?.length) {
-    const pageResults = await chrome.scripting.executeScript({ target: { tabId }, func: async (items, maxBytes) => {
+    const pageResults = await chrome.scripting.executeScript({ target: { tabId }, func: async items => {
       const results = [];
-      let total = 0;
       for (const item of items) {
         let url;
         try { url = new URL(item.url, location.href); } catch { continue; }
@@ -82,16 +83,11 @@ async function capture(tabId, mode = 'preview', resolvePageMedia = false) {
         try {
           const response = await fetch(url.href, { credentials: 'same-origin', redirect: 'error', signal: AbortSignal.timeout(15_000) });
           if (!response.ok) throw new Error(`Page media read failed (${response.status}).`);
-          const declaredLength = Number(response.headers.get('content-length'));
-          if (Number.isFinite(declaredLength) && declaredLength > maxBytes) throw new Error('Page-owned media exceeds the 8 MB capture limit.');
           const reader = response.body.getReader();
           const chunks = [];
-          let size = 0;
           while (true) {
             const { done, value } = await reader.read();
             if (done) break;
-            size += value.byteLength; total += value.byteLength;
-            if (size > maxBytes || total > maxBytes) { await reader.cancel(); throw new Error('Page-owned media exceeds the 8 MB capture limit.'); }
             chunks.push(value);
           }
           const blob = new Blob(chunks, { type: response.headers.get('content-type') || item.mime || '' });
@@ -102,11 +98,10 @@ async function capture(tabId, mode = 'preview', resolvePageMedia = false) {
         } catch (error) { results.push({ id: item.id, error: error.message }); }
       }
       return results;
-    }, args: [conversation.media, 8 * 1024 * 1024] });
+    }, args: [conversation.media] });
     const pageMedia = new Map((pageResults[0]?.result || []).map(item => [item.id, item]));
     conversation.media = conversation.media.map(item => pageMedia.has(item.id) ? { ...item, ...pageMedia.get(item.id) } : item);
   }
-  if (JSON.stringify(conversation).length > 24_000_000) throw new Error('Conversation and inline media exceed the 24 MB capture limit.');
   return conversation;
 }
 async function loaded(tabId) {
@@ -299,7 +294,6 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
       if (!sender.tab?.id || !['download', 'kb'].includes(message.destination)) throw new Error('Capture must be started from the page widget.');
       if (!message.conversation || !Array.isArray(message.conversation.messages)) throw new Error('No conversation is ready to save.');
       const conversation = message.conversation;
-      if (JSON.stringify(conversation).length > 24_000_000) throw new Error('Conversation and inline media exceed the 24 MB capture limit.');
       if (['html', 'pdf'].includes(message.format) && (!conversation.messages.length || !conversation.layoutHtml && conversation.messages.some(item => typeof item.html !== 'string' || !item.html.trim()))) {
         throw new Error('The styled page snapshot is missing. Select HTML or PDF again from the conversation capture widget to recapture the layout.');
       }

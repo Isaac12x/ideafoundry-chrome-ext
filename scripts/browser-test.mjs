@@ -958,6 +958,16 @@ try {
     .map(match => new URL(match[0]).searchParams.get('file'));
   assert.deepEqual(new Set(servedFiles), new Set([pngName, webpName, linkedPdfName]), 'KB Markdown links each companion through the app file-serving route');
 
+  const manyFiles = {
+    title: 'Many media files', url: 'https://chatgpt.com/c/many-files',
+    messages: [{ role: 'Assistant', markdown: Array.from({ length: 51 }, (_, index) => `{{idea-media:m${index}}}`).join('\n\n') }],
+    media: Array.from({ length: 51 }, (_, index) => ({ id: `m${index}`, kind: 'file', filename: `item-${index}.bin`, mime: 'application/octet-stream', data: 'AQID', url: 'data:application/octet-stream;base64,AQID' })),
+  };
+  const manyFilesUpload = await send({ type: 'export', destination: 'kb', format: 'md', conversation: manyFiles });
+  assert.equal(manyFilesUpload.ok, true, manyFilesUpload.error);
+  const manyFilesParts = uploads.at(-1).toString('latin1').match(/name="files\[\]"; filename="/g) || [];
+  assert.equal(manyFilesParts.length, 52, 'KB accepts 51 media companions plus Markdown, above the former 51-file ceiling');
+
   const mediaPdf = await ui.evaluate(async conversation => chrome.runtime.sendMessage({ target: 'offscreen', conversation, format: 'pdf', download: false }), projectCapture.conversation);
   assert.equal(mediaPdf.ok, true, mediaPdf.error);
   const htmlBytes = Buffer.from(mediaPdf.files[0].base64, 'base64');
@@ -973,6 +983,22 @@ try {
   assert.match(zipListing, /media\/[^\x00]+\.png/);
   assert.match(zipListing, /media\/[^\x00]+\.webp/);
   assert.match(zipListing, /media\/[^/\x00]+brief\.pdf/);
+
+  const oversizedExport = await worker.evaluate(async tabId => {
+    const [{ result }] = await chrome.scripting.executeScript({ target: { tabId }, func: async () => {
+      const conversation = { title: 'Large capture regression', url: 'https://chatgpt.com/c/large', messages: [{ role: 'Assistant', markdown: 'large-body-start\n\n' + 'x'.repeat(24_100_000) + '\n\nlarge-body-end' }], media: [] };
+      const widget = await chrome.runtime.sendMessage({ type: 'widget-export', destination: 'download', format: 'md', conversation });
+      if (!widget.ok) return { widget };
+      const rendered = await chrome.runtime.sendMessage({ target: 'offscreen', conversation, format: 'md', download: false });
+      if (!rendered.ok) return { widget, rendered };
+      const binary = atob(rendered.files[0].base64);
+      return { widget, size: rendered.files[0].size, tail: binary.slice(-16) };
+    } });
+    return result;
+  }, projectTabId);
+  assert.equal(oversizedExport.widget.ok, true, oversizedExport.widget.error);
+  assert.ok(oversizedExport.size > 24_000_000, `rendered bytes exceed the former limit: ${oversizedExport.size}`);
+  assert.match(oversizedExport.tail, /large-body-end/);
   await ui.evaluate(url => chrome.runtime.sendMessage({ target: 'offscreen', type: 'release', url }), localMarkdown.url);
   const captured = await send({ type: 'capture', tabId });
   console.log('Capture response:', captured.ok, captured.error || '');
@@ -1227,6 +1253,18 @@ try {
   await target.getByText('A fresh conversation begins.').waitFor();
   await target.waitForFunction(() => document.querySelectorAll('.idea-capture-section-header').length === 1 && document.querySelector('.idea-capture-section-header input')?.checked === true);
   assert.equal(await target.locator('.idea-capture-section-header').count(), 1);
+  await target.evaluate(() => {
+    const largeTurn = document.createElement('div');
+    largeTurn.dataset.messageAuthorRole = 'assistant';
+    largeTurn.textContent = `large-capture-start ${'x'.repeat(24_100_000)} large-capture-end`;
+    document.querySelector('main').append(largeTurn);
+  });
+  await target.waitForFunction(() => document.querySelectorAll('.idea-capture-section-header').length >= 1);
+  const largeCapture = await send({ type: 'capture', tabId, mode: 'export' });
+  assert.equal(largeCapture.ok, true, largeCapture.error);
+  assert.ok(largeCapture.conversation.messages.some(message => message.markdown.length > 24_000_000 && message.markdown.includes('large-capture-end')), 'executeScript returns the full capture above the former 24 MB ceiling with its ending sentinel');
+  await target.evaluate(() => document.querySelector('main').lastElementChild.remove());
+  await target.waitForFunction(() => document.querySelectorAll('.idea-capture-section-header').length === 1);
   await panel.locator('input[data-section-id]').uncheck();
   const spaNone = await send({ type: 'capture', tabId, mode: 'export' });
   assert.equal(spaNone.ok, false);
@@ -1250,8 +1288,9 @@ try {
     assert.match(uploads.at(-1).toString(), format === 'md' ? /## Assistant/ : /text\/html/);
   }
   locked = true;
+  const uploadCountBeforeLockedAttempt = uploads.length;
   const rejected = await send({ type: 'export', destination: 'kb', format: 'md', conversation: captured.conversation });
-  assert.equal(rejected.ok, false); assert.match(rejected.error, /unlock/i); assert.equal(uploads.length, 4);
+  assert.equal(rejected.ok, false); assert.match(rejected.error, /unlock/i); assert.equal(uploads.length, uploadCountBeforeLockedAttempt);
   locked = false;
   const queueRequest = (path, body) => fetch(queueUrl + path, { method: body ? 'POST' : 'GET', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
   const job = await (await queueRequest('/jobs', { url: `${appUrl}/chat?thread=next`, format: 'md' })).json();
@@ -1263,7 +1302,7 @@ try {
     await new Promise(r => setTimeout(r, 500));
   }
   console.log('Remote queue:', result.state);
-  assert.equal(result.state, 'completed', result.error || JSON.stringify(result)); assert.equal(uploads.length, 5);
+  assert.equal(result.state, 'completed', result.error || JSON.stringify(result)); assert.equal(uploads.length, uploadCountBeforeLockedAttempt + 1);
   const remoteUpload = uploads.at(-1).toString();
   assert.match(remoteUpload, /first research approaches/);
   assert.match(remoteUpload, /consent plan/);
@@ -1278,7 +1317,7 @@ try {
     if (result.state === 'failed') break;
     await new Promise(r => setTimeout(r, 200));
   }
-  assert.equal(result.state, 'failed'); assert.match(result.error, /not allowed/); assert.equal(uploads.length, 5);
+  assert.equal(result.state, 'failed'); assert.match(result.error, /not allowed/); assert.equal(uploads.length, uploadCountBeforeLockedAttempt + 1);
   // Standalone HTML downloads exercise the offscreen renderer without a native Save dialog.
   const file = await ui.evaluate(async conversation => chrome.runtime.sendMessage({ target: 'offscreen', conversation, format: 'html', download: true }), captured.conversation);
   assert.equal(file.ok, true, file.error);

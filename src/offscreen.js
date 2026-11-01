@@ -14,15 +14,15 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
     let conversation = await resolveMedia(message.conversation);
     const mime = format === 'pdf' ? 'text/html;charset=utf-8' : format === 'html' ? 'text/html;charset=utf-8' : 'text/markdown;charset=utf-8';
     let bytes;
-    const mdEntries = format === 'md' ? mediaFileEntries(conversation, assetBase) : null;
-    const mdArchiveEntries = format === 'md' ? mediaArchiveEntries(conversation) : null;
+    const mdEntries = format === 'md'
+      ? (download ? mediaArchiveEntries(conversation) : mediaFileEntries(conversation, assetBase))
+      : null;
     if (format === 'html' || format === 'pdf') {
       bytes = htmlFile(conversation).bytes;
     } else bytes = mdEntries[0].bytes;
-    if (bytes.length > 20 * 1024 * 1024) throw new Error('Export exceeds the 20 MB limit.');
     const result = { name: filename(conversation.title, format), mime, size: bytes.length };
     if (download) {
-      const mediaEntries = mdArchiveEntries || [];
+      const mediaEntries = mdEntries || [];
       const companionEntries = [];
       const archiveEntries = format === 'md' ? mediaEntries.filter(entry => entry.name.startsWith('media/')) : companionEntries;
       const archiveFiles = format === 'md' ? mediaEntries : [{ name: result.name, bytes }, ...companionEntries];
