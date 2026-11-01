@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
+import MarkdownIt from 'markdown-it';
 import { extractConversation } from '../src/extract.js';
 import { markdown, validateSettings, validateJob, filename } from '../src/shared.js';
 const extract = (html, url = 'https://chatgpt.com/c/123') => extractConversation(new JSDOM(`<title>Research - ChatGPT</title>${html}`).window.document, url);
@@ -13,6 +14,122 @@ test('ChatGPT preserves roles, code, tables, links and strips controls', () => {
   assert.match(result.messages[1].markdown, /\| A \| B \|/);
   assert.doesNotMatch(markdown(result), /Copy/);
   assert.match(markdown(result), /Source: <https:\/\/chatgpt.com\/c\/123>/);
+});
+test('math renderer markup exports its source once as readable inline and display math', () => {
+  const result = extract(`<main><article data-message-author-role="assistant">
+    <p>Inline <span class="katex"><span class="katex-mathml"><math><semantics><mrow><mi>x</mi><mo>=</mo><mn>2</mn></mrow><annotation encoding="application/x-tex">x=2</annotation></semantics></math></span><span class="katex-html" aria-hidden="true">x = 2</span></span> continues.</p>
+    <div class="katex-display"><span class="katex"><span class="katex-mathml"><math><semantics><mrow><mi>a</mi><mo>+</mo><mi>b</mi></mrow><annotation encoding="application/x-tex">a+b</annotation></semantics></math></span><span class="katex-html" aria-hidden="true">a + b</span></span></div>
+  </article></main>`);
+  const output = result.messages[0].markdown;
+  assert.match(output, /Inline \$x=2\$ continues/);
+  assert.match(output, /\$\$\na\+b\n\$\$/);
+  assert.doesNotMatch(output, /x = 2|a \+ b/);
+});
+test('hidden MathML source is retained when math renderers hide source and visual branches', () => {
+  const result = extract(`<main><article data-message-author-role="assistant"><p>Result
+    <span class="katex"><span class="katex-mathml" style="display:none" aria-hidden="true"><math><semantics><msup><mi>x</mi><mn>2</mn></msup><annotation encoding="application/x-tex">x^2</annotation></semantics></math></span><span class="katex-html" aria-hidden="true">x²</span></span>
+  </p></article></main>`);
+  assert.equal(result.messages[0].markdown.includes('$x^2$'), true);
+  assert.doesNotMatch(result.messages[0].markdown, /x²/);
+});
+test('MathJax display containers use display delimiters', () => {
+  const result = extract('<main><article data-message-author-role="assistant"><mjx-container display="true" aria-label="x^2"><math><semantics><msup><mi>x</mi><mn>2</mn></msup><annotation encoding="application/x-tex">x^2</annotation></semantics></math></mjx-container></article></main>');
+  assert.match(result.messages[0].markdown, /\$\$\nx\^2\n\$\$/);
+});
+test('Markdown retains pre-wrapped prompt lines and whitespace', () => {
+  const result = extract('<main><div data-message-author-role="user"><div style="white-space:pre-wrap">first line\nsecond line\n\n  indented</div></div></main>');
+  assert.match(result.messages[0].markdown, /first line\s+second line\s+\s+indented/);
+  assert.match(result.messages[0].markdown, /second line/);
+  assert.match(result.messages[0].markdown, /indented/);
+});
+test('Markdown table cells keep multiline and pipe content within their original columns', () => {
+  const result = extract('<main><article data-message-author-role="assistant"><table><thead><tr><th>First</th><th>Second</th></tr></thead><tbody><tr><td>one<br>two</td><td>a | b</td></tr></tbody></table></article></main>');
+  const output = result.messages[0].markdown;
+  assert.match(output, /one<br>two/);
+  assert.match(output, /a \\\| b/);
+  const rendered = new MarkdownIt({ html: true }).render(output);
+  const table = new JSDOM(rendered).window.document.querySelector('table');
+  assert.equal(table.rows.length, 2);
+  assert.equal(table.rows[1].cells.length, 2);
+  assert.equal(table.rows[1].cells[0].innerHTML, 'one<br>two');
+  assert.equal(table.rows[1].cells[1].textContent, 'a | b');
+});
+test('Markdown tables retain literal backslashes and paragraph breaks inside cells', () => {
+  const result = extract('<main><article data-message-author-role="assistant"><table><thead><tr><th>Value</th></tr></thead><tbody><tr><td>slash \\| pipe<p>one</p><p>two</p></td></tr></tbody></table></article></main>');
+  const rendered = new JSDOM(new MarkdownIt({ html: true }).render(result.messages[0].markdown)).window.document;
+  const cell = rendered.querySelector('table tbody td');
+  assert.equal(cell.textContent, 'slash \\| pipeonetwo');
+  assert.equal(cell.querySelectorAll('br').length >= 2, true);
+});
+test('Markdown table rendering preserves literal emphasis, backslashes, and code spans', () => {
+  const cases = [
+    '*literal*',
+    'C:\\tmp',
+    '<code>C:\\tmp</code>',
+    '\\|',
+    '<code>a|b</code>',
+    '<code>a`b|c</code>',
+  ];
+  for (const cell of cases) {
+    const dom = new JSDOM(`<main><div data-message-author-role="assistant"><table><tr><th>A</th></tr><tr><td>${cell}</td></tr></table></div></main>`, { url: 'https://chatgpt.com/c/x' });
+    const result = extractConversation(dom.window.document, dom.window.location.href);
+    const rendered = new MarkdownIt({ html: true }).render(result.messages[0].markdown);
+    const actual = new JSDOM(rendered).window.document.querySelector('td').textContent;
+    const sourceText = new JSDOM(`<table><tr><td>${cell}</td></tr></table>`).window.document.querySelector('td').textContent;
+    assert.equal(actual, sourceText, `cell ${cell}`);
+  }
+});
+test('preformatted code in Markdown table cells remains code after rendering', () => {
+  const result = extract('<main><div data-message-author-role="assistant"><table><tr><th>Code</th></tr><tr><td><pre><code>const value = "a|b";\nnext();</code></pre></td></tr></table></div></main>', 'https://chatgpt.com/c/x');
+  const rendered = new JSDOM(new MarkdownIt({ html: true }).render(result.messages[0].markdown)).window.document;
+  const code = rendered.querySelector('table td pre code');
+  assert.ok(code);
+  assert.equal(code.textContent, 'const value = "a|b";\nnext();');
+});
+test('preformatted table fallback preserves safe links and removes unsafe URLs and script content', () => {
+  const result = extract('<main><div data-message-author-role="assistant"><table><tr><td><pre><code>x</code></pre><a href="https://example.com">Source</a><a href="javascript:alert(1)">bad</a><script>secret()</script></td></tr></table></div></main>');
+  const rendered = new JSDOM(new MarkdownIt({ html: true }).render(result.messages[0].markdown)).window.document;
+  const cell = rendered.querySelector('td');
+  assert.equal(cell.querySelector('a[href="https://example.com/"]')?.textContent, 'Source');
+  assert.equal(cell.querySelector('a[href^="javascript:"]'), null);
+  assert.equal(cell.textContent.includes('secret()'), false);
+});
+test('ordered list numbering honors li value resets', () => {
+  const result = extract('<main><article data-message-author-role="assistant"><ol start="3"><li>Third</li><li value="8">Eighth</li><li>Ninth</li></ol></article></main>');
+  const rendered = new JSDOM(new MarkdownIt({ html: true }).render(result.messages[0].markdown)).window.document;
+  const list = rendered.querySelector('ol');
+  assert.equal(list.getAttribute('start'), '3');
+  assert.deepEqual([...list.querySelectorAll(':scope > li')].map(item => item.getAttribute('value')), [null, '8', null]);
+  assert.deepEqual([...list.querySelectorAll(':scope > li')].map(item => item.textContent.trim()), ['Third', 'Eighth', 'Ninth']);
+});
+test('explicit ordered-list item value zero survives HTML fallback', () => {
+  const result = extract('<main><article data-message-author-role="assistant"><ol><li value="0">Zero</li><li>One</li></ol></article></main>');
+  const list = new JSDOM(new MarkdownIt({ html: true }).render(result.messages[0].markdown).trim()).window.document.querySelector('ol');
+  assert.equal(list.querySelector('li').getAttribute('value'), '0');
+});
+test('explicit ordered-list HTML fallback serializes br as a void element once', () => {
+  const result = extract('<main><article data-message-author-role="assistant"><ol><li value="4">First<br>Second</li></ol></article></main>');
+  const markdown = result.messages[0].markdown;
+  assert.doesNotMatch(markdown, /<br\s*>\s*<\/br>/i);
+  const list = new JSDOM(new MarkdownIt({ html: true }).render(markdown)).window.document.querySelector('ol');
+  assert.equal(list.querySelectorAll('li br').length, 1);
+  assert.equal(list.querySelector('li').textContent, 'FirstSecond');
+});
+test('custom ordered numbering leaves nested unordered lists intact', () => {
+  const result = extract('<main><article data-message-author-role="assistant"><ol><li>First<ul><li>Nested A</li><li>Nested B</li></ul></li><li>Second</li></ol></article></main>');
+  assert.match(result.messages[0].markdown, /-\s+Nested A/);
+  assert.match(result.messages[0].markdown, /-\s+Nested B/);
+  const rendered = new JSDOM(new MarkdownIt({ html: true }).render(result.messages[0].markdown)).window.document;
+  assert.equal(rendered.querySelectorAll('ul').length, 1);
+  assert.deepEqual([...rendered.querySelectorAll('ul li')].map(item => item.textContent.trim()), ['Nested A', 'Nested B']);
+});
+test('pre-wrap and table Markdown normalization does not rewrite layout HTML', () => {
+  const dom = new JSDOM('<main><article data-message-author-role="user"><div style="white-space:pre-wrap">first\nsecond</div><table><tr><td>a | b</td></tr></table></article></main>', { url: 'https://chatgpt.com/c/123' });
+  const result = extractConversation(dom.window.document, dom.window.location.href, { includeLayout: true });
+  assert.match(result.messages[0].markdown, /first\s+second/);
+  assert.match(result.messages[0].html, /first(?:\n|<br>)second/);
+  assert.match(result.messages[0].html, /a \| b/);
+  dom.window.close();
 });
 test('hidden conversation branches are skipped while extension-collapsed selected turns remain capturable', () => {
   const dom = new JSDOM(`<style>.idea-capture-section-collapsed{display:none}.provider-hidden{display:none}</style><main>
@@ -163,6 +280,13 @@ test('ChatGPT bounds inferred replies to reported user ancestry and excludes pag
   const rediscovered = extractConversation(dom.window.document, dom.window.location.href);
   assert.deepEqual(rediscovered.messages.map(message => message.markdown), ['Q1', 'A1', 'Q2', 'A2']);
   dom.window.close();
+});
+test('ChatGPT inferred reply shell preserves text around a nested prose candidate in order', () => {
+  const result = extract('<main id="thread"><div class="bg-user-message">Prompt</div><div>before<div class="markdown">middle</div>after</div></main>');
+  const replies = result.messages.filter(message => message.role !== 'User');
+  assert.equal(replies.length, 1);
+  assert.match(replies[0].markdown, /before[\s\S]*middle[\s\S]*after/);
+  assert.equal((replies[0].markdown.match(/middle/g) || []).length, 1);
 });
 test('ChatGPT collapses UI-only sibling rows within a prompt interval without reaching the next section or page chrome', () => {
   const dom = new JSDOM(`<main id="thread">
