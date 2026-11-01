@@ -253,3 +253,5 @@ The ChatGPT capture tab now sits on the top border of the visible typing input w
 Root's isolated final-tree verification passed 103 unit tests, the production build, and the full browser suite (`/tmp/idea-border-final-check.log`). Independent Chromium review also covered partial clipping, transparent radius-only inner editors, disabled surfaces, transformed surfaces, readonly decoys, hit testing, and body scrolling with the surface at the top of the viewport. Fixtures are synthetic; no authenticated live ChatGPT page was verified. Generated artifacts remain ignored.
 
 Publication: committed on `fix/chatgpt-input-border-docking` and opened as a stacked PR against `fix/chatgpt-scroll-and-collapse` (PR #4 dependency). The PR remains unmerged. Feedback and CI are checked five minutes after creation.
+
+Feedback check for PR #6 at 2026-11-01 17:57 UTC, five minutes after creation: no issue comments, inline review comments, submitted reviews, or CI checks were listed. No follow-up changes were required. PR #6 remains open and unmerged.
