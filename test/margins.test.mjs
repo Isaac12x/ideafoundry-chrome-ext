@@ -131,7 +131,7 @@ test('gutter hit regions are clipped by scroll containers and the viewport', t =
 test('ChatGPT conversation can scroll the final reply above its fixed composer', async t => {
   const dom = new JSDOM(`<!doctype html><html><body><main id="thread" style="overflow-y:auto;padding-bottom:12px">
     <div data-message-author-role="user">Question</div><div data-message-author-role="assistant">Final answer</div>
-    <form><textarea></textarea></form>
+    <form style="border:1px solid #aaa"><textarea></textarea></form>
   </main></body></html>`, { url: 'https://chatgpt.com/c/1', pretendToBeVisual: true });
   const observers = [];
   Object.defineProperty(dom.window, 'ResizeObserver', { configurable: true, value: class {
@@ -189,7 +189,7 @@ test('ChatGPT conversation can scroll the final reply above its fixed composer',
 test('a sticky composer inside the ChatGPT scroll root keeps its native scrollport geometry', async t => {
   const dom = new JSDOM(`<!doctype html><html><body><main id="thread" style="overflow-y:auto">
     <div data-message-author-role="user">Question</div><div data-message-author-role="assistant">Final answer</div>
-    <form style="position:sticky;bottom:0"><textarea></textarea></form>
+    <form style="position:sticky;bottom:0;border:1px solid #aaa"><textarea></textarea></form>
   </main></body></html>`, { url: 'https://chatgpt.com/c/1', pretendToBeVisual: true });
   Object.defineProperty(dom.window, 'innerWidth', { configurable: true, value: 1200 });
   Object.defineProperty(dom.window, 'innerHeight', { configurable: true, value: 800 });
@@ -214,6 +214,79 @@ test('a sticky composer inside the ChatGPT scroll root keeps its native scrollpo
   await new Promise(resolve => dom.window.requestAnimationFrame(resolve));
   assert.equal(thread.hasAttribute('data-idea-capture-scroll-clearance'), false, 'scroll updates do not introduce clearance that shifts the sticky edge');
   assert.equal(thread.style.paddingBottom, '');
+});
+
+test('ChatGPT docks the closed tab to the visible rounded input surface, not its broad composer or code textbox', async t => {
+  const dom = new JSDOM(`<!doctype html><html><body><main id="thread">
+    <div data-message-author-role="user">Question</div><div data-message-author-role="assistant">Answer</div>
+    <form class="composer" style="background:#f6f7f6"><div class="input-surface" data-visible-input-border style="border:1px solid #aeb8b0;border-radius:22px;background:white">
+      <div contenteditable="true" aria-label="Message composer">Ask anything</div><div>Send</div></div>
+      <pre role="textbox" aria-readonly="true">readonly code textbox decoy</pre>
+    </form>
+  </main></body></html>`, { url: 'https://chatgpt.com/g/demo/c/1', pretendToBeVisual: true });
+  Object.defineProperty(dom.window, 'innerWidth', { configurable: true, value: 1200 });
+  Object.defineProperty(dom.window, 'innerHeight', { configurable: true, value: 800 });
+  const { document } = dom.window;
+  const thread = document.querySelector('#thread');
+  const form = document.querySelector('.composer');
+  const surface = document.querySelector('[data-visible-input-border]');
+  const editor = surface.querySelector('[contenteditable="true"]');
+  const code = form.querySelector('pre');
+  setRect(thread, { left: 120, right: 1080, top: 0, bottom: 800 });
+  setRect(form, { left: 0, right: 1200, top: 650, bottom: 800 });
+  setRect(surface, { left: 250, right: 950, top: 690, bottom: 790 });
+  setRect(editor, { left: 270, right: 930, top: 700, bottom: 748 });
+  setRect(code, { left: 250, right: 950, top: 755, bottom: 785 });
+
+  const controls = createCaptureControls(document, dom.window);
+  t.after(() => { controls.destroy(); dom.window.close(); });
+  await new Promise(resolve => dom.window.requestAnimationFrame(resolve));
+  const panel = document.querySelector('[data-idea-capture-owned="host"]').shadowRoot.querySelector('#idea-capture-panel');
+  assert.equal(panel.classList.contains('is-docked'), true);
+  assert.equal(surface.getAttribute('data-visible-input-border'), '');
+  assert.equal(panel.style.getPropertyValue('--dock-right'), '262px', 'tab right edge follows the bordered input surface, not the viewport-wide form');
+  assert.equal(panel.style.getPropertyValue('--dock-bottom'), '109px', 'tab overlaps the visible input surface top border by one pixel');
+  assert.equal(thread.hasAttribute('data-idea-capture-scroll-clearance'), false, 'input anchoring does not alter native scroll geometry');
+});
+
+test('ChatGPT keeps the open capture panel usable when no input edge is available', async t => {
+  const dom = new JSDOM('<!doctype html><html><body><main><p>Conversation without a composer</p></main></body></html>', { url: 'https://chatgpt.com/c/1', pretendToBeVisual: true });
+  const controls = createCaptureControls(dom.window.document, dom.window);
+  t.after(() => { controls.destroy(); dom.window.close(); });
+  const panel = dom.window.document.querySelector('[data-idea-capture-owned="host"]').shadowRoot.querySelector('#idea-capture-panel');
+  await new Promise(resolve => dom.window.requestAnimationFrame(resolve));
+  assert.equal(panel.hidden, true, 'a closed launcher does not suggest an input edge that is absent');
+  controls.open();
+  assert.equal(panel.hidden, false, 'opening the capture controls remains available to callers');
+});
+
+test('ChatGPT hides the closed tab when the prompt has no painted edge and retains its identity while disabled', async t => {
+  const dom = new JSDOM(`<!doctype html><html><body><main><form data-testid="composer">
+    <div id="surface" style="border-radius:20px"><textarea id="prompt-textarea"></textarea></div>
+  </form></main></body></html>`, { url: 'https://chatgpt.com/c/1', pretendToBeVisual: true });
+  Object.defineProperty(dom.window, 'innerWidth', { configurable: true, value: 1200 });
+  Object.defineProperty(dom.window, 'innerHeight', { configurable: true, value: 800 });
+  const { document } = dom.window;
+  const surface = document.querySelector('#surface');
+  const prompt = document.querySelector('#prompt-textarea');
+  setRect(surface, { left: 250, right: 950, top: 690, bottom: 790 });
+  setRect(prompt, { left: 270, right: 930, top: 700, bottom: 748 });
+  const controls = createCaptureControls(document, dom.window);
+  t.after(() => { controls.destroy(); dom.window.close(); });
+  const panel = document.querySelector('[data-idea-capture-owned="host"]').shadowRoot.querySelector('#idea-capture-panel');
+  await new Promise(resolve => dom.window.requestAnimationFrame(resolve));
+  assert.equal(panel.hidden, true, 'a decorative radius without painted fill, border, or shadow is not an input edge');
+
+  surface.style.border = '1px solid rgb(180, 190, 180)';
+  await new Promise(resolve => dom.window.requestAnimationFrame(resolve));
+  await new Promise(resolve => dom.window.requestAnimationFrame(resolve));
+  assert.equal(panel.hidden, false);
+  assert.equal(panel.style.getPropertyValue('--dock-bottom'), '109px');
+  prompt.disabled = true;
+  await new Promise(resolve => dom.window.requestAnimationFrame(resolve));
+  await new Promise(resolve => dom.window.requestAnimationFrame(resolve));
+  assert.equal(panel.hidden, false, 'generation disabling the prompt does not discard its visible surface');
+  assert.equal(panel.style.getPropertyValue('--dock-bottom'), '109px');
 });
 
 test('an absolute composer inside a sticky wrapper also keeps the scroll root unchanged', async t => {
