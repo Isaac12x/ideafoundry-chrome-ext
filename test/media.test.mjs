@@ -151,35 +151,39 @@ test('all failed media exports only Markdown with visible unavailable notes', as
   assert.doesNotMatch(new TextDecoder().decode(files[0].bytes), /\{\{idea-media:/);
 });
 
-test('fetch media is bounded and records a visible failure instead of buffering an oversized body', async () => {
-  const fetchImpl = async () => new Response(new Uint8Array([1]), { headers: { 'content-type': 'image/png', 'content-length': String(8 * 1024 * 1024 + 1) } });
+test('fetch media larger than the former per-file cap is retained', async () => {
+  const payload = new Uint8Array(8 * 1024 * 1024 + 1);
+  const fetchImpl = async () => new Response(payload, { headers: { 'content-type': 'image/png', 'content-length': String(payload.length) } });
   const input = conversation([{ id: 'large', kind: 'image', url: 'https://cdn.example/large.png' }]);
   const resolved = await resolveMedia(input, fetchImpl);
-  assert.match(resolved.media[0].error, /8 MB/);
-  assert.match(new TextDecoder().decode(mediaFileEntries(resolved)[0].bytes), /Media unavailable/);
+  assert.equal(resolved.media[0].error, undefined);
+  assert.equal(resolved.media[0].size, payload.length);
 });
 
-test('aggregate retrieval budget includes streamed bytes from failed attempts and stops later downloads', async () => {
-  const chunk = new Uint8Array(8 * 1024 * 1024);
-  const media = [0, 1, 2, 3].map(index => ({ id: `m${index}`, kind: 'image', url: `https://cdn.example/${index}.png` }));
+test('media retrieval has no former aggregate size or item count caps', async () => {
+  const chunk = new Uint8Array(7 * 1024 * 1024);
+  const media = Array.from({ length: 51 }, (_, index) => ({ id: `m${index}`, kind: 'image', url: `https://cdn.example/${index}.png` }));
   const input = conversation(media);
   let calls = 0;
-  let cancelled = false;
-  const fetchImpl = async () => {
-    const call = calls++;
-    const stream = call < 2
-      ? new ReadableStream({ start(controller) { controller.enqueue(chunk); controller.close(); } })
-      : new ReadableStream({
-        start(controller) { controller.enqueue(new Uint8Array(4 * 1024 * 1024)); controller.enqueue(new Uint8Array([1])); },
-        cancel() { cancelled = true; },
-      });
-    return new Response(stream, { headers: { 'content-type': 'image/png' } });
-  };
-  const resolved = await resolveMedia(input, fetchImpl);
-  assert.equal(calls, 3, 'no fourth request starts after the aggregate budget is spent');
-  assert.equal(cancelled, true, 'the response stream that crosses the remaining budget is cancelled');
-  assert.match(resolved.media[2].error, /20 MB total/);
-  assert.match(resolved.media[3].error, /20 MB total/);
+  // Three large objects exceed the old 20 MB aggregate budget; the remaining files
+  // make the same capture exceed the former 50-item limit.
+  const fullFetch = async () => { const index = calls++; return new Response(index < 3 ? chunk : new Uint8Array([index]), { headers: { 'content-type': 'image/png' } }); };
+  const resolved = await resolveMedia(input, fullFetch);
+  assert.equal(resolved.media.length, 51);
+  assert.equal(resolved.media[0].size, chunk.length);
+  assert.equal(resolved.media[1].size, chunk.length);
+  assert.equal(resolved.media[2].size, chunk.length);
+  assert.equal(resolved.media[50].error, undefined);
+});
+
+test('ZIP archives use ZIP64 end records when the entry count exceeds classic ZIP capacity', async () => {
+  const zip = makeZip(Array.from({ length: 0xffff }, (_, index) => ({ name: `m${index}`, bytes: new Uint8Array(0) })));
+  const bytes = new Uint8Array(await zip.arrayBuffer());
+  const view = new DataView(bytes.buffer);
+  assert.equal(view.getUint32(bytes.length - 98, true), 0x06064b50);
+  assert.equal(view.getBigUint64(bytes.length - 98 + 24, true), 0xffffn);
+  assert.equal(view.getUint32(bytes.length - 22, true), 0x06054b50);
+  assert.equal(view.getUint16(bytes.length - 22 + 8, true), 0xffff);
 });
 
 test('PDF content keeps surrounding text around an inline image resource', () => {

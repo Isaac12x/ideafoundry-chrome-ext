@@ -255,3 +255,13 @@ Root's isolated final-tree verification passed 103 unit tests, the production bu
 Publication: committed on `fix/chatgpt-input-border-docking` and opened as a stacked PR against `fix/chatgpt-scroll-and-collapse` (PR #4 dependency). The PR remains unmerged. Feedback and CI are checked five minutes after creation.
 
 Feedback check for PR #6 at 2026-11-01 17:57 UTC, five minutes after creation: no issue comments, inline review comments, submitted reviews, or CI checks were listed. No follow-up changes were required. PR #6 remains open and unmerged.
+
+## 2026-11-01 — capture size and count caps
+
+Removed the 24 MB serialized-conversation rejection from background capture/export, page-owned media 8 MB limits, 50-item/8 MB-per-item/20 MB aggregate media retrieval caps, the 20 MB rendered-export cap, the 51-file KB upload cap, and the 20-million-pixel/8 MB rasterized PDF media caps. README now explains that the extension does not impose media size/count limits while browser memory, download, and destination-service constraints still apply. Page/media processing keeps same-origin and URL validation, SVG sanitization, MIME checks, and request timeouts.
+
+Added ZIP64 metadata for entry counts and sizes beyond classic ZIP fields, indexed-loop base64 decoding for KB upload and print rendering, destination-specific Markdown media entry construction, unit regressions for media above the former byte/count thresholds and 65,535-entry archives, and browser regressions for KB uploads with 51 media companions, a 24.1 MB capture returned through `executeScript`, and a 24.1 MB Markdown export through the background handler with its ending sentinel intact.
+
+`npm run check` passed (104 tests and production build), and the final `npm run test:browser` passed. The first browser run exposed and led to correction of a fixture wait that assumed a second section header. Existing `src/background.js` action-menu serialization edits predate this task and must remain out of its eventual commit. No commit or push has been made.
+
+Publication update: root confirmed the exact implementation tree passes `npm run check` (104 tests and production build) and the full `npm run test:browser` suite (`/tmp/idea-unlimited-final-check.log`). The changes are committed on `fix/remove-capture-limits` and published as a stacked PR against `fix/chatgpt-input-border-docking` (PR #6 dependency). The pre-existing action-menu serialization change in `src/background.js` remains unstaged and uncommitted. PR feedback and checks will be reviewed after five minutes.
