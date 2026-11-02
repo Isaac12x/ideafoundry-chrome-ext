@@ -1,5 +1,5 @@
-import { defaults, withDefaults, validateSettings, validateJob, httpUrl, urlMatchesCaptureSites, resolveCaptureSites } from './shared.js';
-import { uploadInApp } from './kb-upload.js';
+import { defaults, withDefaults, validateSettings, validateJob, validateTarget, normalizeProjects, httpUrl, urlMatchesCaptureSites, resolveCaptureSites } from './shared.js';
+import { uploadInApp, listProjectsInApp } from './kb-upload.js';
 import { mediaOrigins } from './media.js';
 import { handleActionClick } from './action.js';
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -122,18 +122,43 @@ async function sendToKB(conversation, format, target = {}) {
   await permitted(config.appUrl);
   const dest = { appUrl: config.appUrl, source: target.source ?? config.source, directory: target.directory ?? config.directory };
   const file = await render(conversation, format, false, dest);
+  return withAppTab(config, async tabId => {
+    const results = await chrome.scripting.executeScript({ target: { tabId }, func: uploadInApp, args: [file, dest] });
+    if (!results[0]?.result) throw new Error('Upload did not finish. Check the KB before retrying.');
+    if (!results[0].result.ok) throw new Error(results[0].result.error);
+    return results[0].result;
+  });
+}
+// Runs fn(tabId) in an open app tab, or in a hidden one that is closed afterwards.
+async function withAppTab(config, fn) {
   const tabs = await chrome.tabs.query({ url: `${config.appUrl}/*` });
   let tab = tabs[0];
   const created = !tab;
   if (created) tab = await chrome.tabs.create({ url: `${config.appUrl}/knowledge-base`, active: false });
   try {
     await loaded(tab.id);
-    const results = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: uploadInApp, args: [file, dest] });
-    if (!results[0]?.result) throw new Error('Upload did not finish. Check the KB before retrying.');
-    if (!results[0].result.ok) throw new Error(results[0].result.error);
-    return results[0].result;
+    return await fn(tab.id);
   } finally {
     if (created) await chrome.tabs.remove(tab.id).catch(() => {});
+  }
+}
+// Projects for the widget's "Save to" menu: the cached list plus the remembered choice, refreshed through an app tab.
+// A hidden tab is opened only when allowHiddenTab (the user opened the menu); failure is a reason, never an error.
+async function kbProjects(allowHiddenTab) {
+  const config = validateSettings(await settings());
+  const { lastKbTarget, kbProjectsCache } = await chrome.storage.local.get(['lastKbTarget', 'kbProjectsCache']);
+  const cached = kbProjectsCache?.appUrl === config.appUrl ? normalizeProjects(kbProjectsCache.projects) : [];
+  const base = { defaultDirectory: config.directory, remembered: lastKbTarget || null, projects: cached, fresh: false };
+  try {
+    await permitted(config.appUrl);
+    if (!allowHiddenTab && !(await chrome.tabs.query({ url: `${config.appUrl}/*` })).length) return base;
+    const result = await withAppTab(config, async tabId => (await chrome.scripting.executeScript({ target: { tabId }, func: listProjectsInApp, args: [{ appUrl: config.appUrl }] }))[0]?.result);
+    if (!result?.ok) return { ...base, unavailable: result?.error || 'Projects could not be loaded.' };
+    const projects = normalizeProjects(result.projects);
+    await chrome.storage.local.set({ kbProjectsCache: { appUrl: config.appUrl, projects } });
+    return { ...base, projects, fresh: true };
+  } catch (error) {
+    return { ...base, unavailable: error.message };
   }
 }
 async function permissionFilteredMedia(conversation) {
@@ -294,6 +319,16 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
       if (!sender.tab?.id) throw new Error('Capture settings are available only to an open page.');
       return { captureSites: resolveCaptureSites(await settings()) };
     }
+    if (message.type === 'kb-projects') {
+      if (!sender.tab?.id) throw new Error('Projects are available only to an open page.');
+      return kbProjects(message.hidden === true);
+    }
+    if (message.type === 'kb-remember') {
+      if (!sender.tab?.id) throw new Error('The destination can be changed only from an open page.');
+      const target = message.target == null ? { default: true } : { ...validateTarget(message.target), name: String(message.target.name || '').slice(0, 200) };
+      await chrome.storage.local.set({ lastKbTarget: target });
+      return {};
+    }
     if (message.type === 'open-settings') { await chrome.runtime.openOptionsPage(); return {}; }
     if (message.type === 'widget-export') {
       if (!sender.tab?.id || !['download', 'kb'].includes(message.destination)) throw new Error('Capture must be started from the page widget.');
@@ -305,7 +340,8 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
       const filteredConversation = await permissionFilteredMedia(conversation);
       if (message.destination === 'kb') {
         if (message.format === 'pdf') throw new Error('PDF uses the browser print dialog. Choose Markdown or HTML for direct knowledge-base delivery, or save the print view as PDF first.');
-        const saved = await sendToKB(filteredConversation, message.format);
+        const target = validateTarget(message.target);
+        const saved = await sendToKB(filteredConversation, message.format, target);
         return { name: saved.name, appUrl: saved.appUrl };
       }
       if (message.format === 'pdf') return printPdf(filteredConversation).then(() => ({ name: `${filteredConversation.title || 'conversation'}.pdf`, printDialog: true }));

@@ -56,6 +56,10 @@ const app = createServer(async (req, res) => {
     </main>`);
   }
   if (locked) { res.writeHead(423, { 'Content-Type': 'application/json' }); return res.end('{"error":"Workspace locked"}'); }
+  if (req.method === 'GET' && new URL(req.url, 'http://fixture').pathname === '/knowledge-base/project-list') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    return res.end(JSON.stringify({ projects: [{ source: 0, rel: 'Ferment', name: 'Ferment', locked: false }, { source: 1, rel: 'Deep/Sealed <b>', name: 'Sealed <b>', locked: true }] }));
+  }
   if (req.method === 'GET' && req.headers.accept === 'application/json') { res.writeHead(406); return res.end('No JSON template'); }
   if (req.method === 'POST') {
     if (req.headers['x-csrf-token'] !== 'fixture-csrf') { res.writeHead(403); return res.end(); }
@@ -200,6 +204,15 @@ try {
         </style><main id="thread">${Array.from({ length: 3 }, (_, i) => `<article class="turn" data-testid="conversation-turn-${i + 1}"><h2>${i % 2 ? 'ChatGPT said:' : 'You said:'}</h2><p>Turn ${i + 1}.</p>${i === 0 ? '<form class="edit-form"><div contenteditable="true" aria-label="Edit message" style="min-height:30px;padding:4px">editing a sent message</div></form>' : ''}</article>`).join('')}</main>
         <${kind === 'real-noform' ? 'div' : 'form'} data-type="unified-composer"><div style="margin:0 -22px;padding:0 22px;${wrapPaint}"><div style="display:contents"><div class="pill"><div class="inner">${row}</div></div></div></div></${kind === 'real-noform' ? 'div' : 'form'}>` });
     }
+    if (path.endsWith('/c/clipped-first')) return route.fulfill({ status: 200, contentType: 'text/html', body: `<!doctype html><title>Clipped first · ChatGPT</title><style>
+      *{box-sizing:border-box}html,body{margin:0;height:100%;font:15px system-ui;background:#f6f7f6}.box{border:1px solid #aeb8b0;border-radius:22px;background:#fff;padding:10px}
+      .clip{position:fixed;top:0;left:100px;width:600px;height:70px;overflow:hidden}.clip .box{margin-top:-30px;height:80px}.ok{position:fixed;left:100px;bottom:20px;width:600px}
+      </style><main id="thread"><article data-testid="conversation-turn-1"><p>Hello</p></article></main><div class="clip"><form><div class="box"><div id="prompt-textarea" contenteditable="true">clipped</div></div></form></div>
+      <form class="ok"><div class="box" id="visible"><div contenteditable="true" aria-label="Message composer">Ask anything</div></div></form>` });
+    if (path.endsWith('/c/no-turns')) return route.fulfill({ status: 200, contentType: 'text/html', body: `<!doctype html><title>No turns · ChatGPT</title><style>
+      *{box-sizing:border-box}html,body{margin:0;height:100%;font:15px system-ui;background:#f6f7f6}
+      form{position:fixed;left:100px;bottom:20px;width:600px}.box{border:1px solid #aeb8b0;border-radius:22px;background:#fff;padding:10px}
+      </style><div><form><div class="box" id="visible"><div id="prompt-textarea" contenteditable="true">Ask anything</div></div></form></div>` });
     if (path.endsWith('/c/input-border-anchor')) return route.fulfill({ status: 200, contentType: 'text/html', body: `<!doctype html><title>Composer border anchor repro · ChatGPT</title><style>
       *{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;font:15px/1.5 system-ui,sans-serif;color:#202522;background:#f6f7f6}
       #thread{height:100vh;overflow:auto;overscroll-behavior:contain;padding:24px 20px 0}.messages{width:min(760px,100%);margin:0 auto}.turn{padding:12px 18px;margin:0 0 18px;background:#fff;border-radius:12px}.turn h2{font-size:11px;color:#707a72}.turn p{margin:0 0 18px}
@@ -462,6 +475,15 @@ try {
   await actualLayout.waitForFunction(() => getComputedStyle(document.querySelector('.idea-capture-section-collapsed')).display === 'none');
   assert.equal(await actualLayout.locator('.user-message-bubble').nth(0).isVisible(), false, 'the prompt-side header toggle collapses its whole prompt and response group');
   assert.equal(await actualLayout.locator('.user-message-bubble').nth(1).isVisible(), true, 'the next prompt stays visible');
+  // React re-renders rewrite className and drop the collapsed class; the section must stay collapsed.
+  await actualLayout.evaluate(() => { const node = document.querySelector('.idea-capture-section-collapsed'); node.dataset.reactRewrite = ''; node.className = node.className.replace('idea-capture-section-collapsed', '').trim(); });
+  await actualLayout.waitForFunction(() => document.querySelector('[data-react-rewrite]')?.classList.contains('idea-capture-section-collapsed'), null, { timeout: 2000 });
+  assert.equal(await actualLayout.locator('.user-message-bubble').nth(0).isVisible(), false, 'collapse survives a provider className rewrite');
+  const railOverSidebar = await actualLayout.evaluate(() => {
+    const rail = document.querySelector('[data-idea-capture-owned="host"]').shadowRoot.querySelector('#idea-capture-margin-controls');
+    return !rail.hidden && rail.getBoundingClientRect().left < document.querySelector('main.sidebar').getBoundingClientRect().right;
+  });
+  assert.equal(railOverSidebar, false, 'the side rail never sits over the history sidebar');
   await actualHeader.nth(0).locator('button[data-idea-section-id]').click();
   await actualLayout.waitForFunction(() => !document.querySelector('.idea-capture-section-collapsed'));
   const actualGutters = await actualLayout.evaluate(() => {
@@ -869,7 +891,10 @@ try {
   const pillTab = await tabSample(pill, '.input-surface');
   const claudeTab = await tabSample(claudeComposer, '.composer [contenteditable="true"]');
   assert.equal(pillTab.docked && claudeTab.docked, true, `both providers dock: ${JSON.stringify({ pillTab, claudeTab })}`);
-  for (const key of ['tl', 'tr', 'bl', 'br', 'height', 'width', 'fontSize', 'fontWeight', 'label', 'labelOpacity', 'buttonHeight', 'buttonWidth', 'shadow']) assert.equal(pillTab[key], claudeTab[key], `ChatGPT tab matches Claude tab on ${key}: ${JSON.stringify({ pillTab, claudeTab })}`);
+  for (const key of ['tl', 'tr', 'bl', 'br', 'height', 'width', 'fontSize', 'fontWeight', 'label', 'labelOpacity', 'buttonHeight', 'buttonWidth']) assert.equal(pillTab[key], claudeTab[key], `ChatGPT tab matches Claude tab on ${key}: ${JSON.stringify({ pillTab, claudeTab })}`);
+  // Borderless pill: the tab reuses the pill's own ring, clipped at its bottom, so both read as one outline.
+  const pillRing = await pill.evaluate(() => getComputedStyle(document.querySelector('.input-surface')).boxShadow);
+  assert.equal(pillTab.shadow, pillRing, `ChatGPT tab reuses the pill ring: ${JSON.stringify({ pillTab, pillRing })}`);
   // Measured on the real Claude screenshot (2x, ~1.32 px per CSS px): tab 235x31, corner ~7px, clearance ~12, button 50x23.5.
   assert.equal(pillTab.tl, '8px', `tab corner radius (measured ~7px +-1; formula floors at 8): ${pillTab.tl}`);
   assert.equal(pillTab.bl, '0px', 'tab bottom corners are flat');
@@ -878,6 +903,13 @@ try {
   // The tab's right edge sits exactly one composer radius in from the composer edge, so its flat bottom meets the straight border.
   assert.ok(Math.abs(pillTab.clearance - pillTab.radius) < .5 && Math.abs(claudeTab.clearance - claudeTab.radius) < .5, `clearance equals the composer radius: ${JSON.stringify({ pillTab, claudeTab })}`);
   assert.equal(pillTab.radius, 28, 'the pill fixture really has a 28px radius');
+  // Reported live: docked on load, then a later restyle dropped it to the bottom-right card.
+  await pill.evaluate(() => { const s = document.querySelector('.input-surface').style; s.boxShadow = 'none'; s.border = '0'; s.background = 'transparent'; });
+  await framesOf(pill);
+  await pill.evaluate(() => new Promise(resolve => setTimeout(resolve, 300)));
+  assert.equal(await pill.evaluate(() => !!document.querySelector('[data-idea-capture-owned="host"]').shadowRoot.querySelector('#idea-capture-panel.is-docked')), true, 'a late composer restyle keeps the tab docked');
+  await pill.evaluate(() => { const s = document.querySelector('.input-surface').style; s.boxShadow = s.border = s.background = ''; });
+  await framesOf(pill);
   assert.equal(pillTab.bg, await pill.evaluate(() => getComputedStyle(document.querySelector('.composer')).backgroundColor), `transparent pill surface uses the colour behind it: ${JSON.stringify(pillTab)}`);
   await pill.screenshot({ path: 'artifacts/widget-parity-chatgpt.png' });
   await claudeComposer.screenshot({ path: 'artifacts/widget-parity-claude.png' });
@@ -968,6 +1000,14 @@ try {
     assert.equal(refused.tab.docked, false, `${path} keeps the compact launcher: ${JSON.stringify(refused.tab)}`);
     await refused.page.close();
   }
+  // A clipped top-ranked editor must not abort detection: the next valid prompt still docks.
+  const clippedFirst = await loadChatGpt('clipped-first', '#visible');
+  assert.ok(clippedFirst.tab.docked && Math.abs(clippedFirst.tab.gap + 1) <= 1, `the tab docks to the visible composer when the top-ranked one is clipped: ${JSON.stringify(clippedFirst.tab)}`);
+  await clippedFirst.page.close();
+  // No turns/#thread/main: the conversation root falls back to the Document, which must not abort docking.
+  const noTurns = await loadChatGpt('no-turns', '#visible');
+  assert.ok(noTurns.tab.docked && Math.abs(noTurns.tab.gap + 1) <= 1, `the tab docks when no conversation root exists: ${JSON.stringify(noTurns.tab)}`);
+  await noTurns.page.close();
   const decoy = await loadChatGpt('real-decoy', 'form[data-type="unified-composer"]', false);
   assert.equal(decoy.tab.docked, false, `a plain form editor and an in-conversation edit form never dock: ${JSON.stringify(decoy.tab)}`);
   await decoy.page.close();
@@ -1589,6 +1629,32 @@ try {
   assert.match(widgetUpload, /Widget should keep this long research turn/);
   assert.match(widgetUpload, /Research evidence 72/);
   assert.doesNotMatch(widgetUpload, /Widget should exclude this turn|This answer should not be uploaded/);
+
+  const targetSelect = widget.locator('[data-kb-target]');
+  await targetSelect.focus(); // opening the menu is what fetches the list
+  await targetSelect.locator('option', { hasText: 'Ferment' }).waitFor({ state: 'attached', timeout: 15000 });
+  assert.deepEqual(await targetSelect.locator('option').allTextContents(), ['Default folder', 'Ferment', 'Sealed <b> (locked)'], 'the Save to menu lists the default, projects, and locked projects');
+  assert.equal(await targetSelect.locator('option').nth(2).evaluate(option => option.disabled), true, 'locked projects cannot be chosen');
+  assert.equal(await widget.locator('[data-kb-target-hint]').count(), 1);
+  await targetSelect.selectOption({ label: 'Ferment' });
+  const projectUploadCount = uploads.length;
+  await widget.locator('[data-action="send-kb"]').click();
+  await target.waitForFunction(() => /Saved to project Ferment:/i.test(document.querySelector('#idea-capture-controls')?.shadowRoot?.querySelector('[data-capture-status]')?.textContent || ''), null, { timeout: 10000 });
+  assert.equal(uploads.length, projectUploadCount + 1);
+  assert.match(uploads.at(-1).toString(), /name="src"\r\n\r\n0\r\n[\s\S]*name="dir"\r\n\r\nFerment\r\n/, 'the capture is uploaded into the chosen project folder');
+  assert.deepEqual(await ui.evaluate(async () => (await chrome.storage.local.get('lastKbTarget')).lastKbTarget), { source: 0, directory: 'Ferment', name: 'Ferment' }, 'the choice is remembered on change');
+  const fresh = await context.newPage(); // a new page: the widget is rebuilt and must show the remembered project at once
+  await fresh.goto(target.url());
+  const reopened = fresh.locator('#idea-capture-panel');
+  await reopened.locator('[data-action="toggle-panel"]').waitFor({ state: 'attached' });
+  if (await reopened.locator('[data-action="toggle-panel"]').getAttribute('aria-expanded') !== 'true') await reopened.locator('[data-action="toggle-panel"]').click();
+  await fresh.waitForFunction(() => document.querySelector('#idea-capture-controls')?.shadowRoot?.querySelector('[data-kb-target]')?.selectedOptions[0]?.textContent === 'Ferment', null, { timeout: 10000 });
+  await reopened.locator('[data-kb-target]').selectOption({ label: 'Default folder' });
+  assert.deepEqual(await ui.evaluate(async () => (await chrome.storage.local.get('lastKbTarget')).lastKbTarget), { default: true }, 'the default folder is stored as an explicit choice');
+  await reopened.locator('[data-kb-target]').focus();
+  await reopened.locator('[data-kb-target] option', { hasText: 'Sealed' }).waitFor({ state: 'attached' });
+  await fresh.close();
+  await targetSelect.selectOption({ label: 'Default folder' });
 
   await widget.locator('[name="format"][value="html"]').check();
   const htmlUploadCount = uploads.length;

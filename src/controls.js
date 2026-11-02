@@ -1,6 +1,6 @@
 import { chatGptConversationRoot, extractConversation, isCollapsibleCodePanel, isReadOnlyCodeSurface } from './extract.js';
 import { collectDiagnostics } from './diagnostics.js';
-import { markdown } from './shared.js';
+import { markdown, chooseProject } from './shared.js';
 
 const HOST_ID = 'idea-capture-controls';
 const COLLAPSED_CLASS = 'idea-capture-section-collapsed';
@@ -24,6 +24,7 @@ export function createCaptureControls(doc = document, win = window) {
   const headers = new Map();
   const nodeIds = new WeakMap();
   const classStates = new Map();
+  const shouldCollapse = new Set(); // nodes applyCollapse last hid
   let nextNodeId = 1;
   let timer;
   let refreshing = false;
@@ -76,7 +77,7 @@ export function createCaptureControls(doc = document, win = window) {
         .tools{display:flex;gap:6px;flex-wrap:wrap;padding:10px 12px 7px}
         .tools button{min-height:28px;padding:4px 7px;font-size:10px}
         .count{padding:2px 14px 9px;color:var(--muted);font-size:11px}
-        .capture-meta{padding:13px 18px 5px}.capture-meta h2{margin:0 0 4px;font:500 19px/1.2 Georgia,"Iowan Old Style",serif;overflow-wrap:anywhere}.capture-meta p{margin:0;color:var(--muted);font-size:11px}.capture-tools{padding:12px 18px 14px;border-top:1px solid var(--line)}.capture-tools .format{display:flex;gap:8px;margin:0 0 10px}.capture-tools label{display:flex;align-items:center;gap:6px;padding:7px 10px;border:1px solid var(--line);background:#f7f7f0;cursor:pointer}.capture-tools label:has(:checked){border-color:var(--forest);background:var(--wash)}.capture-tools .format-hint{margin:0 0 9px;color:var(--muted);font-size:11px}.capture-tools .actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}.capture-tools .actions button{min-height:38px;font-size:12px}.capture-tools .actions [data-action="send-kb"]{grid-column:1/-1;background:var(--forest);border-color:var(--forest);color:var(--paper)}.capture-tools .actions [data-action="send-kb"]:disabled{opacity:.55;cursor:not-allowed}.capture-tools .actions [data-action="settings"]{background:transparent}.capture-status{min-height:17px;margin:9px 0 0;color:var(--forest);font-size:11px;overflow-wrap:anywhere}.capture-status.is-error{color:#8a3b28}.preview{margin:0 14px 12px}.preview summary{cursor:pointer;color:var(--muted);font-size:11px}.preview pre{max-height:190px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;background:#f0efe8;padding:10px;font:11px/1.5 ui-monospace,monospace}
+        .capture-meta{padding:13px 18px 5px}.capture-meta h2{margin:0 0 4px;font:500 19px/1.2 Georgia,"Iowan Old Style",serif;overflow-wrap:anywhere}.capture-meta p{margin:0;color:var(--muted);font-size:11px}.capture-tools{padding:12px 18px 14px;border-top:1px solid var(--line)}.capture-tools .format{display:flex;gap:8px;margin:0 0 10px}.capture-tools label{display:flex;align-items:center;gap:6px;padding:7px 10px;border:1px solid var(--line);background:#f7f7f0;cursor:pointer}.capture-tools label:has(:checked){border-color:var(--forest);background:var(--wash)}.capture-tools .format-hint{margin:0 0 9px;color:var(--muted);font-size:11px}.capture-tools label.kb-target,.capture-tools label.kb-target:has(:checked){display:flex;border:0;background:none;padding:0;margin:0 0 4px;cursor:default;gap:8px;font-size:12px}.kb-target select{flex:1;min-width:0;font:inherit;padding:5px 6px;border:1px solid var(--line);background:#f7f7f0;color:inherit}.capture-tools .actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}.capture-tools .actions button{min-height:38px;font-size:12px}.capture-tools .actions [data-action="send-kb"]{grid-column:1/-1;background:var(--forest);border-color:var(--forest);color:var(--paper)}.capture-tools .actions [data-action="send-kb"]:disabled{opacity:.55;cursor:not-allowed}.capture-tools .actions [data-action="settings"]{background:transparent}.capture-status{min-height:17px;margin:9px 0 0;color:var(--forest);font-size:11px;overflow-wrap:anywhere}.capture-status.is-error{color:#8a3b28}.preview{margin:0 14px 12px}.preview summary{cursor:pointer;color:var(--muted);font-size:11px}.preview pre{max-height:190px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;background:#f0efe8;padding:10px;font:11px/1.5 ui-monospace,monospace}
         .list:not(:empty){min-height:96px;max-height:min(38vh,360px);overflow:auto;overscroll-behavior:contain;padding:0 10px 12px}
         .row{display:grid;grid-template-columns:17px minmax(0,1fr) auto;align-items:start;gap:9px;padding:10px 5px;border-top:1px solid #e6ebe5}
         .row input{width:15px;height:15px;margin:2px 0 0;accent-color:var(--forest)}
@@ -97,7 +98,7 @@ export function createCaptureControls(doc = document, win = window) {
         #idea-capture-margin-controls button:active{transform:scale(.96)}
         #idea-capture-panel.is-docked{left:auto;right:var(--dock-right);bottom:var(--dock-bottom);width:min(440px,var(--dock-width))}
         #idea-capture-panel.is-docked:not(:has(.panel-body[hidden])){max-height:var(--dock-max-height)}
-        #idea-capture-panel.is-docked:has(.panel-body[hidden]){width:min(236px,var(--dock-width));background:var(--dock-bg);color:var(--dock-ink);border-color:var(--dock-line);border-bottom-color:transparent;border-radius:var(--dock-radius) var(--dock-radius) 0 0;box-shadow:0 -4px 14px #10251c12}
+        #idea-capture-panel.is-docked:has(.panel-body[hidden]){width:min(236px,var(--dock-width));background:var(--dock-bg);color:var(--dock-ink);border-color:var(--dock-line);border-bottom-color:transparent;border-radius:var(--dock-radius) var(--dock-radius) 0 0;box-shadow:var(--dock-shadow,0 -4px 14px #10251c12);clip-path:var(--dock-clip,none)}
         #idea-capture-panel.is-docked:has(.panel-body[hidden])>header{min-height:30px;padding:3px 4px 3px 13px;border-bottom:0;font-size:11px;font-weight:600;letter-spacing:.02em}
         #idea-capture-panel.is-docked:has(.panel-body[hidden])>header [data-export-status]{font-size:inherit;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
         #idea-capture-panel.is-docked:has(.panel-body[hidden])>header:not(.is-busy):not(.is-error) [data-export-status]{opacity:.72}
@@ -109,7 +110,7 @@ export function createCaptureControls(doc = document, win = window) {
       </style>
       <section id="idea-capture-panel" data-idea-panel aria-label="Conversation capture" hidden>
         <header><span data-export-status>IdeaFoundry / Capture</span><button type="button" data-action="toggle-panel" aria-expanded="false">Open</button></header>
-        <div class="panel-body" hidden><div class="capture-meta"><h2 data-title>Conversation capture</h2><p data-summary></p><p data-warning></p></div><div class="tools"><button type="button" data-action="select-all">Select all</button><button type="button" data-action="select-none">Select none</button><button type="button" data-action="collapse-all">Collapse all</button><button type="button" data-action="expand-all">Expand all</button><button type="button" data-action="copy-diagnostics">Copy diagnostics</button></div><div class="count" aria-live="polite"></div><div class="empty" hidden><p data-empty-message></p><button type="button" data-action="retry">Retry detection</button><button type="button" data-action="copy-diagnostics">Copy diagnostics</button></div><div class="diagnostics"><p data-diagnostics-status aria-live="polite"></p><textarea data-diagnostics-fallback readonly hidden aria-label="Diagnostics to copy manually"></textarea></div><details class="preview" data-preview><summary>Review captured conversation</summary><pre data-preview-text></pre></details><div class="list"></div><div class="capture-tools"><div class="format" role="group" aria-label="File format"><label><input type="radio" name="format" value="md" checked> Markdown</label><label><input type="radio" name="format" value="html"> HTML</label><label><input type="radio" name="format" value="pdf"> PDF</label></div><p class="format-hint" data-format-hint></p><div class="actions"><button type="button" data-action="download">Download file</button><button type="button" data-action="settings">Settings</button><button type="button" data-action="send-kb">Send to knowledge base ↗</button></div><p class="capture-status" data-capture-status role="status" aria-live="polite"></p></div></div>
+        <div class="panel-body" hidden><div class="capture-meta"><h2 data-title>Conversation capture</h2><p data-summary></p><p data-warning></p></div><div class="tools"><button type="button" data-action="select-all">Select all</button><button type="button" data-action="select-none">Select none</button><button type="button" data-action="collapse-all">Collapse all</button><button type="button" data-action="expand-all">Expand all</button><button type="button" data-action="copy-diagnostics">Copy diagnostics</button></div><div class="count" aria-live="polite"></div><div class="empty" hidden><p data-empty-message></p><button type="button" data-action="retry">Retry detection</button><button type="button" data-action="copy-diagnostics">Copy diagnostics</button></div><div class="diagnostics"><p data-diagnostics-status aria-live="polite"></p><textarea data-diagnostics-fallback readonly hidden aria-label="Diagnostics to copy manually"></textarea></div><details class="preview" data-preview><summary>Review captured conversation</summary><pre data-preview-text></pre></details><div class="list"></div><div class="capture-tools"><div class="format" role="group" aria-label="File format"><label><input type="radio" name="format" value="md" checked> Markdown</label><label><input type="radio" name="format" value="html"> HTML</label><label><input type="radio" name="format" value="pdf"> PDF</label></div><p class="format-hint" data-format-hint></p><label class="kb-target">Save to <select data-kb-target aria-describedby="kb-target-hint"><option value="">Default folder</option></select></label><p class="format-hint" id="kb-target-hint" data-kb-target-hint>Applies to Send to knowledge base only; downloads ignore it.</p><div class="actions"><button type="button" data-action="download">Download file</button><button type="button" data-action="settings">Settings</button><button type="button" data-action="send-kb">Send to knowledge base ↗</button></div><p class="capture-status" data-capture-status role="status" aria-live="polite"></p></div></div>
       </section>
       <aside id="idea-capture-margin-controls" aria-label="Conversation section controls" hidden>
         <button type="button" data-idea-section-id aria-expanded="true" aria-label="Collapse current section"></button>
@@ -137,6 +138,13 @@ export function createCaptureControls(doc = document, win = window) {
   const panelHeader = shadow.querySelector('#idea-capture-panel>header');
   const captureActions = shadow.querySelector('.capture-tools');
   const formatHint = shadow.querySelector('[data-format-hint]');
+  const targetSelect = shadow.querySelector('[data-kb-target]');
+  const targetHint = shadow.querySelector('[data-kb-target-hint]');
+  const targetNote = 'Applies to Send to knowledge base only; downloads ignore it.';
+  let projects = [];
+  let loading = null;
+  let firstApply = true;
+  const loaded = { open: false, hidden: false, fresh: false };
   const defaultHeaderLabel = 'IdeaFoundry / Capture';
   let busy = false;
   function setExportFeedback(message, tone = 'idle') {
@@ -163,6 +171,7 @@ export function createCaptureControls(doc = document, win = window) {
     toggleButton.setAttribute('aria-expanded', 'true');
     toggleButton.textContent = 'Close';
     body.hidden = false;
+    void loadProjects(false);
     syncDock();
   }
   function showCaptureStatus(message, tone = 'idle') {
@@ -186,10 +195,59 @@ export function createCaptureControls(doc = document, win = window) {
       previewText.textContent = '';
     }
   }
+  const selectedProject = () => (targetSelect.value === '' ? null : projects[Number(targetSelect.value)] || null);
+  function applyProjects(reply) {
+    if (destroyed) return;
+    const current = selectedProject();
+    const wanted = firstApply ? reply.remembered : current ? { source: current.source, directory: current.rel, name: current.name } : { default: true };
+    firstApply = false;
+    const { list, index, missing } = chooseProject(reply.projects || [], wanted, reply.fresh);
+    projects = list;
+    while (targetSelect.options.length > 1) targetSelect.remove(1);
+    targetSelect.options[0].textContent = reply.defaultDirectory ? `Default folder (${reply.defaultDirectory})` : 'Default folder';
+    for (const [i, project] of projects.entries()) {
+      const option = doc.createElement('option');
+      option.value = String(i);
+      option.textContent = project.locked ? `${project.name} (locked)` : project.name;
+      option.title = project.rel;
+      option.disabled = project.locked;
+      targetSelect.append(option);
+    }
+    targetSelect.value = index >= 0 ? String(index) : '';
+    if (missing) void request({ type: 'kb-remember', target: null }).catch(() => {});
+    targetHint.textContent = [
+      missing ? 'Your last project is no longer available; using the default folder.' : '',
+      reply.unavailable ? `Could not refresh projects (${reply.unavailable})${projects.length ? '' : ' Using the default folder.'}` : '',
+      targetNote,
+    ].filter(Boolean).join(' ');
+  }
+  // On panel open: remembered choice + cached list, refreshed only through an already-open app tab.
+  // hidden: the user opened the menu, so a background app tab may be used. Each at most once per panel open.
+  function loadProjects(hidden) {
+    if (hidden ? loaded.hidden || loaded.fresh : loaded.open) return loading;
+    loaded[hidden ? 'hidden' : 'open'] = true;
+    loading = (loading || Promise.resolve()).then(async () => {
+      let reply;
+      try { reply = await request({ type: 'kb-projects', hidden }); }
+      catch (error) { reply = { projects: [], unavailable: error.message }; }
+      if (reply.fresh) loaded.fresh = true;
+      applyProjects(reply);
+    }).catch(() => {});
+    return loading;
+  }
+  const resetProjectLoads = () => { loaded.open = loaded.hidden = loaded.fresh = false; };
+  const onTargetChange = () => {
+    const project = selectedProject();
+    void request({ type: 'kb-remember', target: project ? { source: project.source, directory: project.rel, name: project.name } : null }).catch(() => {});
+  };
+  const onTargetOpen = () => { void loadProjects(true); };
+  targetSelect.addEventListener('change', onTargetChange);
+  for (const type of ['focus', 'pointerdown']) targetSelect.addEventListener(type, onTargetOpen);
   async function exportFromWidget(destination) {
     if (busy) return;
     busy = true;
     ensurePanelOpen();
+    if (destination === 'kb') await loading; // so Send uses what the select shows
     panel.hidden = false;
     const sendButton = captureActions.querySelector('[data-action="send-kb"]');
     const downloadButton = captureActions.querySelector('[data-action="download"]');
@@ -213,9 +271,11 @@ export function createCaptureControls(doc = document, win = window) {
         setExportFeedback('Uploading to your knowledge base…', 'busy');
         showCaptureStatus('Uploading to your knowledge base…', 'busy');
       }
-      const result = await request({ type: 'widget-export', destination, format, conversation });
+      const project = destination === 'kb' ? selectedProject() : null;
+      const target = project ? { source: project.source, directory: project.rel } : undefined;
+      const result = await request({ type: 'widget-export', destination, format, conversation, target });
       const successMessage = result.printDialog ? 'Print dialog opened. Choose “Save as PDF” to save your file.' : destination === 'kb'
-        ? `Saved to knowledge base: ${result.name}${result.appUrl ? `. Open ${result.appUrl}` : ''}`
+        ? `Saved to ${target ? `project ${project.name}` : 'knowledge base'}: ${result.name}${result.appUrl ? `. Open ${result.appUrl}` : ''}`
         : 'Download started.';
       // Closed mid-export: the tab returns to its label; the panel status keeps the result.
       setExportFeedback(body.hidden ? '' : result.printDialog ? 'Choose “Save as PDF” in the print dialog.' : destination === 'kb' ? `Saved: ${result.name}` : 'Download started.', 'idle');
@@ -258,6 +318,7 @@ export function createCaptureControls(doc = document, win = window) {
     body.hidden = !open;
     // The one-line tab keeps only busy/error state; finished-export text stays in the panel status.
     if (!open && !panelHeader.matches('.is-busy,.is-error')) setExportFeedback('');
+    if (open) void loadProjects(false); else resetProjectLoads();
     syncDock();
   };
   const onRailClick = event => {
@@ -487,13 +548,16 @@ export function createCaptureControls(doc = document, win = window) {
     return [...targets].filter(target => ![...targets].some(ancestor => ancestor !== target && ancestor.contains(target)));
   }
   function applyCollapse() {
+    shouldCollapse.clear();
     for (const section of sections) for (const node of collapseTargets(section)) {
       if (!classStates.has(node)) {
         const hadClass = node.classList.contains(COLLAPSED_CLASS);
         classStates.set(node, hadClass);
         node.setAttribute('data-idea-capture-collapse-state', String(hadClass));
       }
-      node.classList.toggle(COLLAPSED_CLASS, collapsed.get(section.id) === true);
+      const hide = collapsed.get(section.id) === true;
+      node.classList.toggle(COLLAPSED_CLASS, hide);
+      if (hide) shouldCollapse.add(node);
     }
   }
   function median(values) {
@@ -504,14 +568,14 @@ export function createCaptureControls(doc = document, win = window) {
     return /(^|\.)(chatgpt\.com|chat\.openai\.com)$/i.test(new URL(win.location.href).hostname);
   }
   function conversationGeometryRoot() {
-    if (geometryRoot?.isConnected) return geometryRoot;
-    geometryRoot = isChatGptPage()
+    if (!geometryRoot?.isConnected) geometryRoot = isChatGptPage()
       ? chatGptConversationRoot(doc)
       : doc.querySelector('[role="main"]') || doc.querySelector('main');
-    return geometryRoot;
+    // chatGptConversationRoot falls back to the Document, which has no geometry.
+    return geometryRoot?.nodeType === 1 ? geometryRoot : null;
   }
   function isNestedScrollRoot(node) {
-    if (!node) return false;
+    if (node?.nodeType !== 1) return false;
     if (node.matches?.('#thread')) return true;
     const style = win.getComputedStyle?.(node);
     const overflow = `${style?.overflow || ''} ${style?.overflowX || ''} ${style?.overflowY || ''}`;
@@ -665,6 +729,16 @@ export function createCaptureControls(doc = document, win = window) {
     }
     return null;
   }
+  function leftSidebarEdge() {
+    const viewport = win.innerWidth || doc.documentElement.clientWidth;
+    let edge = 0;
+    for (const node of doc.querySelectorAll('nav, aside, [role="navigation"], #stage-slideover-sidebar, [data-testid*="sidebar" i], [class*="sidebar" i]')) {
+      if (node.closest(`[${OWNED}]`)) continue;
+      const rect = node.getBoundingClientRect();
+      if (rect.left <= 1 && rect.width > 0 && rect.height > 0 && rect.right < viewport / 2) edge = Math.max(edge, rect.right);
+    }
+    return edge;
+  }
   function syncRail() {
     if (!sections.length) { rail.hidden = true; return; }
     const section = sections.find(candidate => candidate.id === activeSectionId) || sectionAtViewportCenter();
@@ -674,9 +748,10 @@ export function createCaptureControls(doc = document, win = window) {
     const viewport = win.innerWidth || doc.documentElement.clientWidth;
     if (!bounds) { rail.hidden = true; return; }
     const root = isChatGptPage() ? conversationGeometryRoot() : null;
-    const rootRect = root?.getBoundingClientRect();
+    const rootRect = root?.nodeType === 1 ? root.getBoundingClientRect() : null;
     const clampToRoot = isNestedScrollRoot(root) && rootRect?.width > 0;
-    const rootLeft = clampToRoot ? Math.max(0, rootRect.left) : 0;
+    // Never count ChatGPT's open history sidebar as free margin (the rail would sit over past chats).
+    const rootLeft = Math.max(clampToRoot ? Math.max(0, rootRect.left) : 0, isChatGptPage() ? leftSidebarEdge() : 0);
     const rootRight = clampToRoot ? Math.min(viewport, rootRect.right) : viewport;
     const leftSpace = Math.max(0, bounds.left - rootLeft);
     const rightSpace = Math.max(0, rootRight - bounds.right);
@@ -709,6 +784,22 @@ export function createCaptureControls(doc = document, win = window) {
     const shadow = style.boxShadow && style.boxShadow !== 'none';
     const fill = style.backgroundImage !== 'none' || !clear(style.backgroundColor);
     return border || shadow || fill && round;
+  }
+  // Why an ancestor clip hides this surface's top edge, or '' when it is visible.
+  function clipReason(candidate) {
+    const viewportHeight = win.innerHeight || doc.documentElement.clientHeight;
+    const candidateRect = candidate.getBoundingClientRect();
+    let clip = { left: Math.max(0, candidateRect.left), right: Math.min(win.innerWidth || doc.documentElement.clientWidth, candidateRect.right), top: Math.max(0, candidateRect.top), bottom: Math.min(viewportHeight, candidateRect.bottom) };
+    for (let parent = candidate.parentElement; parent && parent !== doc.documentElement; parent = parent.parentElement) {
+      const parentStyle = win.getComputedStyle(parent);
+      if (!/(hidden|clip|auto|scroll)/.test(`${parentStyle.overflowX} ${parentStyle.overflowY}`)) continue;
+      const parentRect = parent.getBoundingClientRect();
+      clip = { left: Math.max(clip.left, parentRect.left), right: Math.min(clip.right, parentRect.right), top: Math.max(clip.top, parentRect.top), bottom: Math.min(clip.bottom, parentRect.bottom) };
+    }
+    if (clip.right <= clip.left || clip.bottom <= clip.top) return 'surface fully clipped';
+    const topBorder = Number.parseFloat(win.getComputedStyle(candidate).borderTopWidth) || 0;
+    // A few px of shadow/ring spill under an ancestor clip must not drop the dock; a really clipped edge still falls back.
+    return clip.top > candidateRect.top + Math.max(topBorder, 6) ? 'surface top clipped' : '';
   }
   // On ChatGPT, anchor the tab to the nearest outlined input surface. Other
   // providers retain their existing composer selection behavior.
@@ -764,23 +855,11 @@ export function createCaptureControls(doc = document, win = window) {
           }
         }
         if (!surface) { dockWhy = how === 'nearest drawn' ? 'no drawn surface' : how; continue; }
-        const candidate = surface;
-        const candidateRect = candidate.getBoundingClientRect();
-        const left = Math.max(0, candidateRect.left), right = Math.min(win.innerWidth || doc.documentElement.clientWidth, candidateRect.right);
-        const top = Math.max(0, candidateRect.top), bottom = Math.min(viewportHeight, candidateRect.bottom);
-        let clip = { left, right, top, bottom };
-        for (let parent = candidate.parentElement; parent && parent !== doc.documentElement; parent = parent.parentElement) {
-          const parentStyle = win.getComputedStyle(parent);
-          if (!/(hidden|clip|auto|scroll)/.test(`${parentStyle.overflowX} ${parentStyle.overflowY}`)) continue;
-          const parentRect = parent.getBoundingClientRect();
-          clip = { left: Math.max(clip.left, parentRect.left), right: Math.min(clip.right, parentRect.right), top: Math.max(clip.top, parentRect.top), bottom: Math.min(clip.bottom, parentRect.bottom) };
-        }
-        if (clip.right <= clip.left || clip.bottom <= clip.top) { dockWhy = 'surface fully clipped'; continue; }
-        const topBorder = Number.parseFloat(win.getComputedStyle(candidate).borderTopWidth) || 0;
-        // A few px of shadow/ring spill under an ancestor clip must not drop the dock; a really clipped edge still falls back.
-        if (clip.top > candidateRect.top + Math.max(topBorder, 6)) { dockWhy = 'surface top clipped'; return null; }
+        // continue, not abort: editors are already filtered/ranked as prompts, so one clipped candidate must not hide a visible one.
+        const clipped = clipReason(surface);
+        if (clipped) { dockWhy = clipped; continue; }
         dockWhy = how;
-        return candidate;
+        return surface;
       }
       return null;
     }
@@ -811,8 +890,23 @@ export function createCaptureControls(doc = document, win = window) {
     }
     return false;
   }
+  // A transient miss (mid re-render, input briefly hidden) must not drop a dock
+  // that is still on screen to the bottom-right floating card. Applies to every
+  // provider (Claude too), deliberately.
+  function lastDockBox() {
+    const rect = dockBox?.isConnected && dockBox.getBoundingClientRect();
+    const viewportHeight = win.innerHeight || doc.documentElement.clientHeight;
+    if (!rect || rect.width < 160 || rect.height <= 0 || rect.top >= viewportHeight || hasInvisibleAncestor(dockBox) || clipReason(dockBox)) return null;
+    const editorOnScreen = [...dockBox.querySelectorAll('#prompt-textarea, textarea, [contenteditable="true"], [role="textbox"]')].some(input => {
+      const inputRect = input.getBoundingClientRect();
+      return inputRect.width > 0 && inputRect.height > 0 && inputRect.top < viewportHeight && inputRect.bottom > 0;
+    });
+    if (!editorOnScreen) return null;
+    dockWhy = `kept previous surface (${dockWhy})`;
+    return dockBox;
+  }
   function syncDock() {
-    const box = composerBox();
+    const box = composerBox() || lastDockBox();
     if (box !== dockBox) { dockResize?.disconnect(); clearanceOverlayNode = null; dockBox = box; if (box) dockResize?.observe(box); }
     const rect = box?.getBoundingClientRect();
     syncConversationClearance(rect);
@@ -843,6 +937,10 @@ export function createCaptureControls(doc = document, win = window) {
         if (opaque(bg)) { behind = bg; break; }
       }
     }
+    // Borderless pills (ChatGPT) draw their edge with a box-shadow ring. The tab
+    // reuses that exact shadow, clipped at its bottom so it never paints onto
+    // the pill, and the two read as one outline like Claude's bordered composer.
+    const ringed = !(parseFloat(style.borderTopWidth) > 0) && style.boxShadow && style.boxShadow !== 'none';
     const vars = {
       // Tab and open panel share the composer's inset right edge.
       '--dock-right': `${Math.max(8, viewport - rect.right + inset)}px`,
@@ -855,7 +953,9 @@ export function createCaptureControls(doc = document, win = window) {
       '--dock-radius': `${Math.max(8, radius * 0.6)}px`,
       '--dock-bg': transparent ? behind || 'var(--paper)' : style.backgroundColor,
       '--dock-ink': transparent && !behind ? 'var(--ink)' : style.color,
-      '--dock-line': parseFloat(style.borderTopWidth) > 0 ? style.borderTopColor : 'color-mix(in srgb,currentColor 16%,transparent)'
+      '--dock-line': parseFloat(style.borderTopWidth) > 0 ? style.borderTopColor : ringed ? 'transparent' : 'color-mix(in srgb,currentColor 16%,transparent)',
+      '--dock-shadow': ringed ? style.boxShadow : '0 -4px 14px #10251c12',
+      '--dock-clip': ringed ? 'inset(-32px -32px 0 -32px)' : 'none'
     };
     for (const [name, value] of Object.entries(vars)) panel.style.setProperty(name, value);
   }
@@ -985,7 +1085,7 @@ export function createCaptureControls(doc = document, win = window) {
       if (route !== nextRoute) {
         restoreClasses();
         for (const header of headers.values()) header.remove(); headers.clear();
-        selected.clear(); collapsed.clear(); sections = []; sectionMediaNodes.clear(); activeSectionId = null; preserveActiveSection = false; cachedContentBounds = null; geometryRoot = null; route = nextRoute;
+        selected.clear(); collapsed.clear(); shouldCollapse.clear(); sections = []; sectionMediaNodes.clear(); activeSectionId = null; preserveActiveSection = false; cachedContentBounds = null; geometryRoot = null; route = nextRoute;
       }
       const previous = sections;
       const discovery = extractConversation(doc, nextRoute, { includeNodes: true, includeMarkdown: false });
@@ -1056,6 +1156,9 @@ export function createCaptureControls(doc = document, win = window) {
       return true;
     });
     if (relevant.some(record => record.type !== 'attributes')) scheduleRefresh();
+    // React rewrites className on re-render, dropping our collapsed class; put it back.
+    // ponytail: add() of an already-present class emits no mutation, so this cannot loop; only the stripped node is touched.
+    for (const record of relevant) if (record.type === 'attributes' && shouldCollapse.has(record.target) && !record.target.classList.contains(COLLAPSED_CLASS)) record.target.classList.add(COLLAPSED_CLASS);
     if (relevant.length) scheduleDock();
   });
   observer.observe(doc.documentElement || doc.body, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['class', 'style', 'hidden'] });
@@ -1063,6 +1166,9 @@ export function createCaptureControls(doc = document, win = window) {
   doc.addEventListener('scroll', scheduleActiveSection, true);
   doc.addEventListener('scroll', scheduleDock, true);
   doc.addEventListener('input', scheduleDock, true);
+  // Late CSS, fonts and composer animations move the surface without a DOM mutation.
+  for (const type of ['transitionend', 'animationend']) doc.addEventListener(type, scheduleDock, true);
+  win.addEventListener('load', scheduleDock);
   doc.addEventListener('wheel', onUserScrollIntent, { capture: true, passive: true });
   doc.addEventListener('touchstart', onUserScrollIntent, { capture: true, passive: true });
   doc.addEventListener('keydown', onScrollKeyDown, true);
@@ -1102,7 +1208,7 @@ export function createCaptureControls(doc = document, win = window) {
     delete conversation.nodes;
     return conversation;
   }
-  function open() { toggleButton.setAttribute('aria-expanded', 'true'); toggleButton.textContent = 'Close'; body.hidden = false; panel.hidden = false; syncDock(); refresh(); }
+  function open() { toggleButton.setAttribute('aria-expanded', 'true'); toggleButton.textContent = 'Close'; body.hidden = false; panel.hidden = false; void loadProjects(false); syncDock(); refresh(); }
   return { capture, refresh, open, destroy() {
     if (destroyed) return;
     destroyed = true;
@@ -1119,7 +1225,11 @@ export function createCaptureControls(doc = document, win = window) {
     clearanceOverlayNode = null;
     restoreConversationClearance();
     doc.removeEventListener('scroll', scheduleDock, true); doc.removeEventListener('input', scheduleDock, true);
+    for (const type of ['transitionend', 'animationend']) doc.removeEventListener(type, scheduleDock, true);
+    win.removeEventListener('load', scheduleDock);
     rail.removeEventListener('click', onRailClick);
+    targetSelect.removeEventListener('change', onTargetChange);
+    for (const type of ['focus', 'pointerdown']) targetSelect.removeEventListener(type, onTargetOpen);
     toggleButton.removeEventListener('click', onTogglePanel); tools.removeEventListener('click', onToolsClick);
     empty.removeEventListener('click', onEmptyClick);
     captureActions.removeEventListener('click', onCaptureClick);
