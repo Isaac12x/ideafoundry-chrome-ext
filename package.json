@@ -12,7 +12,7 @@
     "test:idea-app": "node scripts/idea-app-e2e.mjs"
   },
   "dependencies": {
-    "markdown-it": "^14.3.2",
+    "markdown-it": "^14.3.3",
     "pdfmake": "^0.3.11",
     "turndown": "^7.2.4",
     "turndown-plugin-gfm": "^1.0.2"
