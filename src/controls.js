@@ -197,6 +197,7 @@ export function createCaptureControls(doc = document, win = window) {
   }
   const selectedProject = () => (targetSelect.value === '' ? null : projects[Number(targetSelect.value)] || null);
   function applyProjects(reply) {
+    if (destroyed) return;
     const current = selectedProject();
     const wanted = firstApply ? reply.remembered : current ? { source: current.source, directory: current.rel, name: current.name } : { default: true };
     firstApply = false;
@@ -235,11 +236,13 @@ export function createCaptureControls(doc = document, win = window) {
     return loading;
   }
   const resetProjectLoads = () => { loaded.open = loaded.hidden = loaded.fresh = false; };
-  targetSelect.addEventListener('change', () => {
+  const onTargetChange = () => {
     const project = selectedProject();
     void request({ type: 'kb-remember', target: project ? { source: project.source, directory: project.rel, name: project.name } : null }).catch(() => {});
-  });
-  for (const type of ['focus', 'pointerdown']) targetSelect.addEventListener(type, () => { void loadProjects(true); });
+  };
+  const onTargetOpen = () => { void loadProjects(true); };
+  targetSelect.addEventListener('change', onTargetChange);
+  for (const type of ['focus', 'pointerdown']) targetSelect.addEventListener(type, onTargetOpen);
   async function exportFromWidget(destination) {
     if (busy) return;
     busy = true;
@@ -747,8 +750,8 @@ export function createCaptureControls(doc = document, win = window) {
     const root = isChatGptPage() ? conversationGeometryRoot() : null;
     const rootRect = root?.nodeType === 1 ? root.getBoundingClientRect() : null;
     const clampToRoot = isNestedScrollRoot(root) && rootRect?.width > 0;
-    // Never count the open history sidebar as free margin (the rail would sit over past chats).
-    const rootLeft = Math.max(clampToRoot ? Math.max(0, rootRect.left) : 0, leftSidebarEdge());
+    // Never count ChatGPT's open history sidebar as free margin (the rail would sit over past chats).
+    const rootLeft = Math.max(clampToRoot ? Math.max(0, rootRect.left) : 0, isChatGptPage() ? leftSidebarEdge() : 0);
     const rootRight = clampToRoot ? Math.min(viewport, rootRect.right) : viewport;
     const leftSpace = Math.max(0, bounds.left - rootLeft);
     const rightSpace = Math.max(0, rootRight - bounds.right);
@@ -1082,7 +1085,7 @@ export function createCaptureControls(doc = document, win = window) {
       if (route !== nextRoute) {
         restoreClasses();
         for (const header of headers.values()) header.remove(); headers.clear();
-        selected.clear(); collapsed.clear(); sections = []; sectionMediaNodes.clear(); activeSectionId = null; preserveActiveSection = false; cachedContentBounds = null; geometryRoot = null; route = nextRoute;
+        selected.clear(); collapsed.clear(); shouldCollapse.clear(); sections = []; sectionMediaNodes.clear(); activeSectionId = null; preserveActiveSection = false; cachedContentBounds = null; geometryRoot = null; route = nextRoute;
       }
       const previous = sections;
       const discovery = extractConversation(doc, nextRoute, { includeNodes: true, includeMarkdown: false });
@@ -1225,6 +1228,8 @@ export function createCaptureControls(doc = document, win = window) {
     for (const type of ['transitionend', 'animationend']) doc.removeEventListener(type, scheduleDock, true);
     win.removeEventListener('load', scheduleDock);
     rail.removeEventListener('click', onRailClick);
+    targetSelect.removeEventListener('change', onTargetChange);
+    for (const type of ['focus', 'pointerdown']) targetSelect.removeEventListener(type, onTargetOpen);
     toggleButton.removeEventListener('click', onTogglePanel); tools.removeEventListener('click', onToolsClick);
     empty.removeEventListener('click', onEmptyClick);
     captureActions.removeEventListener('click', onCaptureClick);
