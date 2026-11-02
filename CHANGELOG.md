@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Remove application imposed conversation, media size/count, rendered-export, and KB file-count caps; use ZIP64 for large Markdown archives and retain browser/destination platform limits.
+- Decode large media buffers without per-byte intermediate arrays, build only the destination-specific Markdown media entries, and cover over-limit capture, media, and archive cases.
 - Keep the ChatGPT capture tab attached to the top border of the visible typing input with a one-pixel overlap; preserve native scrolling and keep the floating panel inside the available viewport.
 - Preserve native scroll geometry when the ChatGPT composer is sticky inside the conversation scroll root, preventing bottom padding from pulling the composer and capture tab upward.
 - Capture and collapse ChatGPT reply fragments that stream beside reported prose, including code panels appended after a section is collapsed.

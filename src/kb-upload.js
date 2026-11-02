@@ -12,9 +12,11 @@ export async function uploadInApp(file, settings) {
   body.append('src', String(settings.source));
   body.append('dir', settings.directory);
   const files = file.files?.length ? file.files : [{ name: file.name, mime: file.mime, base64: file.base64 }];
-  if (!files.length || files.length > 51) throw new Error('The export has an unsupported number of files.');
+  if (!files.length) throw new Error('The export has no files.');
   for (const entry of files) {
-    const bytes = Uint8Array.from(atob(entry.base64), c => c.charCodeAt(0));
+    const binary = atob(entry.base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index);
     body.append('files[]', new Blob([bytes], { type: entry.mime }), entry.name);
   }
   // JSON requests get explicit 4xx errors from fs_error and lock checks.

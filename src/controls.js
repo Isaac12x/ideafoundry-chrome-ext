@@ -232,7 +232,6 @@ export function createCaptureControls(doc = document, win = window) {
   }
   async function resolvePageMedia(items) {
     const results = [];
-    let total = 0;
     for (const item of items) {
       let url;
       try { url = new URL(item.url, win.location.href); } catch { continue; }
@@ -241,8 +240,8 @@ export function createCaptureControls(doc = document, win = window) {
       try {
         const response = await win.fetch(url.href, { credentials: 'same-origin', redirect: 'error', signal: AbortSignal.timeout(15_000) });
         if (!response.ok) throw new Error(`Page media read failed (${response.status}).`);
-        const reader = response.body.getReader(); const chunks = []; let size = 0;
-        while (true) { const { done, value } = await reader.read(); if (done) break; size += value.byteLength; total += value.byteLength; if (size > 8 * 1024 * 1024 || total > 8 * 1024 * 1024) { await reader.cancel(); throw new Error('Page-owned media exceeds the 8 MB capture limit.'); } chunks.push(value); }
+        const reader = response.body.getReader(); const chunks = [];
+        while (true) { const { done, value } = await reader.read(); if (done) break; chunks.push(value); }
         const blob = new win.Blob(chunks, { type: response.headers.get('content-type') || item.mime || '' });
         const data = await new Promise((resolve, reject) => { const reader = new win.FileReader(); reader.onload = () => resolve(String(reader.result).split(',')[1]); reader.onerror = () => reject(new Error('Could not read page media.')); reader.readAsDataURL(blob); });
         results.push({ id: item.id, data, mime: blob.type || item.mime || 'application/octet-stream' });
