@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Make the ChatGPT capture tab match the Claude one: dock to the real rounded composer pill (clearing its full radius, ignoring inner nodes, wrappers and form backdrops), use the composer's own colours in any computed colour form, and restore "IdeaFoundry / Capture" on the tab after an export. Copy diagnostics adds dock state (no page text).
 - Keep the ChatGPT capture launcher reachable when the composer is unavailable or clipped, and recover the widget after a page rebuild.
 - Preserve Markdown equations, pre-wrapped message text, table cells, and explicit list numbering; add rendered-output regression coverage.
 

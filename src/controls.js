@@ -33,7 +33,7 @@ export function createCaptureControls(doc = document, win = window) {
   const sectionMediaNodes = new Map();
   let railFrame = 0;
   let dockFrame = 0;
-  let dockBox = null;
+  let dockBox = null, dockWhy = '';
   let clearanceOverlayNode = null;
   let clearanceRoot = null;
   let clearanceRootHadAttribute = null;
@@ -217,7 +217,8 @@ export function createCaptureControls(doc = document, win = window) {
       const successMessage = result.printDialog ? 'Print dialog opened. Choose “Save as PDF” to save your file.' : destination === 'kb'
         ? `Saved to knowledge base: ${result.name}${result.appUrl ? `. Open ${result.appUrl}` : ''}`
         : 'Download started.';
-      setExportFeedback(result.printDialog ? 'Choose “Save as PDF” in the print dialog.' : destination === 'kb' ? `Saved: ${result.name}` : 'Download started.', 'idle');
+      // Closed mid-export: the tab returns to its label; the panel status keeps the result.
+      setExportFeedback(body.hidden ? '' : result.printDialog ? 'Choose “Save as PDF” in the print dialog.' : destination === 'kb' ? `Saved: ${result.name}` : 'Download started.', 'idle');
       showCaptureStatus(successMessage, 'idle');
     } catch (error) {
       setExportFeedback(error.message, 'error');
@@ -255,6 +256,8 @@ export function createCaptureControls(doc = document, win = window) {
     toggleButton.setAttribute('aria-expanded', String(open));
     toggleButton.textContent = open ? 'Close' : 'Open';
     body.hidden = !open;
+    // The one-line tab keeps only busy/error state; finished-export text stays in the panel status.
+    if (!open && !panelHeader.matches('.is-busy,.is-error')) setExportFeedback('');
     syncDock();
   };
   const onRailClick = event => {
@@ -390,7 +393,10 @@ export function createCaptureControls(doc = document, win = window) {
     if (activeSection && activeKind) [...list.children].find(row => row.dataset.sectionId === activeSection)?.querySelector(activeKind === 'input' ? 'input' : 'button')?.focus();
   }
   async function copyDiagnostics() {
-    const text = JSON.stringify(collectDiagnostics(doc, win.location.href), null, 2);
+    // Dock state only (geometry and selector hints), never page text.
+    const rect = dockBox?.getBoundingClientRect();
+    const dock = { docked: panel.classList.contains('is-docked'), why: dockWhy, surface: dockBox && { tag: dockBox.localName, testid: dockBox.getAttribute('data-testid'), type: dockBox.getAttribute('data-type'), left: rect.left, top: rect.top, width: rect.width, height: rect.height, radius: win.getComputedStyle(dockBox).borderTopLeftRadius } };
+    const text = JSON.stringify({ ...collectDiagnostics(doc, win.location.href), dock }, null, 2);
     diagnosticsFallback.value = '';
     diagnosticsFallback.hidden = true;
     diagnosticsStatus.textContent = '';
@@ -690,9 +696,24 @@ export function createCaptureControls(doc = document, win = window) {
     railButton.setAttribute('aria-label', `Collapse section: ${section.label}`);
     railButton.title = `Collapse section: ${section.label}`;
   }
+  // Computed colours come as rgb(), rgba(), oklch(), color(srgb ...) etc; read the alpha, whatever the form.
+  function alpha(color) {
+    const match = color.match(/(?:rgba\(.*,|\/)\s*([\d.]+)(%?)\s*\)$/);
+    return match ? match[1] / (match[2] ? 100 : 1) : color === 'transparent' ? 0 : 1;
+  }
+  // Does this node paint a perimeter (border, shadow, or fill with rounded corners)?
+  function drawn(style) {
+    const clear = color => alpha(color) === 0;
+    const round = ['TopLeft', 'TopRight', 'BottomLeft', 'BottomRight'].some(corner => parseFloat(style[`border${corner}Radius`]) > 0);
+    const border = ['Top', 'Right', 'Bottom', 'Left'].some(side => parseFloat(style[`border${side}Width`]) > 0 && !clear(style[`border${side}Color`]));
+    const shadow = style.boxShadow && style.boxShadow !== 'none';
+    const fill = style.backgroundImage !== 'none' || !clear(style.backgroundColor);
+    return border || shadow || fill && round;
+  }
   // On ChatGPT, anchor the tab to the nearest outlined input surface. Other
   // providers retain their existing composer selection behavior.
   function composerBox() {
+    dockWhy = isChatGptPage() ? 'no usable prompt editor' : 'non-ChatGPT provider';
     if (isChatGptPage()) {
       const editors = [...doc.querySelectorAll('#prompt-textarea, textarea, [contenteditable], [role="textbox"]')]
         .filter(input => !input.closest(`[${OWNED}]`)
@@ -713,24 +734,36 @@ export function createCaptureControls(doc = document, win = window) {
       for (const input of editors) {
         const inputRect = input.getBoundingClientRect();
         if (inputRect.width < 160 || inputRect.height <= 0 || inputRect.bottom <= 0 || inputRect.top >= viewportHeight) continue;
-        const promptIdentity = input.matches('#prompt-textarea') || /message|prompt|composer/i.test(`${input.getAttribute('aria-label') || ''} ${input.getAttribute('data-testid') || ''}`) || !!input.closest('form, [class*="composer" i], [data-testid*="composer" i], [aria-label*="composer" i]');
+        const named = input.matches('#prompt-textarea') || /message|prompt|composer/i.test(`${input.getAttribute('aria-label') || ''} ${input.getAttribute('data-testid') || ''}`);
+        const promptIdentity = named || !!input.closest('form, [class*="composer" i], [data-testid*="composer" i], [aria-label*="composer" i]');
         if ((input.disabled || input.readOnly || input.getAttribute('aria-disabled') === 'true' || input.getAttribute('contenteditable') === 'false') && !promptIdentity) continue;
-        let surface = null;
-        for (let node = input; node && node !== doc.body && node !== doc.documentElement; node = node.parentElement) {
-          const rect = node.getBoundingClientRect();
-          if (!rect.width && !rect.height) continue;
-          if (rect.width > inputRect.width * 1.8 + 100 || rect.top < inputRect.top - 180) break;
-          const style = win.getComputedStyle(node);
-          const hasVisibleBorder = ['Top', 'Right', 'Bottom', 'Left'].some(side => parseFloat(style[`border${side}Width`]) > 0 && !/^(transparent|rgba\(0, 0, 0, 0\))$/.test(style[`border${side}Color`]));
-          const hasVisibleBackground = style.backgroundImage !== 'none' || !/^(transparent|rgba\(0, 0, 0, 0\))$/.test(style.backgroundColor);
-          const hasVisibleShadow = style.boxShadow && style.boxShadow !== 'none';
-          const hasRoundedEdge = ['borderTopLeftRadius', 'borderTopRightRadius', 'borderBottomLeftRadius', 'borderBottomRightRadius'].some(name => parseFloat(style[name]) > 0);
-          // Use the nearest drawn perimeter. A large composer form often only
-          // supplies a backdrop; the actual rounded input surface is inside it.
-          if (hasVisibleBorder || hasVisibleShadow || hasVisibleBackground && hasRoundedEdge) { surface = node; break; }
-          if (node.matches('form')) break;
+        // Named prompts in a form: the widest drawn node with a real radius (>= 8) between the input and the form (the
+        // visible pill; never a narrower inner node, the form's backdrop, or a square wrapper), else the nearest drawn
+        // node, else the form unless it is far wider than the input. Other editors take the nearest drawn perimeter.
+        const form = input.closest('form');
+        let surface = null, how = 'nearest drawn';
+        if (form && named) {
+          let widest = 0, nearest = null;
+          for (let node = input; node && node !== form; node = node.parentElement) {
+            const style = win.getComputedStyle(node);
+            if (!drawn(style)) continue;
+            nearest ||= node;
+            const width = node.getBoundingClientRect().width;
+            if (parseFloat(style.borderTopLeftRadius) >= 8 && width > widest) { surface = node; widest = width; how = 'widest rounded'; }
+          }
+          if (!surface && !nearest) how = 'form';
+          surface ||= nearest || (form.getBoundingClientRect().width <= inputRect.width * 1.8 + 100 ? form : null);
+          if (!surface) how = 'form too wide';
+        } else {
+          for (let node = input; node && node !== doc.body && node !== doc.documentElement; node = node.parentElement) {
+            const rect = node.getBoundingClientRect();
+            if (!rect.width && !rect.height) continue;
+            if (rect.width > inputRect.width * 1.8 + 100 || rect.top < inputRect.top - 180) break;
+            if (drawn(win.getComputedStyle(node))) { surface = node; break; }
+            if (node.matches('form')) break;
+          }
         }
-        if (!surface) continue;
+        if (!surface) { dockWhy = how === 'nearest drawn' ? 'no drawn surface' : how; continue; }
         const candidate = surface;
         const candidateRect = candidate.getBoundingClientRect();
         const left = Math.max(0, candidateRect.left), right = Math.min(win.innerWidth || doc.documentElement.clientWidth, candidateRect.right);
@@ -742,9 +775,11 @@ export function createCaptureControls(doc = document, win = window) {
           const parentRect = parent.getBoundingClientRect();
           clip = { left: Math.max(clip.left, parentRect.left), right: Math.min(clip.right, parentRect.right), top: Math.max(clip.top, parentRect.top), bottom: Math.min(clip.bottom, parentRect.bottom) };
         }
-        if (clip.right <= clip.left || clip.bottom <= clip.top) continue;
+        if (clip.right <= clip.left || clip.bottom <= clip.top) { dockWhy = 'surface fully clipped'; continue; }
         const topBorder = Number.parseFloat(win.getComputedStyle(candidate).borderTopWidth) || 0;
-        if (clip.top > candidateRect.top + Math.max(1, topBorder)) return null;
+        // A few px of shadow/ring spill under an ancestor clip must not drop the dock; a really clipped edge still falls back.
+        if (clip.top > candidateRect.top + Math.max(topBorder, 6)) { dockWhy = 'surface top clipped'; return null; }
+        dockWhy = how;
         return candidate;
       }
       return null;
@@ -783,6 +818,7 @@ export function createCaptureControls(doc = document, win = window) {
     syncConversationClearance(rect);
     const docked = !!rect && rect.width >= 160 && rect.top > 60;
     panel.classList.toggle('is-docked', docked);
+    if (rect && !docked) dockWhy = rect.width < 160 ? 'surface narrower than 160px' : 'surface too close to the viewport top';
     if (isChatGptPage()) {
       // Keep a compact, keyboard-reachable launcher available if the page is
       // between composer states or its input edge is clipped/unrecognized.
@@ -792,9 +828,21 @@ export function createCaptureControls(doc = document, win = window) {
     const style = win.getComputedStyle(box);
     const viewport = win.innerWidth || doc.documentElement.clientWidth;
     const viewportHeight = win.innerHeight || doc.documentElement.clientHeight;
-    const radius = Math.min(parseFloat(style.borderTopLeftRadius) || 0, 22);
-    const inset = Math.max(12, radius);
-    const transparent = /^(transparent|rgba\(0, 0, 0, 0\))$/.test(style.backgroundColor);
+    const real = parseFloat(style.borderTopLeftRadius) || 0;
+    const chatgpt = isChatGptPage();
+    // Inset = composer radius (flat bottom meets the straight edge). Tab corners measured ~7px on real Claude (formula floors at 8); the cap keeps pills the same.
+    const radius = Math.min(real, chatgpt ? 12 : 22);
+    const inset = Math.max(12, chatgpt ? Math.min(real, rect.width / 4) : radius);
+    // ChatGPT: only an opaque colour can colour the tab (a translucent one would show the page through it).
+    const opaque = color => alpha(color) >= 1;
+    const transparent = chatgpt ? !opaque(style.backgroundColor) : /^(transparent|rgba\(0, 0, 0, 0\))$/.test(style.backgroundColor);
+    let behind = null;
+    if (chatgpt && transparent) {
+      for (let node = box.parentElement; node; node = node.parentElement) {
+        const bg = win.getComputedStyle(node).backgroundColor;
+        if (opaque(bg)) { behind = bg; break; }
+      }
+    }
     const vars = {
       // Tab and open panel share the composer's inset right edge.
       '--dock-right': `${Math.max(8, viewport - rect.right + inset)}px`,
@@ -805,8 +853,8 @@ export function createCaptureControls(doc = document, win = window) {
       // can push it offscreen on short viewports or tall composers.
       '--dock-max-height': `${Math.max(1, Math.min(820, rect.top - 16))}px`,
       '--dock-radius': `${Math.max(8, radius * 0.6)}px`,
-      '--dock-bg': transparent ? 'var(--paper)' : style.backgroundColor,
-      '--dock-ink': transparent ? 'var(--ink)' : style.color,
+      '--dock-bg': transparent ? behind || 'var(--paper)' : style.backgroundColor,
+      '--dock-ink': transparent && !behind ? 'var(--ink)' : style.color,
       '--dock-line': parseFloat(style.borderTopWidth) > 0 ? style.borderTopColor : 'color-mix(in srgb,currentColor 16%,transparent)'
     };
     for (const [name, value] of Object.entries(vars)) panel.style.setProperty(name, value);
