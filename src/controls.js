@@ -565,11 +565,11 @@ export function createCaptureControls(doc = document, win = window) {
     return /(^|\.)(chatgpt\.com|chat\.openai\.com)$/i.test(new URL(win.location.href).hostname);
   }
   function conversationGeometryRoot() {
-    if (geometryRoot?.isConnected) return geometryRoot;
-    geometryRoot = isChatGptPage()
+    if (!geometryRoot?.isConnected) geometryRoot = isChatGptPage()
       ? chatGptConversationRoot(doc)
       : doc.querySelector('[role="main"]') || doc.querySelector('main');
-    return geometryRoot;
+    // chatGptConversationRoot falls back to the Document, which has no geometry.
+    return geometryRoot?.nodeType === 1 ? geometryRoot : null;
   }
   function isNestedScrollRoot(node) {
     if (node?.nodeType !== 1) return false;

@@ -209,6 +209,10 @@ try {
       .clip{position:fixed;top:0;left:100px;width:600px;height:70px;overflow:hidden}.clip .box{margin-top:-30px;height:80px}.ok{position:fixed;left:100px;bottom:20px;width:600px}
       </style><main id="thread"><article data-testid="conversation-turn-1"><p>Hello</p></article></main><div class="clip"><form><div class="box"><div id="prompt-textarea" contenteditable="true">clipped</div></div></form></div>
       <form class="ok"><div class="box" id="visible"><div contenteditable="true" aria-label="Message composer">Ask anything</div></div></form>` });
+    if (path.endsWith('/c/no-turns')) return route.fulfill({ status: 200, contentType: 'text/html', body: `<!doctype html><title>No turns · ChatGPT</title><style>
+      *{box-sizing:border-box}html,body{margin:0;height:100%;font:15px system-ui;background:#f6f7f6}
+      form{position:fixed;left:100px;bottom:20px;width:600px}.box{border:1px solid #aeb8b0;border-radius:22px;background:#fff;padding:10px}
+      </style><div><form><div class="box" id="visible"><div id="prompt-textarea" contenteditable="true">Ask anything</div></div></form></div>` });
     if (path.endsWith('/c/input-border-anchor')) return route.fulfill({ status: 200, contentType: 'text/html', body: `<!doctype html><title>Composer border anchor repro · ChatGPT</title><style>
       *{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;font:15px/1.5 system-ui,sans-serif;color:#202522;background:#f6f7f6}
       #thread{height:100vh;overflow:auto;overscroll-behavior:contain;padding:24px 20px 0}.messages{width:min(760px,100%);margin:0 auto}.turn{padding:12px 18px;margin:0 0 18px;background:#fff;border-radius:12px}.turn h2{font-size:11px;color:#707a72}.turn p{margin:0 0 18px}
@@ -1000,6 +1004,10 @@ try {
   const clippedFirst = await loadChatGpt('clipped-first', '#visible');
   assert.ok(clippedFirst.tab.docked && Math.abs(clippedFirst.tab.gap + 1) <= 1, `the tab docks to the visible composer when the top-ranked one is clipped: ${JSON.stringify(clippedFirst.tab)}`);
   await clippedFirst.page.close();
+  // No turns/#thread/main: the conversation root falls back to the Document, which must not abort docking.
+  const noTurns = await loadChatGpt('no-turns', '#visible');
+  assert.ok(noTurns.tab.docked && Math.abs(noTurns.tab.gap + 1) <= 1, `the tab docks when no conversation root exists: ${JSON.stringify(noTurns.tab)}`);
+  await noTurns.page.close();
   const decoy = await loadChatGpt('real-decoy', 'form[data-type="unified-composer"]', false);
   assert.equal(decoy.tab.docked, false, `a plain form editor and an in-conversation edit form never dock: ${JSON.stringify(decoy.tab)}`);
   await decoy.page.close();
