@@ -282,3 +282,11 @@ Final isolated verification: npm run check passed (120 tests and production buil
 Publication: PR #8 created 2026-11-01 19:06:49 UTC at https://github.com/Isaac12x/ideafoundry-chrome-ext/pull/8. Branch `fix/markdown-fidelity-and-widget` is stacked on `fix/remove-capture-limits`; implementation commit `e7561fe40f17437e4562f813fb3c276f64d81886`. The PR is open and unmerged. The pre-existing `src/background.js` edit remains unstaged and uncommitted.
 
 PR #8 feedback check at 2026-11-01 19:11:56 UTC (five minutes after creation): no issue comments, submitted reviews, status checks, or inline review comments. PR remains open and unmerged. Root reviewed the fresh-context 320×640 visual artifact at `artifacts/widget-fallback-narrow-fresh.png`; the screenshot compositor resize glitch was absent.
+
+## 2026-11-02 — ChatGPT widget docks like Claude
+
+Branch `fix/chatgpt-widget-parity` (commit 6676a42), stacked on `fix/markdown-fidelity-and-widget` (PR #8). On ChatGPT the widget fell back to the undocked floating card with a stale "Download started." label. Now: prompt editors dock to the widest rounded drawn surface in the form (form fallback bounded by width); pill inset clears the real radius with Claude-sized tab corners; tab colours resolved by alpha incl. oklch/color() and translucent surfaces; label restored on close and on export completing while closed (all providers, deliberately); `dock` state in Copy diagnostics (no page text); clip tolerance 6px. Tests: parity assertions against the Claude fixture, real-shaped fixtures, docking-race flake fix, crash handler.
+
+Gate on the exact commit (detached worktree, excludes dirty `src/background.js`): `npm run check` passed (121 tests + build), `npm run test:browser` passed, `git diff --check HEAD~1 HEAD` clean.
+
+Unverified: not checked on live ChatGPT (browser extension could not connect); all checks are on fixtures. The cause of the null `composerBox()` is inferred, not observed. Pill radius 28 and wrapper structure are assumed; 8px radius threshold, 6px clip tolerance and 1.8x+100 form limit are heuristics. If it still does not dock, Copy diagnostics `dock.why` shows why. Pre-existing `src/background.js` edit remains unstaged.
