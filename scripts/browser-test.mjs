@@ -8,6 +8,12 @@ import { resolve, join } from 'node:path';
 import { createQueue } from '../server/queue.mjs';
 // Defaults to Playwright's bundled Chromium (new headless). Override: IDEA_BROWSER_CHANNEL=chrome|msedge|..., or IDEA_BROWSER_PATH=/path/to/chromium-based-browser.
 const browserOptions = process.env.IDEA_BROWSER_PATH ? { executablePath: process.env.IDEA_BROWSER_PATH } : { channel: process.env.IDEA_BROWSER_CHANNEL || 'chromium' };
+for (const event of ['unhandledRejection', 'uncaughtException']) process.on(event, error => {
+  // Fail loudly but let the existing `finally` cleanup run; the unref'd timer only guards against a hang.
+  console.error(`${event}:`, error?.stack || error);
+  process.exitCode = 1;
+  setTimeout(() => process.exit(1), 30000).unref();
+});
 const temp = await mkdtemp(join(tmpdir(), 'idea-extension-e2e-'));
 const token = 'browser-test-token-at-least-32-characters';
 const uploads = [];
@@ -167,6 +173,33 @@ try {
       .composer [contenteditable=true]{width:100%;height:52px;padding:12px 16px;border:1px solid #ccd4ce;border-radius:16px;background:#fff}
       </style><main id="thread"><div class="messages"><div class="turn"><div class="user-message-bubble"><p>Summarize the research discussion.</p></div><div class="markdown">${Array.from({ length: 24 }, (_, i) => `<p>Conversation answer ${i + 1}: preserve the research context, evidence, and decision links as the discussion continues.</p>`).join('')}<p id="sticky-bottom-marker">End of the final answer.</p></div></div></div><form class="composer"><div contenteditable="true" aria-label="Message composer">Ask anything</div></form></main>
       <script>addEventListener('DOMContentLoaded',()=>{const c=document.querySelector('.composer'),t=document.querySelector('#thread'),m=document.querySelector('#sticky-bottom-marker'),r=c.getBoundingClientRect();window.__nativeComposerGeometry={x:r.x,y:r.y,width:r.width,height:r.height,top:r.top,bottom:r.bottom,paddingBottom:getComputedStyle(t).paddingBottom};t.scrollTop=t.scrollHeight;const cr=c.getBoundingClientRect(),mr=m.getBoundingClientRect(),tr=t.getBoundingClientRect();window.__nativeComposerGeometry.nativeBottom={scrollTop:t.scrollTop,maxScroll:t.scrollHeight-t.clientHeight,composerTop:cr.top,composerBottom:cr.bottom,threadBottom:tr.bottom,markerBottom:mr.bottom,markerVisibleAboveComposer:mr.bottom<=cr.top};t.scrollTop=0;},{once:true});</script>` });
+    if (path.endsWith('/c/pill-surface')) return route.fulfill({ status: 200, contentType: 'text/html', body: `<!doctype html><meta charset="utf-8"><title>Pill composer parity · ChatGPT</title><style>
+      *{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;font:15px/1.5 system-ui,sans-serif;color:#202522;background:#f6f7f6}
+      #thread{height:100vh;overflow:auto;padding:24px 20px 0}.messages{width:min(760px,100%);margin:0 auto}.turn{padding:12px 18px;margin:0 0 18px;background:#fff;border-radius:12px}
+      .composer{position:fixed;left:50%;transform:translateX(-50%);width:min(760px,100%);bottom:0;padding:14px 22px 12px;background:#dfe6f0}
+      .input-surface{width:min(700px,100%);margin:0 auto;padding:10px 18px;border:0;border-radius:28px;background:transparent;box-shadow:0 0 0 1px #0000001a,0 2px 6px #0000000d}
+      [contenteditable=true]{min-height:38px;outline:0;padding:6px 4px}
+      </style><main id="thread"><div class="messages">${Array.from({ length: 4 }, (_, i) => `<article class="turn" data-testid="conversation-turn-${i + 1}"><h2>${i % 2 ? 'ChatGPT said:' : 'You said:'}</h2><p>Conversation detail ${i + 1}.</p></article>`).join('')}</div></main>
+      <form class="composer"><div class="input-surface"><div id="prompt-textarea" contenteditable="true">Ask anything</div></div></form>` });
+    if (/\/c\/real-(composer|unpainted|narrow|decoy|inner|backdrop|translucent|oklch|flex|hugeform|noform|wrap-border|wrap-shadow|wrap-bg2)$/.test(path)) {
+      const kind = path.split('/').pop();
+      // Dark ChatGPT-like composer: form > unpainted wrappers > display:contents > pill > unpainted inner > #prompt-textarea.
+      const paint = kind === 'real-translucent' ? 'background:#30303080;box-shadow:0 0 0 1px #ffffff1f;' : kind === 'real-oklch' ? 'background:oklch(0.3 0 0);box-shadow:0 0 0 1px #ffffff1f;' : ['real-composer', 'real-flex', 'real-narrow', 'real-inner', 'real-backdrop', 'real-wrap-border', 'real-wrap-shadow', 'real-wrap-bg2'].includes(kind) ? 'background:#303030;box-shadow:0 0 0 1px #ffffff1f,0 2px 6px #0004;' : '';
+      const formPaint = kind === 'real-hugeform' ? 'width:100vw;' : kind === 'real-backdrop' ? 'background:#262626;border-radius:34px;' : kind === 'real-translucent' ? 'background:#00000033;' : '';
+      // Full-width wrappers between the form and the pill that must never win: border only, a shadow fade layer, bg with a 2px radius.
+      const wrapPaint = { 'real-wrap-border': 'border:1px solid #ffffff22;', 'real-wrap-shadow': 'box-shadow:0 -20px 20px #21212188;', 'real-wrap-bg2': 'background:#262626;border-radius:2px;' }[kind] || '';
+      const innerPaint = kind === 'real-inner' ? 'background:#383838;border-radius:12px;overflow:auto;' : '';
+      const prompt = kind === 'real-decoy' ? '<form class="inline-edit"><div contenteditable="true" style="width:480px;min-height:42px">unlabeled editor in a plain form</div></form>' : `<div id="prompt-textarea" contenteditable="true" aria-label="Chat with ChatGPT"${kind === 'real-narrow' ? ' style="width:200px"' : kind === 'real-hugeform' ? ' style="width:400px"' : ''}>Ask anything</div>`;
+      // Real layout: + button, editor, model picker and mic share one row inside the pill, so the editor is narrower than the pill.
+      const row = kind === 'real-flex' ? `<div style="display:flex;align-items:center;gap:8px"><button type="button" style="width:36px;height:36px;border-radius:18px">+</button><div style="flex:1;min-width:0">${prompt}</div><span style="width:60px">Model</span><button type="button" style="width:36px;height:36px;border-radius:18px">m</button></div>` : prompt;
+      return route.fulfill({ status: 200, contentType: 'text/html', body: `<!doctype html><meta charset="utf-8"><title>Real-shaped composer · ChatGPT</title><style>
+        *{box-sizing:border-box}html,body{margin:0;height:100%;overflow:hidden;font:15px/1.5 system-ui,sans-serif;color:#ececec;background:#212121}
+        #thread{height:100vh;overflow:auto;padding:24px 20px 0}.turn{width:min(700px,100%);margin:0 auto 18px;padding:12px 18px;background:#2a2a2a;border-radius:12px}
+        [data-type="unified-composer"]{position:fixed;left:50%;transform:translateX(-50%);width:min(760px,100%);bottom:0;padding:14px 22px 12px;color:#ececec;${formPaint}}
+        .pill{width:100%;padding:10px 18px;border-radius:28px;${paint}}.inner{padding:4px;${innerPaint}}[contenteditable=true]{min-height:38px;outline:0}
+        </style><main id="thread">${Array.from({ length: 3 }, (_, i) => `<article class="turn" data-testid="conversation-turn-${i + 1}"><h2>${i % 2 ? 'ChatGPT said:' : 'You said:'}</h2><p>Turn ${i + 1}.</p>${i === 0 ? '<form class="edit-form"><div contenteditable="true" aria-label="Edit message" style="min-height:30px;padding:4px">editing a sent message</div></form>' : ''}</article>`).join('')}</main>
+        <${kind === 'real-noform' ? 'div' : 'form'} data-type="unified-composer"><div style="margin:0 -22px;padding:0 22px;${wrapPaint}"><div style="display:contents"><div class="pill"><div class="inner">${row}</div></div></div></div></${kind === 'real-noform' ? 'div' : 'form'}>` });
+    }
     if (path.endsWith('/c/input-border-anchor')) return route.fulfill({ status: 200, contentType: 'text/html', body: `<!doctype html><title>Composer border anchor repro · ChatGPT</title><style>
       *{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;font:15px/1.5 system-ui,sans-serif;color:#202522;background:#f6f7f6}
       #thread{height:100vh;overflow:auto;overscroll-behavior:contain;padding:24px 20px 0}.messages{width:min(760px,100%);margin:0 auto}.turn{padding:12px 18px;margin:0 0 18px;background:#fff;border-radius:12px}.turn h2{font-size:11px;color:#707a72}.turn p{margin:0 0 18px}
@@ -247,7 +280,7 @@ try {
     *{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;font:15px/1.5 system-ui,sans-serif;color:#202522;background:#f6f7f6}
     #thread{height:100vh;overflow:auto;padding:24px}.turn{width:min(700px,100%);margin:0 auto 20px;padding:16px;background:#fff;border-radius:12px}
     .composer{position:fixed;left:0;right:0;bottom:0;height:112px;padding:14px 20px;border:1px solid #d6ddd7;border-bottom:0;border-radius:18px 18px 0 0;background:#fff}
-    .composer [contenteditable=true]{width:min(680px,100%);height:54px;margin:auto;padding:12px;border:1px solid #c8d0ca;border-radius:14px;background:#fff}
+    .composer [contenteditable=true]{width:min(680px,100%);height:54px;margin:auto;padding:12px;border:1px solid #c8d0ca;border-radius:12px;background:#fff}
     </style><main id="thread"><article class="turn" data-testid="user-message"><p>Compare these project notes.</p></article><article class="turn font-claude-response"><p>The notes describe a short research pilot.</p></article></main><form class="composer"><div contenteditable="true" aria-label="Message composer">Reply to Claude</div></form>` }));
 
   // Drive URL scope changes through the real options form. Keep both tabs open
@@ -658,7 +691,7 @@ try {
   await borderAnchor.setViewportSize({ width: 1440, height: 900 });
   await borderAnchor.goto('https://chatgpt.com/g/p-demo/c/input-border-anchor');
   await borderAnchor.locator('.idea-capture-section-header').first().waitFor();
-  await borderAnchor.waitForFunction(() => document.querySelector('[data-idea-capture-owned="host"]')?.shadowRoot?.querySelector('#idea-capture-panel'));
+  await borderAnchor.waitForFunction(() => document.querySelector('[data-idea-capture-owned="host"]')?.shadowRoot?.querySelector('#idea-capture-panel.is-docked'));
   await borderAnchor.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   const borderAnchorSample = () => borderAnchor.evaluate(() => {
     const surface = document.querySelector('[data-visible-input-border]');
@@ -796,6 +829,7 @@ try {
   await claudeComposer.setViewportSize({ width: 1440, height: 900 });
   await claudeComposer.goto('https://claude.ai/chat/composer-anchor');
   await claudeComposer.locator('.idea-capture-section-header').first().waitFor();
+  await claudeComposer.waitForFunction(() => document.querySelector('[data-idea-capture-owned="host"]')?.shadowRoot?.querySelector('#idea-capture-panel.is-docked'));
   const claudeDock = await claudeComposer.evaluate(() => {
     const outer = document.querySelector('.composer'), input = outer.querySelector('[contenteditable="true"]');
     const panel = document.querySelector('[data-idea-capture-owned="host"]').shadowRoot.querySelector('#idea-capture-panel');
@@ -804,6 +838,139 @@ try {
   });
   assert.ok(Math.abs(claudeDock.legacyInputGap + 1) <= 1, `Claude keeps its existing editor-border dock position: ${JSON.stringify(claudeDock)}`);
   await claudeComposer.screenshot({ path: 'artifacts/claude-composer-anchor.png' });
+  // Let the 120ms dock transition settle before reading styles (mid-fade the Open button reads as filled).
+  const tabSample = (page, surfaceSel) => page.evaluate(async sel => {
+    const panel = document.querySelector('[data-idea-capture-owned="host"]').shadowRoot.querySelector('#idea-capture-panel');
+    const header = panel.querySelector('header'), label = panel.querySelector('[data-export-status]'), button = panel.querySelector('[data-action="toggle-panel"]');
+    await Promise.all(panel.getAnimations({ subtree: true }).map(animation => animation.finished.catch(() => {})));
+    const cs = getComputedStyle(panel), ls = getComputedStyle(label), bs = getComputedStyle(button);
+    const pr = panel.getBoundingClientRect(), surface = document.querySelector(sel), sr = surface.getBoundingClientRect();
+    const radius = parseFloat(getComputedStyle(surface).borderTopLeftRadius);
+    return { docked: panel.classList.contains('is-docked'), tl: cs.borderTopLeftRadius, tr: cs.borderTopRightRadius, bl: cs.borderBottomLeftRadius, br: cs.borderBottomRightRadius, height: pr.height, width: pr.width, fontSize: ls.fontSize, fontWeight: getComputedStyle(header).fontWeight, label: label.textContent, labelOpacity: ls.opacity, labelColor: ls.color, buttonHeight: button.getBoundingClientRect().height, buttonWidth: button.getBoundingClientRect().width, buttonBg: bs.backgroundColor, shadow: cs.boxShadow, gap: sr.top - pr.bottom, radius, clearance: sr.right - pr.right, bg: cs.backgroundColor, ink: cs.color, right: pr.right, busy: header.className };
+  }, surfaceSel);
+  const framesOf = page => page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  const shadowClick = (page, selector) => page.locator('[data-idea-capture-owned="host"]').evaluate((host, sel) => host.shadowRoot.querySelector(sel).click(), selector);
+  const rgb = color => color.match(/[\d.]+/g).slice(0, 3).map(Number);
+  const contrast = (a, b) => { const lum = c => { const [r, g, bl] = rgb(c).map(v => { v /= 255; return v <= .03928 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4; }); return .2126 * r + .7152 * g + .0722 * bl; }; const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x); return (hi + .05) / (lo + .05); };
+  const loadChatGpt = async (path, surfaceSel, docks = true) => {
+    const page = await context.newPage();
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto(`https://chatgpt.com/c/${path}`);
+    await page.waitForFunction(docked => document.querySelector('[data-idea-capture-owned="host"]')?.shadowRoot?.querySelector(`#idea-capture-panel${docked ? '.is-docked' : ''}`), docks);
+    await framesOf(page);
+    return { page, tab: await tabSample(page, surfaceSel) };
+  };
+  const pill = await context.newPage();
+  await pill.setViewportSize({ width: 1440, height: 900 });
+  await pill.goto('https://chatgpt.com/c/pill-surface');
+  await pill.locator('.idea-capture-section-header').first().waitFor();
+  await pill.waitForFunction(() => document.querySelector('[data-idea-capture-owned="host"]')?.shadowRoot?.querySelector('#idea-capture-panel.is-docked'));
+  await framesOf(pill);
+  const pillTab = await tabSample(pill, '.input-surface');
+  const claudeTab = await tabSample(claudeComposer, '.composer [contenteditable="true"]');
+  assert.equal(pillTab.docked && claudeTab.docked, true, `both providers dock: ${JSON.stringify({ pillTab, claudeTab })}`);
+  for (const key of ['tl', 'tr', 'bl', 'br', 'height', 'width', 'fontSize', 'fontWeight', 'label', 'labelOpacity', 'buttonHeight', 'buttonWidth', 'shadow']) assert.equal(pillTab[key], claudeTab[key], `ChatGPT tab matches Claude tab on ${key}: ${JSON.stringify({ pillTab, claudeTab })}`);
+  // Measured on the real Claude screenshot (2x, ~1.32 px per CSS px): tab 235x31, corner ~7px, clearance ~12, button 50x23.5.
+  assert.equal(pillTab.tl, '8px', `tab corner radius (measured ~7px +-1; formula floors at 8): ${pillTab.tl}`);
+  assert.equal(pillTab.bl, '0px', 'tab bottom corners are flat');
+  assert.deepEqual([pillTab.buttonBg, claudeTab.buttonBg], ['rgba(0, 0, 0, 0)', 'rgba(0, 0, 0, 0)'], 'the idle Open button is outlined, not filled');
+  assert.ok(Math.abs(pillTab.gap + 1) <= 1 && Math.abs(claudeTab.gap + 1) <= 1, `tabs overlap the composer top by 1px: ${JSON.stringify({ pillTab, claudeTab })}`);
+  // The tab's right edge sits exactly one composer radius in from the composer edge, so its flat bottom meets the straight border.
+  assert.ok(Math.abs(pillTab.clearance - pillTab.radius) < .5 && Math.abs(claudeTab.clearance - claudeTab.radius) < .5, `clearance equals the composer radius: ${JSON.stringify({ pillTab, claudeTab })}`);
+  assert.equal(pillTab.radius, 28, 'the pill fixture really has a 28px radius');
+  assert.equal(pillTab.bg, await pill.evaluate(() => getComputedStyle(document.querySelector('.composer')).backgroundColor), `transparent pill surface uses the colour behind it: ${JSON.stringify(pillTab)}`);
+  await pill.screenshot({ path: 'artifacts/widget-parity-chatgpt.png' });
+  await claudeComposer.screenshot({ path: 'artifacts/widget-parity-claude.png' });
+  // Open panel: same width, right edge as the closed tab, same offset above the composer.
+  await shadowClick(pill, '[data-action="toggle-panel"]');
+  await shadowClick(claudeComposer, '[data-action="toggle-panel"]');
+  await framesOf(pill); await framesOf(claudeComposer);
+  const pillOpen = await tabSample(pill, '.input-surface'), claudeOpen = await tabSample(claudeComposer, '.composer [contenteditable="true"]');
+  assert.equal(pillOpen.width, claudeOpen.width, `open panels share a width: ${JSON.stringify({ pillOpen, claudeOpen })}`);
+  assert.equal(pillOpen.gap, claudeOpen.gap, 'open panels share the bottom offset from the composer');
+  assert.ok(pillOpen.gap === 8 && Math.abs(pillOpen.right - pillTab.right) < .5 && Math.abs(claudeOpen.right - claudeTab.right) < .5, `open panel right edge matches the closed tab: ${JSON.stringify({ pillTab, pillOpen, claudeTab, claudeOpen })}`);
+  await pill.screenshot({ path: 'artifacts/widget-parity-chatgpt-open.png' });
+  await claudeComposer.screenshot({ path: 'artifacts/widget-parity-claude-open.png' });
+  await shadowClick(pill, '[data-action="toggle-panel"]');
+  await shadowClick(claudeComposer, '[data-action="toggle-panel"]');
+  // Stale label, on both providers: export then close, and close mid-export. The panel keeps the result; the tab returns to its label.
+  for (const [name, page, sel] of [['ChatGPT', pill, '.input-surface'], ['Claude', claudeComposer, '.composer [contenteditable="true"]']]) {
+    for (const mid of [false, true]) {
+      await shadowClick(page, '[data-action="toggle-panel"]');
+      await page.locator('[data-idea-capture-owned="host"]').evaluate((host, closeNow) => {
+        const root = host.shadowRoot;
+        root.querySelector('[name="format"][value="md"]').click();
+        root.querySelector('[data-action="download"]').click();
+        if (closeNow) root.querySelector('[data-action="toggle-panel"]').click();
+      }, mid);
+      await page.waitForFunction(() => /Download started/.test(document.querySelector('[data-idea-capture-owned="host"]').shadowRoot.querySelector('[data-capture-status]').textContent), null, { timeout: 10000 });
+      if (!mid) await shadowClick(page, '[data-action="toggle-panel"]');
+      await framesOf(page);
+      const closed = await tabSample(page, sel);
+      assert.equal(closed.label, 'IdeaFoundry / Capture', `${name}: tab label restored after export${mid ? ' closed mid-export' : ' then close'}: ${JSON.stringify(closed)}`);
+      assert.doesNotMatch(closed.busy, /is-busy|is-error/, `${name}: tab is idle again`);
+    }
+  }
+  // Ancestor clips, derived from the composer's own padding: flush, sub-pixel over and spill-sized over keep the dock; a genuinely clipped edge falls back.
+  const pad = await pill.locator('.composer').evaluate(node => parseFloat(getComputedStyle(node).paddingTop));
+  for (const [name, over] of [['flush', 0], ['sub-pixel over', .4], ['spill-sized over', 4]]) {
+    await pill.locator('.composer').evaluate((node, m) => { node.style.overflow = 'hidden'; node.querySelector('.input-surface').style.marginTop = `${m}px`; }, -(pad + over));
+    await framesOf(pill);
+    assert.equal((await tabSample(pill, '.input-surface')).docked, true, `an ancestor clip ${name} with the surface edge keeps the dock`);
+  }
+  await pill.locator('.composer').evaluate((node, m) => { node.querySelector('.input-surface').style.marginTop = `${m}px`; }, -(pad + 30));
+  await framesOf(pill);
+  const reallyClipped = await pill.locator('[data-idea-capture-owned="host"]').evaluate(host => host.shadowRoot.querySelector('#idea-capture-panel').classList.contains('is-docked'));
+  assert.equal(reallyClipped, false, 'a surface edge clipped 30px by an overflow ancestor shows the compact launcher');
+  await pill.close();
+  // Real-shaped (dark) composers: unpainted wrappers, display:contents, painted pill, plus decoy wrappers, translucent and modern colour forms.
+  const dark = 'rgb(48, 48, 48)';
+  for (const [path, sel, expectBg, radius] of [['real-composer', '.pill', dark, 28], ['real-narrow', '.pill', dark, 28], ['real-inner', '.pill', dark, 28], ['real-wrap-border', '.pill', dark, 28], ['real-wrap-shadow', '.pill', dark, 28], ['real-wrap-bg2', '.pill', dark, 28], ['real-backdrop', '.pill', dark, 28], ['real-translucent', '.pill', 'rgb(33, 33, 33)', 28], ['real-oklch', '.pill', null, 28], ['real-flex', '.pill', dark, 28], ['real-unpainted', 'form[data-type="unified-composer"]', 'rgb(33, 33, 33)', 0]]) {
+    const { page, tab } = await loadChatGpt(path, sel);
+    assert.equal(tab.docked, true, `${path} docks: ${JSON.stringify(tab)}`);
+    assert.ok(Math.abs(tab.gap + 1) <= 1, `${path} sits on the visible edge: ${JSON.stringify(tab)}`);
+    assert.ok(Math.abs(tab.clearance - Math.max(12, radius)) < .5, `${path} clearance equals the composer radius: ${JSON.stringify(tab)}`);
+    // Whatever form Chromium computes the pill colour in (rgb, oklch, color(srgb)), the tab takes it as is.
+    const wantBg = expectBg || await page.evaluate(() => getComputedStyle(document.querySelector('.pill')).backgroundColor);
+    if (path === 'real-flex') {
+      const ratio = await page.evaluate(() => document.querySelector('.pill').getBoundingClientRect().width / document.querySelector('#prompt-textarea').getBoundingClientRect().width);
+      assert.ok(ratio > 1.25 && ratio < 1.5, `the editor is narrower than the pill like the real layout: ${ratio}`);
+    }
+    if (path === 'real-oklch') assert.match(wantBg, /^(oklch|color)\(/, 'the modern-colour fixture really computes to a non-rgb form');
+    assert.equal(tab.bg, wantBg, `${path} tab takes the colour of what is behind/at the surface: ${JSON.stringify(tab)}`);
+    assert.equal(tab.buttonBg, 'rgba(0, 0, 0, 0)', `${path} idle Open button is outlined, not filled`);
+    assert.equal(tab.ink, 'rgb(236, 236, 236)', `${path} tab takes light ink`);
+    if (expectBg) assert.ok(contrast(tab.labelColor, tab.bg) >= 7, `${path} label stays readable: ${JSON.stringify(tab)}`);
+    if (path === 'real-composer') await page.screenshot({ path: 'artifacts/widget-real-composer-dark.png' });
+    await page.close();
+  }
+  // The prompt grows, gets attachment tiles, and is disabled: the tab keeps tracking the pill top with its 1px overlap.
+  const { page: live } = await loadChatGpt('real-composer', '.pill');
+  const tiles = '<div style="display:flex;gap:8px;padding:8px 0">' + '<i style="display:block;width:80px;height:80px;background:#555;border-radius:12px"></i>'.repeat(3) + '</div>';
+  const pillTop = () => live.evaluate(() => document.querySelector('.pill').getBoundingClientRect().top);
+  const baseTop = await pillTop();
+  for (const [name, mutate] of [
+    ['six lines', () => { document.querySelector('#prompt-textarea').innerHTML = Array(6).fill('line').join('<br>'); }],
+    ['a capped, scrolling editor', () => { const e = document.querySelector('#prompt-textarea'); e.innerHTML = Array(30).fill('line').join('<br>'); Object.assign(e.style, { maxHeight: '400px', overflow: 'auto' }); }],
+    ['attachment tiles in the pill', html => { const e = document.querySelector('#prompt-textarea'); e.style.maxHeight = ''; e.innerHTML = 'x'; document.querySelector('.pill').insertAdjacentHTML('afterbegin', html); }],
+    ['a disabled prompt', () => { const e = document.querySelector('#prompt-textarea'); e.setAttribute('contenteditable', 'false'); e.setAttribute('aria-disabled', 'true'); }],
+  ]) {
+    await live.evaluate(mutate, tiles);
+    await framesOf(live);
+    const sample = await tabSample(live, '.pill');
+    assert.ok(sample.docked && Math.abs(sample.gap + 1) <= 1, `the tab tracks the pill top with ${name}: ${JSON.stringify(sample)}`);
+    if (name === 'six lines') assert.ok(await pillTop() < baseTop - 40, 'the pill really grew upward');
+  }
+  await live.close();
+  // Nothing drawn: a normal form docks (real-unpainted above); a viewport-wide form or a form-less named prompt must not.
+  for (const path of ['real-hugeform', 'real-noform']) {
+    const refused = await loadChatGpt(path, '[data-type="unified-composer"]', false);
+    assert.equal(refused.tab.docked, false, `${path} keeps the compact launcher: ${JSON.stringify(refused.tab)}`);
+    await refused.page.close();
+  }
+  const decoy = await loadChatGpt('real-decoy', 'form[data-type="unified-composer"]', false);
+  assert.equal(decoy.tab.docked, false, `a plain form editor and an in-conversation edit form never dock: ${JSON.stringify(decoy.tab)}`);
+  await decoy.page.close();
   await saveAllowedUrls(`https://chatgpt.com/*\n${appUrl}/*`);
   await actualLayout.locator('.composer').evaluate(node => {
     node.style.position = 'fixed'; node.style.left = '220px'; node.style.right = '0'; node.style.bottom = '0'; node.style.zIndex = '1';
