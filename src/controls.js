@@ -67,6 +67,7 @@ export function createCaptureControls(doc = document, win = window) {
         #idea-capture-panel>header.is-busy [data-export-status]{font-family:"Avenir Next","Trebuchet MS",sans-serif;font-size:12px;font-weight:600;color:var(--forest)}
         #idea-capture-panel>header.is-error [data-export-status]{color:#8a3b28}
         #idea-capture-panel:has(.panel-body[hidden])>header{padding:8px 10px;font-family:"Avenir Next","Trebuchet MS",sans-serif;font-size:12px;letter-spacing:0}
+        #idea-capture-panel:has(.panel-body[hidden])>header [data-export-status]{min-width:0;font-size:inherit;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
         button{min-height:30px;padding:5px 9px;border:1px solid #cbd6ce;border-radius:5px;background:#f5f7f2;font-family:"Avenir Next","Trebuchet MS",sans-serif;font-size:11px;font-weight:600;transition:background-color 120ms ease,border-color 120ms ease,transform 120ms ease}
         button:hover{background:#e8efe8;border-color:#aabcae}
         button:active{transform:translateY(1px)}
@@ -288,7 +289,7 @@ export function createCaptureControls(doc = document, win = window) {
     const sendButton = captureActions.querySelector('[data-action="send-kb"]');
     const pdf = format === 'pdf';
     sendButton.disabled = pdf;
-    formatHint.textContent = pdf ? 'PDF opens the browser print dialog. Choose “Save as PDF”; use Markdown or HTML for direct knowledge-base delivery.' : format === 'html' ? 'HTML keeps the captured page styling and can be sent to your knowledge base.' : '';
+    formatHint.textContent = pdf ? 'PDF opens the browser print dialog. Choose “Save as PDF”; use Markdown or HTML for direct knowledge-base delivery.' : format === 'html' ? 'HTML preserves page styling. Markdown preserves content and structure.' : 'Markdown preserves content and structure. Choose HTML for page styling.';
   };
   const onListChange = event => {
     const input = event.target.closest('input[data-section-id]');
@@ -783,10 +784,9 @@ export function createCaptureControls(doc = document, win = window) {
     const docked = !!rect && rect.width >= 160 && rect.top > 60;
     panel.classList.toggle('is-docked', docked);
     if (isChatGptPage()) {
-      // A closed tab only represents a real input edge while that edge is
-      // visible. Keep the open capture panel available at its normal position.
-      if (body.hidden) panel.hidden = !docked;
-      else panel.hidden = false;
+      // Keep a compact, keyboard-reachable launcher available if the page is
+      // between composer states or its input edge is clipped/unrecognized.
+      panel.hidden = false;
     }
     if (!docked) return;
     const style = win.getComputedStyle(box);
@@ -999,6 +999,9 @@ export function createCaptureControls(doc = document, win = window) {
   }
   function scheduleRefresh() { clearTimeout(timer); timer = win.setTimeout(refresh, 160); }
   const observer = new win.MutationObserver(records => {
+    // SPAs may remove the extension host during a body/composer rebuild. The
+    // controller and observers survive, so reattach the same shadow host.
+    if (!host.isConnected) (doc.body || doc.documentElement)?.append(host);
     const relevant = records.filter(record => {
       if (host.contains(record.target) || record.target.closest?.(`.${HEADER_CLASS}`)) return false;
       if (record.type === 'childList' && [...record.addedNodes, ...record.removedNodes].every(node => node.nodeType === 1 && node.matches?.(`.${HEADER_CLASS},[${OWNED}]`))) return false;

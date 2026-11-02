@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Keep the ChatGPT capture launcher reachable when the composer is unavailable or clipped, and recover the widget after a page rebuild.
+- Preserve Markdown equations, pre-wrapped message text, table cells, and explicit list numbering; add rendered-output regression coverage.
+
 - Remove application imposed conversation, media size/count, rendered-export, and KB file-count caps; use ZIP64 for large Markdown archives and retain browser/destination platform limits.
 - Decode large media buffers without per-byte intermediate arrays, build only the destination-specific Markdown media entries, and cover over-limit capture, media, and archive cases.
 - Keep the ChatGPT capture tab attached to the top border of the visible typing input with a one-pixel overlap; preserve native scrolling and keep the floating panel inside the available viewport.

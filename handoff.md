@@ -267,3 +267,18 @@ Added ZIP64 metadata for entry counts and sizes beyond classic ZIP fields, index
 Publication update: root confirmed the exact implementation tree passes `npm run check` (104 tests and production build) and the full `npm run test:browser` suite (`/tmp/idea-unlimited-final-check.log`). The changes are committed on `fix/remove-capture-limits` and published as a stacked PR against `fix/chatgpt-input-border-docking` (PR #6 dependency). The pre-existing action-menu serialization change in `src/background.js` remains unstaged and uncommitted. PR feedback and checks will be reviewed after five minutes.
 
 Feedback check for PR #7 at 2026-11-01 18:46 UTC, five minutes after creation: no issue comments, inline review comments, submitted reviews, or CI checks were listed. No follow-up changes were required. PR #7 remains open and unmerged.
+
+
+## 2026-11-01 — Markdown fidelity and ChatGPT launcher recovery
+
+Markdown extraction now preserves renderer TeX sources, display equations, pre-wrapped lines, table cell breaks/pipes/backslashes/code, explicit ordered-list numbering, and loose text surrounding nested reply prose. Exceptional lists and tables containing code blocks use sanitized HTML in Markdown; a compatible HTML/math renderer is needed. Page styling remains the purpose of HTML/PDF exports. Only loaded DOM content is captured.
+
+The ChatGPT launcher stays compact, closed, and reachable when no visible composer border can be found. It docks when an input edge is available and recovers after its host is removed by a page rebuild. Reinjection stops an orphan controller before replacing its host. The compact title fits narrow windows; format hints explain content versus styling.
+
+Requested Luna implementation/review cycles were followed by root review, independent rendered-output probes, and a further quality pass. Review caught and corrected table escaping, inline-code backticks, list ordinals, hidden math sources, and links beside code blocks. Root visually reviewed the desktop and 320px fallback screenshots. New extraction/widget regressions failed against the previous source (15 failures), demonstrating coverage of the original defects. Final isolated verification excludes the pre-existing action-menu edit in src/background.js; that edit must remain unstaged and uncommitted.
+
+Final isolated verification: npm run check passed (120 tests and production build), npm run test:browser passed, and git diff --check passed. Root log: /tmp/idea-fidelity-final-check.log. Publication is recorded below when complete. The controlled Chromium fixtures cover keyboard/pointer access, narrow layout, missing/clipped composers, host recovery, native scrolling, selected exports and KB delivery. No authenticated live ChatGPT conversation was inspected. Reload the unpacked extension from dist/ and refresh existing ChatGPT tabs to apply the changes.
+
+Publication: PR #8 created 2026-11-01 19:06:49 UTC at https://github.com/Isaac12x/ideafoundry-chrome-ext/pull/8. Branch `fix/markdown-fidelity-and-widget` is stacked on `fix/remove-capture-limits`; implementation commit `e7561fe40f17437e4562f813fb3c276f64d81886`. The PR is open and unmerged. The pre-existing `src/background.js` edit remains unstaged and uncommitted.
+
+PR #8 feedback check at 2026-11-01 19:11:56 UTC (five minutes after creation): no issue comments, submitted reviews, status checks, or inline review comments. PR remains open and unmerged. Root reviewed the fresh-context 320×640 visual artifact at `artifacts/widget-fallback-narrow-fresh.png`; the screenshot compositor resize glitch was absent.

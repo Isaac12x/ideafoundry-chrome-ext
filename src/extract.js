@@ -180,6 +180,8 @@ function containsCollapseUnsafe(node) {
   return collapseUnsafe(node) || [...node.querySelectorAll(`${collapseUnsafeSelector}, [role="textbox"]`)].some(collapseUnsafe);
 }
 const exportExcludedSelector = `script,style,nav,aside,header,footer,form,textarea,input,select,[contenteditable="true"],[role="navigation"],[role="complementary"],[role="toolbar"],[class*="sidebar" i],[class*="toolbar" i],[class*="composer" i],[data-testid*="composer" i],[data-testid*="header" i],[aria-label*="composer" i],[hidden],[aria-hidden="true"],.sr-only,[data-idea-capture-control],[data-idea-capture-owned]`;
+const mathSourceSelector = '.katex-mathml, annotation[encoding="application/x-tex"], annotation[encoding="application/x-mathml"]';
+function isMathSource(node) { return !!node.closest?.(mathSourceSelector); }
 
 function inferredContentNodes(source) {
   if (source.matches?.(inferredBarrierSelector)) return [];
@@ -196,9 +198,12 @@ function inferredUncoveredContentNodes(source, existingCandidates) {
   if (!overlapping.some(candidate => source !== candidate.node && source.contains(candidate.node))) {
     return overlapping.length || !inferredContentNodes(source).length ? [] : [{ node: source, contentNode: source }];
   }
-  // A reply shell may contain reported prose plus streamed element branches
-  // beside it. Keep those uncovered children without duplicating the reported
-  // candidate.
+  // A reply shell may contain reported prose plus text nodes before and after
+  // it. Keep the shell as the inferred turn so conversion preserves that
+  // inline ordering; nested prose candidates are suppressed when this shell
+  // becomes a turn below.
+  const hasLooseText = [...source.childNodes].some(child => child.nodeType === 3 && child.nodeValue.trim());
+  if (hasLooseText) return inferredContentNodes(source).map(node => ({ node, contentNode: source, coversDescendants: true }));
   return [...source.children].flatMap(child => inferredUncoveredContentNodes(child, existingCandidates));
 }
 
@@ -449,6 +454,75 @@ export function extractConversation(doc = document, url = location.href, options
           return `\n\n${fence}${language}\n${text}\n${fence}\n\n`;
         },
       });
+      // Math renderers commonly include both visual glyphs and hidden MathML
+      // with the original TeX. Letting Turndown flatten that DOM duplicates
+      // the equation (and often leaves accessibility markup in the output).
+      const mathSource = element => element.querySelector('annotation[encoding="application/x-tex"], annotation[encoding="application/x-mathml"]')?.textContent?.trim() ||
+        element.getAttribute('alttext') || element.getAttribute('aria-label') || element.textContent.trim();
+      const mathMarkdown = (element, display) => {
+        const source = mathSource(element);
+        if (!source) return '';
+        return display ? `\n\n$$\n${source}\n$$\n\n` : `$${source}$`;
+      };
+      td.addRule('displayMath', {
+        filter: node => node.nodeName === 'MJX-CONTAINER' && /^(true|block)$/i.test(node.getAttribute('display') || '') || node.matches?.('.katex-display, math[display="block"]'),
+        replacement: (_content, node) => mathMarkdown(node, true),
+      });
+      td.addRule('inlineMath', {
+        filter: node => node.matches?.('.katex, mjx-container:not([display="true"]):not([display="block"]), math:not([display="block"])'),
+        replacement: (_content, node) => mathMarkdown(node, false),
+      });
+      const htmlEscape = value => String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+      const safeHtmlSerialize = root => {
+        const allowed = new Set(['OL','UL','LI','P','BR','EM','STRONG','B','I','DEL','S','CODE','PRE','A','SPAN','H1','H2','H3','H4','H5','H6','BLOCKQUOTE','HR','TABLE','THEAD','TBODY','TFOOT','TR','TH','TD','MATH','MI','MN','MO','MSUP','MSUB','MROW','SEMANTICS','ANNOTATION']);
+        const serialize = node => {
+          if (node.nodeType === 3) return htmlEscape(node.nodeValue);
+          if (node.nodeType !== 1) return [...node.childNodes].map(serialize).join('');
+          if (['SCRIPT','STYLE','IFRAME','OBJECT','SVG'].includes(node.tagName)) return '';
+          if (!allowed.has(node.tagName)) return [...node.childNodes].map(serialize).join('');
+          const attrs = [];
+          const attr = (name, value) => attrs.push(`${name}="${htmlEscape(value)}"`);
+          if (node.tagName === 'OL') for (const name of ['start','reversed','type']) if (node.hasAttribute(name)) attr(name, node.getAttribute(name));
+          if (node.tagName === 'LI' && node.hasAttribute('value') && /^-?\d+$/.test(node.getAttribute('value'))) attr('value', node.getAttribute('value'));
+          if (node.tagName === 'TH' || node.tagName === 'TD') for (const name of ['rowspan','colspan']) if (/^\d+$/.test(node.getAttribute(name) || '')) attr(name, node.getAttribute(name));
+          if (node.tagName === 'A') {
+            try { const href = new URL(node.getAttribute('href'), url); if (['http:','https:'].includes(href.protocol)) attr('href', href.href); } catch {}
+          }
+          const tag = node.tagName.toLowerCase();
+          if (tag === 'br' || tag === 'hr') return `<${tag}>`;
+          return `<${tag}${attrs.length ? ` ${attrs.join(' ')}` : ''}>${[...node.childNodes].map(serialize).join('')}</${tag}>`;
+        };
+        return serialize(root);
+      };
+      td.addRule('explicitNumberedList', {
+        filter: node => node.nodeName === 'OL' && (node.hasAttribute('reversed') || Array.from(node.children).some(child => child.tagName === 'LI' && child.hasAttribute('value'))),
+        replacement: (_content, node) => {
+          return `\n\n${safeHtmlSerialize(node)}\n\n`;
+        },
+      });
+      td.addRule('tableCode', {
+        filter: node => node.nodeName === 'CODE' && !!node.closest('table') && !node.closest('pre'),
+        replacement: (_content, node) => `<code>${node.textContent.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\\/g, '&#92;').replace(/\|/g, '&#124;')}</code>`,
+      });
+      td.addRule('tableCell', {
+        filter: ['th','td'],
+        replacement: (content, node) => {
+          const index = Array.prototype.indexOf.call(node.parentNode.childNodes, node);
+          // Turndown has already escaped Markdown punctuation in text nodes.
+          // Doubling every backslash here changes those escapes (for example
+          // `\*literal\*`) and corrupts ordinary Windows paths. Only escape
+          // table delimiters that are not already escaped.
+          const escaped = content.replace(/\\+\|/g, slashes => `${'&#92;'.repeat(slashes.length / 2)}\\|`).replace(/(?<!\\)\|/g, '\\|').replace(/\n{2,}/g, '<br><br>').replace(/\n/g, '<br>');
+          return `${index === 0 ? '| ' : ' '}${escaped} |`;
+        },
+      });
+      td.addRule('preformattedTable', {
+        filter: node => node.nodeName === 'TABLE' && !!node.querySelector('pre'),
+        replacement: (_content, node) => {
+          return `\n\n${safeHtmlSerialize(node)}\n\n`;
+        },
+      });
+      td.addRule('lineBreak', { filter: node => node.nodeName === 'BR' && !!node.closest('th,td'), replacement: () => '<br>' });
     }
     const copy = doc.createElement('div');
     const cloned = node.cloneNode(true);
@@ -456,10 +530,12 @@ export function extractConversation(doc = document, url = location.href, options
     const originalElements = [...node.querySelectorAll('*')];
     const clonedElements = [...cloned.querySelectorAll('*')];
     const originalForClone = new WeakMap(clonedElements.map((element, index) => [element, originalElements[index]]));
+    originalForClone.set(cloned, node);
     originalElements.forEach((original, index) => {
-      if (!isVisibleConversationNode(original)) clonedElements[index]?.remove();
+      if (!isVisibleConversationNode(original) && !isMathSource(original)) clonedElements[index]?.remove();
     });
-    copy.querySelectorAll(exportExcludedSelector).forEach(n => n.remove());
+    copy.querySelectorAll(exportExcludedSelector).forEach(n => { if (!isMathSource(n)) n.remove(); });
+
 
     let mediaOrdinal = mediaOrdinals.get(messageIndex) || 0;
     const addMedia = (element, kind, mediaUrl, error = '') => {
@@ -581,7 +657,34 @@ export function extractConversation(doc = document, url = location.href, options
         }
       }
     }
-    return { markdown: td.turndown(copy.innerHTML).trim(), ...(options.includeLayout ? { html: cloned.outerHTML } : {}) };
+    const markdownCopy = copy.cloneNode(true);
+    const markdownClones = [cloned, ...cloned.querySelectorAll('*')];
+    const markdownRoot = markdownCopy.firstElementChild;
+    const markdownElements = markdownRoot ? [markdownRoot, ...markdownRoot.querySelectorAll('*')] : [];
+    // Preserve source CSS whitespace in the Markdown-only working tree. The
+    // HTML layout snapshot continues to use the untouched sanitized clone.
+    markdownClones.forEach((element, index) => {
+      const target = markdownElements[index];
+      const original = originalForClone.get(element);
+      if (!target || !original) return;
+      const whiteSpace = original.ownerDocument.defaultView?.getComputedStyle?.(original).whiteSpace || original.style?.whiteSpace;
+      if (!/^(pre-wrap|pre-line)$/.test(whiteSpace)) return;
+      const walker = doc.createTreeWalker(target, doc.defaultView.NodeFilter.SHOW_TEXT);
+      const textNodes = [];
+      while (walker.nextNode()) textNodes.push(walker.currentNode);
+      for (const textNode of textNodes) {
+        if (textNode.parentElement?.closest('pre,code')) continue;
+        if (!/[\n\t]| {2,}/.test(textNode.nodeValue)) continue;
+        const fragment = doc.createDocumentFragment();
+        textNode.nodeValue.split(/\n/).forEach((line, lineIndex) => {
+          if (lineIndex) fragment.append(doc.createElement('br'));
+          fragment.append(doc.createTextNode(line.replace(/ {2,}/g, spaces => '\u00a0'.repeat(spaces.length))));
+        });
+        textNode.replaceWith(fragment);
+      }
+    });
+    const markdown = td.turndown(markdownCopy.innerHTML).trim();
+    return { markdown, ...(options.includeLayout ? { html: cloned.outerHTML } : {}) };
   };
   let provider = 'Other';
   let candidates = [];
@@ -620,6 +723,9 @@ export function extractConversation(doc = document, url = location.href, options
     for (const candidate of inferredTurns) {
       if (!candidates.some(existing => existing.node === candidate.node || existing.node.contains(candidate.node))) candidates.push(candidate);
     }
+    const inferredShells = inferredTurns.filter(candidate => candidate.coversDescendants).map(candidate => candidate.node);
+    if (inferredShells.length) candidates = candidates.filter(candidate => !candidate.node || candidate.role === 'user' ||
+      !inferredShells.some(shell => shell && candidate.node && shell !== candidate.node && shell.contains(candidate.node)));
     if (inferredTurns.length) unlabeledChatGptTurns = true;
     chatGptPromptsOnly = userBubbles.length > 0 && !candidates.some(candidate => candidate.role === 'assistant') && inferredTurns.length === 0;
     const uncoveredTurns = unrecognizedTurns.filter(node => !candidates.some(candidate => node.contains(candidate.node)));

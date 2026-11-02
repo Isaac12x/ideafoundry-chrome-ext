@@ -314,7 +314,42 @@ try {
     const button = shadow?.querySelector('[data-action="toggle-panel"]');
     return { visible: !!button && button.getBoundingClientRect().width > 0, expanded: button?.getAttribute('aria-expanded'), panelHidden: shadow?.querySelector('#idea-capture-panel')?.hidden };
   });
-  assert.deepEqual(emptyLauncher, { visible: false, expanded: 'false', panelHidden: true }, `ChatGPT hides the closed tab when there is no visible input edge to anchor to: ${JSON.stringify(emptyLauncher)}`);
+  assert.deepEqual(emptyLauncher, { visible: true, expanded: 'false', panelHidden: false }, `ChatGPT keeps a closed launcher visible without an input edge: ${JSON.stringify(emptyLauncher)}`);
+  await mkdir('artifacts', { recursive: true });
+  await project.screenshot({ path: 'artifacts/widget-fallback-no-composer.png' });
+  const narrowFallback = async () => project.evaluate(() => {
+    const panel = document.querySelector('[data-idea-capture-owned="host"]')?.shadowRoot?.querySelector('#idea-capture-panel');
+    const button = panel?.querySelector('[data-action="toggle-panel"]');
+    const rect = button?.getBoundingClientRect();
+    const panelRect = panel?.getBoundingClientRect();
+    return { viewport: innerWidth, visible: !!button && rect.width > 0 && rect.height > 0, left: rect?.left, right: rect?.right, panelTop: panelRect?.top, panelBottom: panelRect?.bottom, panelHidden: panel?.hidden, docked: panel?.classList.contains('is-docked'), expanded: button?.getAttribute('aria-expanded'), bodyHidden: panel?.querySelector('.panel-body')?.hidden };
+  });
+  await project.setViewportSize({ width: 320, height: 640 });
+  await project.waitForFunction(() => innerWidth === 320);
+  await project.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  const narrowBeforeOpen = await narrowFallback();
+  console.log(`Narrow no-composer launcher before keyboard open: ${JSON.stringify(narrowBeforeOpen)}`);
+  assert.ok(narrowBeforeOpen.visible && narrowBeforeOpen.left >= 0 && narrowBeforeOpen.right <= 320 && narrowBeforeOpen.panelBottom <= 640 && !narrowBeforeOpen.panelHidden, `fallback launcher fits the narrow viewport: ${JSON.stringify(narrowBeforeOpen)}`);
+  await project.waitForTimeout(120);
+  await project.screenshot({ path: 'artifacts/widget-fallback-narrow.png' });
+  await project.evaluate(() => document.querySelector('[data-idea-capture-owned="host"]')?.shadowRoot?.querySelector('[data-action="toggle-panel"]')?.focus());
+  await project.keyboard.press('Enter');
+  assert.equal(await project.evaluate(() => document.querySelector('[data-idea-capture-owned="host"]')?.shadowRoot?.querySelector('[data-action="toggle-panel"]')?.getAttribute('aria-expanded')), 'true', 'the fallback opens from keyboard activation');
+  await project.keyboard.press('Enter');
+  const narrowButtonRect = await project.evaluate(() => {
+    const rect = document.querySelector('[data-idea-capture-owned="host"]')?.shadowRoot?.querySelector('[data-action="toggle-panel"]')?.getBoundingClientRect();
+    return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+  });
+  await project.mouse.click(narrowButtonRect.x, narrowButtonRect.y);
+  assert.equal(await project.evaluate(() => document.querySelector('[data-idea-capture-owned="host"]')?.shadowRoot?.querySelector('[data-action="toggle-panel"]')?.getAttribute('aria-expanded')), 'true', 'the fallback has a working pointer hit target at 320px wide');
+  await project.evaluate(() => document.querySelector('[data-idea-capture-owned="host"]')?.shadowRoot?.querySelector('[data-action="toggle-panel"]')?.click());
+  await project.evaluate(() => {
+    window.__fallbackHostForRecovery = document.querySelector('[data-idea-capture-owned="host"]');
+    window.__fallbackHostForRecovery?.remove();
+  });
+  await project.waitForFunction(() => document.querySelector('[data-idea-capture-owned="host"]') === window.__fallbackHostForRecovery, null, { timeout: 2000 });
+  assert.equal(await project.evaluate(() => document.querySelector('[data-idea-capture-owned="host"]')?.shadowRoot?.querySelector('#idea-capture-panel')?.querySelector('.panel-body')?.hidden), true, 'the same closed widget recovers after host removal');
+  await project.setViewportSize({ width: 1280, height: 900 });
   await project.evaluate(() => document.querySelector('[data-idea-capture-owned="host"]')?.shadowRoot?.querySelector('[data-action="toggle-panel"]')?.click());
   assert.equal(await project.evaluate(() => {
     const shadow = document.querySelector('[data-idea-capture-owned="host"]')?.shadowRoot;
@@ -727,16 +762,22 @@ try {
   await waitBorderFrame();
   await borderAnchor.locator('.composer').evaluate(node => { node.style.visibility = 'hidden'; });
   await waitBorderFrame();
-  const hiddenComposerPanel = await borderAnchor.locator('[data-idea-capture-owned="host"]').evaluate(host => host.shadowRoot.querySelector('#idea-capture-panel').hidden);
-  assert.equal(hiddenComposerPanel, true, 'an invisible composer ancestor hides the closed tab');
+  const hiddenComposerPanel = await borderAnchor.locator('[data-idea-capture-owned="host"]').evaluate(host => {
+    const panel = host.shadowRoot.querySelector('#idea-capture-panel');
+    return { hidden: panel.hidden, docked: panel.classList.contains('is-docked') };
+  });
+  assert.deepEqual(hiddenComposerPanel, { hidden: false, docked: false }, 'the fallback remains visible and undocked when its composer is invisible');
   await borderAnchor.locator('.composer').evaluate(node => { node.style.visibility = ''; });
   await waitBorderFrame();
   const restoredBorder = await borderAnchorSample();
   assert.ok(Math.abs(restoredBorder.gap + 1) <= 1, `restoring the visible composer restores the border anchor: ${JSON.stringify(restoredBorder)}`);
   await borderAnchor.locator('.composer').evaluate(node => { node.style.height = '0px'; node.style.overflow = 'hidden'; });
   await waitBorderFrame();
-  const clippedSurfacePanel = await borderAnchor.locator('[data-idea-capture-owned="host"]').evaluate(host => host.shadowRoot.querySelector('#idea-capture-panel').hidden);
-  assert.equal(clippedSurfacePanel, true, 'a composer border clipped by its overflow ancestor does not leave a false tab');
+  const clippedSurfacePanel = await borderAnchor.locator('[data-idea-capture-owned="host"]').evaluate(host => {
+    const panel = host.shadowRoot.querySelector('#idea-capture-panel');
+    return { hidden: panel.hidden, docked: panel.classList.contains('is-docked') };
+  });
+  assert.deepEqual(clippedSurfacePanel, { hidden: false, docked: false }, 'the fallback remains reachable when the composer border is clipped');
   await borderAnchor.locator('.composer').evaluate(node => { node.style.removeProperty('height'); node.style.removeProperty('overflow'); });
   await waitBorderFrame();
   const unclippedBorder = await borderAnchorSample();
