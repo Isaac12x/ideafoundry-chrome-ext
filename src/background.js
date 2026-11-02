@@ -225,11 +225,16 @@ async function alarm() {
   if (config.remoteEnabled) await chrome.alarms.create('remote-capture', { periodInMinutes: 0.5 });
   else await chrome.alarms.clear('remote-capture');
 }
-async function registerActionMenu() {
-  await chrome.contextMenus.removeAll().catch(() => {});
-  try {
-    chrome.contextMenus.create({ id: 'idea-capture-settings', title: 'Open capture settings', contexts: ['action'] });
-  } catch (error) { console.warn('IdeaFoundry settings menu could not be registered:', error.message); }
+// Serialized: onInstalled and onStartup can overlap, and removeAll/create races yield duplicate ids.
+let actionMenu = Promise.resolve();
+function registerActionMenu() {
+  actionMenu = actionMenu.then(async () => {
+    await chrome.contextMenus.removeAll().catch(() => {});
+    chrome.contextMenus.create({ id: 'idea-capture-settings', title: 'Open capture settings', contexts: ['action'] }, () => {
+      if (chrome.runtime.lastError) console.warn('IdeaFoundry settings menu could not be registered:', chrome.runtime.lastError.message);
+    });
+  });
+  return actionMenu;
 }
 chrome.runtime.onInstalled.addListener(() => { void alarm(); void registerActionMenu(); });
 chrome.runtime.onStartup.addListener(() => { void alarm(); void registerActionMenu(); });
