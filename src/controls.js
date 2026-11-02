@@ -24,6 +24,7 @@ export function createCaptureControls(doc = document, win = window) {
   const headers = new Map();
   const nodeIds = new WeakMap();
   const classStates = new Map();
+  const shouldCollapse = new Set(); // nodes applyCollapse last hid
   let nextNodeId = 1;
   let timer;
   let refreshing = false;
@@ -544,13 +545,16 @@ export function createCaptureControls(doc = document, win = window) {
     return [...targets].filter(target => ![...targets].some(ancestor => ancestor !== target && ancestor.contains(target)));
   }
   function applyCollapse() {
+    shouldCollapse.clear();
     for (const section of sections) for (const node of collapseTargets(section)) {
       if (!classStates.has(node)) {
         const hadClass = node.classList.contains(COLLAPSED_CLASS);
         classStates.set(node, hadClass);
         node.setAttribute('data-idea-capture-collapse-state', String(hadClass));
       }
-      node.classList.toggle(COLLAPSED_CLASS, collapsed.get(section.id) === true);
+      const hide = collapsed.get(section.id) === true;
+      node.classList.toggle(COLLAPSED_CLASS, hide);
+      if (hide) shouldCollapse.add(node);
     }
   }
   function median(values) {
@@ -848,6 +852,7 @@ export function createCaptureControls(doc = document, win = window) {
           }
         }
         if (!surface) { dockWhy = how === 'nearest drawn' ? 'no drawn surface' : how; continue; }
+        // continue, not abort: editors are already filtered/ranked as prompts, so one clipped candidate must not hide a visible one.
         const clipped = clipReason(surface);
         if (clipped) { dockWhy = clipped; continue; }
         dockWhy = how;
@@ -883,7 +888,8 @@ export function createCaptureControls(doc = document, win = window) {
     return false;
   }
   // A transient miss (mid re-render, input briefly hidden) must not drop a dock
-  // that is still on screen to the bottom-right floating card.
+  // that is still on screen to the bottom-right floating card. Applies to every
+  // provider (Claude too), deliberately.
   function lastDockBox() {
     const rect = dockBox?.isConnected && dockBox.getBoundingClientRect();
     const viewportHeight = win.innerHeight || doc.documentElement.clientHeight;
@@ -1148,8 +1154,8 @@ export function createCaptureControls(doc = document, win = window) {
     });
     if (relevant.some(record => record.type !== 'attributes')) scheduleRefresh();
     // React rewrites className on re-render, dropping our collapsed class; put it back.
-    // ponytail: toggle() to the same state emits no mutation, so this cannot loop.
-    if (relevant.some(record => record.type === 'attributes' && classStates.has(record.target))) applyCollapse();
+    // ponytail: add() of an already-present class emits no mutation, so this cannot loop; only the stripped node is touched.
+    for (const record of relevant) if (record.type === 'attributes' && shouldCollapse.has(record.target) && !record.target.classList.contains(COLLAPSED_CLASS)) record.target.classList.add(COLLAPSED_CLASS);
     if (relevant.length) scheduleDock();
   });
   observer.observe(doc.documentElement || doc.body, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['class', 'style', 'hidden'] });

@@ -204,6 +204,11 @@ try {
         </style><main id="thread">${Array.from({ length: 3 }, (_, i) => `<article class="turn" data-testid="conversation-turn-${i + 1}"><h2>${i % 2 ? 'ChatGPT said:' : 'You said:'}</h2><p>Turn ${i + 1}.</p>${i === 0 ? '<form class="edit-form"><div contenteditable="true" aria-label="Edit message" style="min-height:30px;padding:4px">editing a sent message</div></form>' : ''}</article>`).join('')}</main>
         <${kind === 'real-noform' ? 'div' : 'form'} data-type="unified-composer"><div style="margin:0 -22px;padding:0 22px;${wrapPaint}"><div style="display:contents"><div class="pill"><div class="inner">${row}</div></div></div></div></${kind === 'real-noform' ? 'div' : 'form'}>` });
     }
+    if (path.endsWith('/c/clipped-first')) return route.fulfill({ status: 200, contentType: 'text/html', body: `<!doctype html><title>Clipped first · ChatGPT</title><style>
+      *{box-sizing:border-box}html,body{margin:0;height:100%;font:15px system-ui;background:#f6f7f6}.box{border:1px solid #aeb8b0;border-radius:22px;background:#fff;padding:10px}
+      .clip{position:fixed;top:0;left:100px;width:600px;height:70px;overflow:hidden}.clip .box{margin-top:-30px;height:80px}.ok{position:fixed;left:100px;bottom:20px;width:600px}
+      </style><main id="thread"><article data-testid="conversation-turn-1"><p>Hello</p></article></main><div class="clip"><form><div class="box"><div id="prompt-textarea" contenteditable="true">clipped</div></div></form></div>
+      <form class="ok"><div class="box" id="visible"><div contenteditable="true" aria-label="Message composer">Ask anything</div></div></form>` });
     if (path.endsWith('/c/input-border-anchor')) return route.fulfill({ status: 200, contentType: 'text/html', body: `<!doctype html><title>Composer border anchor repro · ChatGPT</title><style>
       *{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;font:15px/1.5 system-ui,sans-serif;color:#202522;background:#f6f7f6}
       #thread{height:100vh;overflow:auto;overscroll-behavior:contain;padding:24px 20px 0}.messages{width:min(760px,100%);margin:0 auto}.turn{padding:12px 18px;margin:0 0 18px;background:#fff;border-radius:12px}.turn h2{font-size:11px;color:#707a72}.turn p{margin:0 0 18px}
@@ -991,6 +996,10 @@ try {
     assert.equal(refused.tab.docked, false, `${path} keeps the compact launcher: ${JSON.stringify(refused.tab)}`);
     await refused.page.close();
   }
+  // A clipped top-ranked editor must not abort detection: the next valid prompt still docks.
+  const clippedFirst = await loadChatGpt('clipped-first', '#visible');
+  assert.ok(clippedFirst.tab.docked && Math.abs(clippedFirst.tab.gap + 1) <= 1, `the tab docks to the visible composer when the top-ranked one is clipped: ${JSON.stringify(clippedFirst.tab)}`);
+  await clippedFirst.page.close();
   const decoy = await loadChatGpt('real-decoy', 'form[data-type="unified-composer"]', false);
   assert.equal(decoy.tab.docked, false, `a plain form editor and an in-conversation edit form never dock: ${JSON.stringify(decoy.tab)}`);
   await decoy.page.close();

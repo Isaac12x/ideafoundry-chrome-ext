@@ -104,7 +104,7 @@ export function validateTarget(raw) {
   if (raw == null) return {};
   return { source: kbSource(raw.source), directory: kbDirectory(raw.directory) };
 }
-// The app's /knowledge-base/projects reply, reduced to what the widget may show.
+// The app's /knowledge-base/project-list reply, reduced to what the widget may show.
 export function normalizeProjects(raw) {
   if (!Array.isArray(raw)) return [];
   const out = [];
