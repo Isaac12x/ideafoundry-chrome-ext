@@ -167,6 +167,17 @@ try {
       .composer [contenteditable=true]{width:100%;height:52px;padding:12px 16px;border:1px solid #ccd4ce;border-radius:16px;background:#fff}
       </style><main id="thread"><div class="messages"><div class="turn"><div class="user-message-bubble"><p>Summarize the research discussion.</p></div><div class="markdown">${Array.from({ length: 24 }, (_, i) => `<p>Conversation answer ${i + 1}: preserve the research context, evidence, and decision links as the discussion continues.</p>`).join('')}<p id="sticky-bottom-marker">End of the final answer.</p></div></div></div><form class="composer"><div contenteditable="true" aria-label="Message composer">Ask anything</div></form></main>
       <script>addEventListener('DOMContentLoaded',()=>{const c=document.querySelector('.composer'),t=document.querySelector('#thread'),m=document.querySelector('#sticky-bottom-marker'),r=c.getBoundingClientRect();window.__nativeComposerGeometry={x:r.x,y:r.y,width:r.width,height:r.height,top:r.top,bottom:r.bottom,paddingBottom:getComputedStyle(t).paddingBottom};t.scrollTop=t.scrollHeight;const cr=c.getBoundingClientRect(),mr=m.getBoundingClientRect(),tr=t.getBoundingClientRect();window.__nativeComposerGeometry.nativeBottom={scrollTop:t.scrollTop,maxScroll:t.scrollHeight-t.clientHeight,composerTop:cr.top,composerBottom:cr.bottom,threadBottom:tr.bottom,markerBottom:mr.bottom,markerVisibleAboveComposer:mr.bottom<=cr.top};t.scrollTop=0;},{once:true});</script>` });
+    if (path.endsWith('/c/input-border-anchor')) return route.fulfill({ status: 200, contentType: 'text/html', body: `<!doctype html><title>Composer border anchor repro · ChatGPT</title><style>
+      *{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;font:15px/1.5 system-ui,sans-serif;color:#202522;background:#f6f7f6}
+      #thread{height:100vh;overflow:auto;overscroll-behavior:contain;padding:24px 20px 0}.messages{width:min(760px,100%);margin:0 auto}.turn{padding:12px 18px;margin:0 0 18px;background:#fff;border-radius:12px}.turn h2{font-size:11px;color:#707a72}.turn p{margin:0 0 18px}
+      .composer{position:fixed;z-index:2;left:50%;transform:translateX(-50%);width:min(760px,100%);bottom:0;padding:14px 22px 12px;background:#fff;border-radius:24px 24px 0 0}
+      .input-surface{width:min(700px,100%);margin:0 auto;padding:14px 18px 10px;border:1px solid #aeb8b0;border-radius:22px;background:#fff;box-shadow:0 1px 3px #0001}
+      [contenteditable=true]{min-height:38px;max-height:120px;overflow:auto;outline:0;padding:6px 4px}.disabled-prompt{width:100%;height:38px;resize:none;padding:6px 4px;border:0;background:transparent;font:inherit}.composer-footer{display:flex;justify-content:space-between;align-items:center;gap:12px;padding-top:8px;border-top:1px solid #edf0ed;color:#707a72;font-size:12px}.disclaimer{max-width:700px;margin:6px auto 0;text-align:center;color:#707a72;font-size:11px}
+      .code-demo{width:min(700px,100%);margin:12px auto 0;padding:10px 14px;border:1px solid #ddd;border-radius:10px;background:#f0f1ef}.code-demo pre{margin:0;white-space:pre-wrap}
+      @media(max-width:600px){.composer{padding:10px 12px 8px}.input-surface{padding:10px 14px 8px;border-radius:18px}.disclaimer{padding:0 12px}}
+      </style><main id="thread"><div class="messages">${Array.from({ length: 10 }, (_, i) => `<article class="turn" data-testid="conversation-turn-${i + 1}"><h2>${i % 2 ? 'ChatGPT said:' : 'You said:'}</h2><p>Conversation detail ${i + 1}: maintain normal scrolling while the input grows and the capture tab follows the visible input surface.</p>${i === 1 ? '<div contenteditable="true" style="width:480px;min-height:42px">unlabeled message editor decoy</div>' : ''}</article>`).join('')}<p id="bottom-marker">End of the conversation.</p></div></main>
+      <form class="composer"><div class="input-surface" data-visible-input-border><div contenteditable="true">Ask anything</div><textarea class="disabled-prompt" aria-label="Temporary prompt" disabled hidden></textarea><div class="composer-footer"><span>Use a clear prompt</span><button type="button">Send</button></div></div><div class="disclaimer">AI responses may be inaccurate. Verify important information.</div><div class="code-demo"><pre role="textbox" aria-readonly="true">readonly code textbox decoy</pre></div></form>
+      <script>addEventListener('DOMContentLoaded',()=>{const t=document.querySelector('#thread'),f=document.querySelector('.composer'),r=f.getBoundingClientRect();t.scrollTop=0;window.__nativeComposerRect={x:r.x,y:r.y,width:r.width,height:r.height,top:r.top,bottom:r.bottom};window.__nativeScrollStyle={overflow:getComputedStyle(t).overflowY,paddingBottom:getComputedStyle(t).paddingBottom};},{once:true});</script>` });
     if (path.endsWith('/c/role-wrapper-layout')) return route.fulfill({ status: 200, contentType: 'text/html', body: `<!doctype html><title>Gallery planning · ChatGPT</title><style>
       *{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;font:15px/1.6 system-ui,sans-serif;color:#202522;background:#f6f7f6}
       main#thread{height:100vh;width:100vw;overflow:auto;overscroll-behavior:contain;padding:22px 0}
@@ -232,6 +243,12 @@ try {
       <article data-testid="conversation-turn-4"><h2 class="sr-only">ChatGPT said:</h2><div class="markdown"><p>Test the interview guide with three participants.</p></div></article>
     </main>` });
   });
+  await context.route('https://claude.ai/**', route => route.fulfill({ status: 200, contentType: 'text/html', body: `<!doctype html><title>Composer anchor check · Claude</title><style>
+    *{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;font:15px/1.5 system-ui,sans-serif;color:#202522;background:#f6f7f6}
+    #thread{height:100vh;overflow:auto;padding:24px}.turn{width:min(700px,100%);margin:0 auto 20px;padding:16px;background:#fff;border-radius:12px}
+    .composer{position:fixed;left:0;right:0;bottom:0;height:112px;padding:14px 20px;border:1px solid #d6ddd7;border-bottom:0;border-radius:18px 18px 0 0;background:#fff}
+    .composer [contenteditable=true]{width:min(680px,100%);height:54px;margin:auto;padding:12px;border:1px solid #c8d0ca;border-radius:14px;background:#fff}
+    </style><main id="thread"><article class="turn" data-testid="user-message"><p>Compare these project notes.</p></article><article class="turn font-claude-response"><p>The notes describe a short research pilot.</p></article></main><form class="composer"><div contenteditable="true" aria-label="Message composer">Reply to Claude</div></form>` }));
 
   // Drive URL scope changes through the real options form. Keep both tabs open
   // so settings changes and SPA route transitions must update already loaded pages.
@@ -297,7 +314,7 @@ try {
     const button = shadow?.querySelector('[data-action="toggle-panel"]');
     return { visible: !!button && button.getBoundingClientRect().width > 0, expanded: button?.getAttribute('aria-expanded'), panelHidden: shadow?.querySelector('#idea-capture-panel')?.hidden };
   });
-  assert.deepEqual(emptyLauncher, { visible: true, expanded: 'false', panelHidden: false }, `empty ChatGPT project keeps its closed launcher available: ${JSON.stringify(emptyLauncher)}`);
+  assert.deepEqual(emptyLauncher, { visible: false, expanded: 'false', panelHidden: true }, `ChatGPT hides the closed tab when there is no visible input edge to anchor to: ${JSON.stringify(emptyLauncher)}`);
   await project.evaluate(() => document.querySelector('[data-idea-capture-owned="host"]')?.shadowRoot?.querySelector('[data-action="toggle-panel"]')?.click());
   assert.equal(await project.evaluate(() => {
     const shadow = document.querySelector('[data-idea-capture-owned="host"]')?.shadowRoot;
@@ -602,6 +619,151 @@ try {
   assert.equal(await reportedLayout.locator('nav a').count(), 2, 'navigation remains outside captured messages');
   assert.equal(await reportedLayout.locator('.composer [contenteditable="true"]').textContent(), 'Ask anything', 'the composer remains outside captured messages');
   await reportedLayout.screenshot({ path: 'artifacts/reported-layout-sections.png', fullPage: true });
+  const borderAnchor = await context.newPage();
+  await borderAnchor.setViewportSize({ width: 1440, height: 900 });
+  await borderAnchor.goto('https://chatgpt.com/g/p-demo/c/input-border-anchor');
+  await borderAnchor.locator('.idea-capture-section-header').first().waitFor();
+  await borderAnchor.waitForFunction(() => document.querySelector('[data-idea-capture-owned="host"]')?.shadowRoot?.querySelector('#idea-capture-panel'));
+  await borderAnchor.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  const borderAnchorSample = () => borderAnchor.evaluate(() => {
+    const surface = document.querySelector('[data-visible-input-border]');
+    const panel = document.querySelector('[data-idea-capture-owned="host"]').shadowRoot.querySelector('#idea-capture-panel');
+    const sr = surface.getBoundingClientRect(), pr = panel.getBoundingClientRect();
+    return { surface: { left: sr.left, right: sr.right, top: sr.top, bottom: sr.bottom, width: sr.width, height: sr.height }, panel: { left: pr.left, right: pr.right, top: pr.top, bottom: pr.bottom }, gap: sr.top - pr.bottom, scroll: { overflow: getComputedStyle(document.querySelector('#thread')).overflowY, top: document.querySelector('#thread').scrollTop } };
+  });
+  const borderAnchorEvidence = await borderAnchorSample();
+  await borderAnchor.screenshot({ path: 'artifacts/input-border-anchor.png' });
+  console.log(`Visible input border anchor repro: ${JSON.stringify(borderAnchorEvidence)}`);
+  await writeFile('artifacts/input-border-anchor.json', JSON.stringify(borderAnchorEvidence, null, 2));
+  assert.ok(Math.abs(borderAnchorEvidence.gap + 1) <= 1, `closed widget tab overlaps the visible rounded input surface top border by 1px: ${JSON.stringify(borderAnchorEvidence)}`);
+  const headerHitTest = await borderAnchor.evaluate(() => {
+    const editor = document.querySelector('.composer [contenteditable="true"]');
+    const header = document.querySelector('.idea-capture-section-header');
+    const r = editor.getBoundingClientRect();
+    Object.assign(header.style, { position: 'fixed', left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px` });
+    const x = r.left + r.width / 2, y = r.top + r.height / 2;
+    const hit = () => document.elementFromPoint(x, y);
+    header.style.setProperty('z-index', '10', 'important');
+    const oldHeaderWouldWin = !!hit()?.closest('.idea-capture-section-header');
+    header.style.removeProperty('z-index');
+    return { oldHeaderWouldWin, target: hit()?.getAttribute('contenteditable'), headerZ: getComputedStyle(header).zIndex, composerZ: getComputedStyle(document.querySelector('.composer')).zIndex };
+  });
+  assert.equal(headerHitTest.oldHeaderWouldWin, true, `the former section-header stacking level takes native composer hit targets: ${JSON.stringify(headerHitTest)}`);
+  assert.equal(headerHitTest.headerZ, 'auto', `section headers use normal page stacking after removal of their explicit level: ${JSON.stringify(headerHitTest)}`);
+  assert.equal(headerHitTest.target, 'true', `the composer wins hit testing once the section header sits below its z-index: ${JSON.stringify(headerHitTest)}`);
+  await borderAnchor.evaluate(() => document.querySelector('.idea-capture-section-header').removeAttribute('style'));
+  const borderNative = await borderAnchor.evaluate(() => ({ rect: window.__nativeComposerRect, scroll: window.__nativeScrollStyle, current: (() => { const r = document.querySelector('.composer').getBoundingClientRect(); return { x:r.x,y:r.y,width:r.width,height:r.height,top:r.top,bottom:r.bottom }; })() }));
+  assert.deepEqual(borderNative.current, borderNative.rect, `injection preserves the native composer form geometry: ${JSON.stringify(borderNative)}`);
+  const borderToggle = borderAnchor.locator('[data-idea-capture-owned="host"]').evaluateHandle(host => host.shadowRoot.querySelector('[data-action="toggle-panel"]'));
+  const waitBorderFrame = () => borderAnchor.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  await borderToggle.then(handle => handle.asElement().click());
+  await waitBorderFrame();
+  const openBorderPanel = await borderAnchorSample();
+  await borderAnchor.setViewportSize({ width: 800, height: 360 });
+  await borderAnchor.locator('.composer').evaluate(node => { node.style.height = '230px'; });
+  await waitBorderFrame();
+  const shortViewportOpenPanel = await borderAnchor.evaluate(() => {
+    const panel = document.querySelector('[data-idea-capture-owned="host"]').shadowRoot.querySelector('#idea-capture-panel');
+    const rect = panel.getBoundingClientRect();
+    return { top: rect.top, bottom: rect.bottom, viewportHeight: innerHeight, maxHeight: getComputedStyle(panel).maxHeight, hidden: panel.hidden };
+  });
+  assert.equal(shortViewportOpenPanel.hidden, false, 'the capture panel stays open for a tall composer on a short viewport');
+  assert.ok(shortViewportOpenPanel.top >= 0 && shortViewportOpenPanel.bottom <= shortViewportOpenPanel.viewportHeight, `the open dock remains entirely visible above a tall composer: ${JSON.stringify(shortViewportOpenPanel)}`);
+  await borderAnchor.setViewportSize({ width: 1440, height: 900 });
+  await borderAnchor.locator('.composer').evaluate(node => { node.style.removeProperty('height'); });
+  await waitBorderFrame();
+  await borderAnchor.locator('[data-idea-capture-owned="host"]').evaluate(host => host.shadowRoot.querySelector('[data-action="toggle-panel"]').click());
+  await waitBorderFrame();
+  const closedAgainBorder = await borderAnchorSample();
+  assert.equal(closedAgainBorder.gap, borderAnchorEvidence.gap, `closing the panel restores the same input-border dock: ${JSON.stringify({ initial: borderAnchorEvidence, open: openBorderPanel, closed: closedAgainBorder })}`);
+  const borderThread = borderAnchor.locator('#thread');
+  const borderThreadBox = await borderThread.boundingBox();
+  await borderAnchor.mouse.move(borderThreadBox.x + borderThreadBox.width / 2, borderThreadBox.y + borderThreadBox.height / 2);
+  await borderAnchor.mouse.wheel(0, 680);
+  await waitBorderFrame();
+  const afterBorderWheel = await borderAnchor.evaluate(() => ({ top: document.querySelector('#thread').scrollTop, overflow: getComputedStyle(document.querySelector('#thread')).overflowY }));
+  const afterWheelBorder = await borderAnchorSample();
+  assert.ok(afterBorderWheel.top > 0 && afterBorderWheel.overflow === borderNative.scroll.overflow, `conversation keeps native wheel scrolling: ${JSON.stringify({ afterBorderWheel, native: borderNative.scroll })}`);
+  assert.ok(Math.abs(afterWheelBorder.gap + 1) <= 1, `the tab follows the visible border through native scrolling: ${JSON.stringify(afterWheelBorder)}`);
+  await borderAnchor.locator('.composer [contenteditable="true"]').evaluate(node => { node.style.height = '100px'; });
+  await waitBorderFrame();
+  const grownBorder = await borderAnchorSample();
+  assert.ok(Math.abs(grownBorder.gap + 1) <= 1, `the tab follows input growth: ${JSON.stringify(grownBorder)}`);
+  await borderAnchor.setViewportSize({ width: 390, height: 780 });
+  await waitBorderFrame();
+  const narrowBorder = await borderAnchorSample();
+  assert.ok(Math.abs(narrowBorder.gap + 1) <= 1, `the tab follows the visible border at narrow width: ${JSON.stringify(narrowBorder)}`);
+  await borderAnchor.evaluate(() => { const old = document.querySelector('.composer'); const replacement = old.cloneNode(true); old.replaceWith(replacement); });
+  await waitBorderFrame();
+  const replacedBorder = await borderAnchorSample();
+  assert.ok(Math.abs(replacedBorder.gap + 1) <= 1, `SPA composer replacement keeps the tab on the visible border: ${JSON.stringify(replacedBorder)}`);
+  await borderAnchor.locator('.composer').evaluate(node => { node.style.transform = 'translate(-50%,-18px)'; });
+  await waitBorderFrame();
+  const translatedBorder = await borderAnchorSample();
+  assert.ok(Math.abs(translatedBorder.gap + 1) <= 1 && translatedBorder.surface.top < replacedBorder.surface.top - 10, `same-size ancestor transform moves the dock with the visible border: ${JSON.stringify({ before: replacedBorder, after: translatedBorder })}`);
+  await borderAnchor.locator('.composer').evaluate(node => { node.style.transform = ''; });
+  await borderAnchor.locator('.composer [contenteditable="true"]').evaluate(node => { node.setAttribute('contenteditable', 'false'); });
+  await waitBorderFrame();
+  const nonEditablePromptState = await borderAnchor.evaluate(() => {
+    const surface = document.querySelector('[data-visible-input-border]').getBoundingClientRect();
+    const panel = document.querySelector('[data-idea-capture-owned="host"]').shadowRoot.querySelector('#idea-capture-panel');
+    return { hidden: panel.hidden, gap: surface.top - panel.getBoundingClientRect().bottom };
+  });
+  assert.equal(nonEditablePromptState.hidden, false, 'a temporarily non-editable but visible prompt keeps its dock tab');
+  assert.ok(Math.abs(nonEditablePromptState.gap + 1) <= 1, `the visible non-editable prompt retains the border anchor: ${JSON.stringify(nonEditablePromptState)}`);
+  await borderAnchor.locator('.composer [contenteditable="false"]').evaluate(node => { node.setAttribute('contenteditable', 'true'); });
+  await borderAnchor.locator('.composer [contenteditable="true"]').evaluate(node => { node.hidden = true; });
+  await borderAnchor.locator('.composer .disabled-prompt').evaluate(node => { node.hidden = false; });
+  await waitBorderFrame();
+  const disabledPromptState = await borderAnchor.evaluate(() => {
+    const surface = document.querySelector('[data-visible-input-border]').getBoundingClientRect();
+    const panel = document.querySelector('[data-idea-capture-owned="host"]').shadowRoot.querySelector('#idea-capture-panel');
+    return { hidden: panel.hidden, gap: surface.top - panel.getBoundingClientRect().bottom };
+  });
+  assert.equal(disabledPromptState.hidden, false, 'a temporarily disabled but visible prompt keeps the dock available');
+  assert.ok(Math.abs(disabledPromptState.gap + 1) <= 1, `the visible disabled prompt retains the border anchor: ${JSON.stringify(disabledPromptState)}`);
+  await borderAnchor.locator('.composer .disabled-prompt').evaluate(node => { node.hidden = true; });
+  await borderAnchor.locator('.composer [contenteditable="true"]').evaluate(node => { node.hidden = false; });
+  await waitBorderFrame();
+  await borderAnchor.locator('.composer').evaluate(node => { node.style.visibility = 'hidden'; });
+  await waitBorderFrame();
+  const hiddenComposerPanel = await borderAnchor.locator('[data-idea-capture-owned="host"]').evaluate(host => host.shadowRoot.querySelector('#idea-capture-panel').hidden);
+  assert.equal(hiddenComposerPanel, true, 'an invisible composer ancestor hides the closed tab');
+  await borderAnchor.locator('.composer').evaluate(node => { node.style.visibility = ''; });
+  await waitBorderFrame();
+  const restoredBorder = await borderAnchorSample();
+  assert.ok(Math.abs(restoredBorder.gap + 1) <= 1, `restoring the visible composer restores the border anchor: ${JSON.stringify(restoredBorder)}`);
+  await borderAnchor.locator('.composer').evaluate(node => { node.style.height = '0px'; node.style.overflow = 'hidden'; });
+  await waitBorderFrame();
+  const clippedSurfacePanel = await borderAnchor.locator('[data-idea-capture-owned="host"]').evaluate(host => host.shadowRoot.querySelector('#idea-capture-panel').hidden);
+  assert.equal(clippedSurfacePanel, true, 'a composer border clipped by its overflow ancestor does not leave a false tab');
+  await borderAnchor.locator('.composer').evaluate(node => { node.style.removeProperty('height'); node.style.removeProperty('overflow'); });
+  await waitBorderFrame();
+  const unclippedBorder = await borderAnchorSample();
+  assert.ok(Math.abs(unclippedBorder.gap + 1) <= 1, `removing the overflow clip restores the border anchor: ${JSON.stringify(unclippedBorder)}`);
+  const idleMutationCount = await borderAnchor.evaluate(() => new Promise(resolve => {
+    let count = 0;
+    const observer = new MutationObserver(records => { count += records.length; });
+    observer.observe(document.querySelector('.composer'), { attributes: true, childList: true, subtree: true });
+    setTimeout(() => { observer.disconnect(); resolve(count); }, 300);
+  }));
+  assert.equal(idleMutationCount, 0, 'the composer stays mutation-free after dock geometry settles');
+  await borderAnchor.screenshot({ path: 'artifacts/input-border-anchor-fixed.png' });
+  await writeFile('artifacts/input-border-anchor-fixed.json', JSON.stringify({ initial: borderAnchorEvidence, open: openBorderPanel, closed: closedAgainBorder, afterWheel: afterWheelBorder, grown: grownBorder, narrow: narrowBorder, replaced: replacedBorder, translated: translatedBorder, restored: restoredBorder, nonEditablePrompt: nonEditablePromptState, disabledPrompt: disabledPromptState, hiddenComposerPanel, clippedSurfacePanel, idleMutationCount, unclipped: unclippedBorder }, null, 2));
+  await saveAllowedUrls(`https://chatgpt.com/*\nhttps://claude.ai/*\n${appUrl}/*`);
+  const claudeComposer = await context.newPage();
+  await claudeComposer.setViewportSize({ width: 1440, height: 900 });
+  await claudeComposer.goto('https://claude.ai/chat/composer-anchor');
+  await claudeComposer.locator('.idea-capture-section-header').first().waitFor();
+  const claudeDock = await claudeComposer.evaluate(() => {
+    const outer = document.querySelector('.composer'), input = outer.querySelector('[contenteditable="true"]');
+    const panel = document.querySelector('[data-idea-capture-owned="host"]').shadowRoot.querySelector('#idea-capture-panel');
+    const or = outer.getBoundingClientRect(), ir = input.getBoundingClientRect(), pr = panel.getBoundingClientRect();
+    return { outerTop: or.top, inputTop: ir.top, panelBottom: pr.bottom, legacyInputGap: ir.top - pr.bottom };
+  });
+  assert.ok(Math.abs(claudeDock.legacyInputGap + 1) <= 1, `Claude keeps its existing editor-border dock position: ${JSON.stringify(claudeDock)}`);
+  await claudeComposer.screenshot({ path: 'artifacts/claude-composer-anchor.png' });
+  await saveAllowedUrls(`https://chatgpt.com/*\n${appUrl}/*`);
   await actualLayout.locator('.composer').evaluate(node => {
     node.style.position = 'fixed'; node.style.left = '220px'; node.style.right = '0'; node.style.bottom = '0'; node.style.zIndex = '1';
   });
@@ -717,7 +879,7 @@ try {
   assert.equal(stickyNativeGeometry.afterInjection.paddingBottom, stickyNativeGeometry.before.paddingBottom, `injection leaves sticky scroller padding unchanged: ${JSON.stringify(stickyNativeGeometry)}`);
   assert.ok(stickyBeforeWheels.scrollTop >= stickyBeforeWheels.maxScroll - 1, `wheel input reaches the true bottom of the sticky-composer scroller: ${JSON.stringify(stickyBeforeWheels)}`);
   for (const sample of allStickyWheelSamples) {
-    assert.ok(Math.abs(sample.dockGap + 1) <= 1, `the widget stays aligned with the selected sticky composer surface through bottom wheel events: ${JSON.stringify({ before: stickyBeforeWheels, sample })}`);
+    assert.ok(Math.abs(sample.inputPanelOffset + 1) <= 1, `the widget tab stays fused to the visible sticky composer input border through bottom wheel events: ${JSON.stringify({ before: stickyBeforeWheels, sample })}`);
     assert.ok(Math.abs(sample.composerBottom - sample.expectedStickyBottom) <= 1, `the sticky composer stays at the scrollport bottom: ${JSON.stringify({ before: stickyBeforeWheels, sample })}`);
     assert.equal(sample.paddingBottom, stickyNativeGeometry.before.paddingBottom, `the extension preserves sticky scroller padding: ${JSON.stringify({ native: stickyNativeGeometry, sample })}`);
     assert.ok(sample.markerBottom <= sample.composerTop + 1, `the final answer remains visible above the sticky composer: ${JSON.stringify(sample)}`);
@@ -1293,7 +1455,7 @@ try {
     self.__browserPermissionRequests = 0;
     chrome.permissions.request = async () => { self.__browserPermissionRequests++; throw new Error('Unexpected permission prompt'); };
   });
-  await autoContext.route('https://chatgpt.com/**', route => route.fulfill({ status: 200, contentType: 'text/html', body: `<!doctype html><title>Automatic capture</title><main><div data-message-author-role="user">A question with automatic injection.</div><div data-message-author-role="assistant">An answer captured by the page widget.<img alt="Remote evidence" src="${appUrl}/media/evidence.png"></div></main>` }));
+  await autoContext.route('https://chatgpt.com/**', route => route.fulfill({ status: 200, contentType: 'text/html', body: `<!doctype html><title>Automatic capture</title><main><div data-message-author-role="user">A question with automatic injection.</div><div data-message-author-role="assistant">An answer captured by the page widget.<img alt="Remote evidence" src="${appUrl}/media/evidence.png"></div></main><form style="position:fixed;left:20%;right:20%;bottom:0;height:76px;padding:10px;border:1px solid #ccd4ce;border-radius:16px;background:white"><div contenteditable="true" aria-label="Message composer" style="height:48px;padding:8px">Ask anything</div></form>` }));
   const autoPage = await autoContext.newPage();
   await autoPage.goto('https://chatgpt.com/c/auto-injected');
   await autoPage.locator('[data-idea-capture-owned="host"]').waitFor({ state: 'attached' });

@@ -38,7 +38,8 @@ export function createCaptureControls(doc = document, win = window) {
   let clearanceRoot = null;
   let clearanceRootHadAttribute = null;
   let clearanceRootStyles = null;
-  // ChatGPT grows its composer upward via attribute changes the MutationObserver ignores.
+  // Attribute changes can move the composer before its size changes; the
+  // mutation observer schedules dock geometry updates for those changes.
   const dockResize = win.ResizeObserver ? new win.ResizeObserver(() => scheduleDock()) : null;
   let cachedContentBounds = null;
   let preserveActiveSection = false;
@@ -689,9 +690,65 @@ export function createCaptureControls(doc = document, win = window) {
     railButton.setAttribute('aria-label', `Collapse section: ${section.label}`);
     railButton.title = `Collapse section: ${section.label}`;
   }
-  // The chat input's visible box: the outermost styled ancestor that is still
-  // composer-sized, so the closed widget can sit on its top edge like a tab.
+  // On ChatGPT, anchor the tab to the nearest outlined input surface. Other
+  // providers retain their existing composer selection behavior.
   function composerBox() {
+    if (isChatGptPage()) {
+      const editors = [...doc.querySelectorAll('#prompt-textarea, textarea, [contenteditable], [role="textbox"]')]
+        .filter(input => !input.closest(`[${OWNED}]`)
+          && !isReadOnlyCodeSurface(input)
+          && !input.matches('pre, code, [class*="code-editor" i], [data-testid*="code-editor" i]')
+          && (!input.matches('[role="textbox"]') || input.matches('#prompt-textarea') || /message|prompt|composer/i.test(`${input.getAttribute('aria-label') || ''} ${input.getAttribute('data-testid') || ''}`))
+          && (!input.matches('[readonly], [aria-readonly="true"]') || input.matches('#prompt-textarea'))
+          && !input.closest('[data-message-author-role], [data-testid^="conversation-turn-"], [data-turn-id], [data-message-id], article')
+          && !hasInvisibleAncestor(input));
+      const viewportHeight = win.innerHeight || doc.documentElement.clientHeight;
+      editors.sort((a, b) => {
+        const rank = node => node.matches('#prompt-textarea') ? 3
+          : /message|prompt|composer/i.test(`${node.getAttribute('aria-label') || ''} ${node.getAttribute('data-testid') || ''}`) ? 2
+            : node.closest('form, [class*="composer" i], [data-testid*="composer" i], [aria-label*="composer" i]') ? 2
+              : 1;
+        return rank(b) - rank(a);
+      });
+      for (const input of editors) {
+        const inputRect = input.getBoundingClientRect();
+        if (inputRect.width < 160 || inputRect.height <= 0 || inputRect.bottom <= 0 || inputRect.top >= viewportHeight) continue;
+        const promptIdentity = input.matches('#prompt-textarea') || /message|prompt|composer/i.test(`${input.getAttribute('aria-label') || ''} ${input.getAttribute('data-testid') || ''}`) || !!input.closest('form, [class*="composer" i], [data-testid*="composer" i], [aria-label*="composer" i]');
+        if ((input.disabled || input.readOnly || input.getAttribute('aria-disabled') === 'true' || input.getAttribute('contenteditable') === 'false') && !promptIdentity) continue;
+        let surface = null;
+        for (let node = input; node && node !== doc.body && node !== doc.documentElement; node = node.parentElement) {
+          const rect = node.getBoundingClientRect();
+          if (!rect.width && !rect.height) continue;
+          if (rect.width > inputRect.width * 1.8 + 100 || rect.top < inputRect.top - 180) break;
+          const style = win.getComputedStyle(node);
+          const hasVisibleBorder = ['Top', 'Right', 'Bottom', 'Left'].some(side => parseFloat(style[`border${side}Width`]) > 0 && !/^(transparent|rgba\(0, 0, 0, 0\))$/.test(style[`border${side}Color`]));
+          const hasVisibleBackground = style.backgroundImage !== 'none' || !/^(transparent|rgba\(0, 0, 0, 0\))$/.test(style.backgroundColor);
+          const hasVisibleShadow = style.boxShadow && style.boxShadow !== 'none';
+          const hasRoundedEdge = ['borderTopLeftRadius', 'borderTopRightRadius', 'borderBottomLeftRadius', 'borderBottomRightRadius'].some(name => parseFloat(style[name]) > 0);
+          // Use the nearest drawn perimeter. A large composer form often only
+          // supplies a backdrop; the actual rounded input surface is inside it.
+          if (hasVisibleBorder || hasVisibleShadow || hasVisibleBackground && hasRoundedEdge) { surface = node; break; }
+          if (node.matches('form')) break;
+        }
+        if (!surface) continue;
+        const candidate = surface;
+        const candidateRect = candidate.getBoundingClientRect();
+        const left = Math.max(0, candidateRect.left), right = Math.min(win.innerWidth || doc.documentElement.clientWidth, candidateRect.right);
+        const top = Math.max(0, candidateRect.top), bottom = Math.min(viewportHeight, candidateRect.bottom);
+        let clip = { left, right, top, bottom };
+        for (let parent = candidate.parentElement; parent && parent !== doc.documentElement; parent = parent.parentElement) {
+          const parentStyle = win.getComputedStyle(parent);
+          if (!/(hidden|clip|auto|scroll)/.test(`${parentStyle.overflowX} ${parentStyle.overflowY}`)) continue;
+          const parentRect = parent.getBoundingClientRect();
+          clip = { left: Math.max(clip.left, parentRect.left), right: Math.min(clip.right, parentRect.right), top: Math.max(clip.top, parentRect.top), bottom: Math.min(clip.bottom, parentRect.bottom) };
+        }
+        if (clip.right <= clip.left || clip.bottom <= clip.top) continue;
+        const topBorder = Number.parseFloat(win.getComputedStyle(candidate).borderTopWidth) || 0;
+        if (clip.top > candidateRect.top + Math.max(1, topBorder)) return null;
+        return candidate;
+      }
+      return null;
+    }
     const viewportHeight = win.innerHeight || doc.documentElement.clientHeight;
     const inputs = [...doc.querySelectorAll('textarea, [contenteditable="true"], [role="textbox"]')].reverse();
     for (const input of inputs) {
@@ -712,6 +769,13 @@ export function createCaptureControls(doc = document, win = window) {
     }
     return null;
   }
+  function hasInvisibleAncestor(node) {
+    for (let current = node; current && current !== doc.documentElement; current = current.parentElement) {
+      const style = win.getComputedStyle(current);
+      if (style.display === 'none' || style.visibility === 'hidden' || style.contentVisibility === 'hidden' || Number.parseFloat(style.opacity) === 0) return true;
+    }
+    return false;
+  }
   function syncDock() {
     const box = composerBox();
     if (box !== dockBox) { dockResize?.disconnect(); clearanceOverlayNode = null; dockBox = box; if (box) dockResize?.observe(box); }
@@ -719,6 +783,12 @@ export function createCaptureControls(doc = document, win = window) {
     syncConversationClearance(rect);
     const docked = !!rect && rect.width >= 160 && rect.top > 60;
     panel.classList.toggle('is-docked', docked);
+    if (isChatGptPage()) {
+      // A closed tab only represents a real input edge while that edge is
+      // visible. Keep the open capture panel available at its normal position.
+      if (body.hidden) panel.hidden = !docked;
+      else panel.hidden = false;
+    }
     if (!docked) return;
     const style = win.getComputedStyle(box);
     const viewport = win.innerWidth || doc.documentElement.clientWidth;
@@ -732,7 +802,9 @@ export function createCaptureControls(doc = document, win = window) {
       // ponytail: 1px overlap hides the composer's top border under the tab.
       '--dock-bottom': `${viewportHeight - rect.top - (body.hidden ? 1 : -8)}px`,
       '--dock-width': `${rect.width - inset * 2}px`,
-      '--dock-max-height': `${Math.max(240, rect.top - 16)}px`,
+      // Keep the open panel above the composer without forcing a minimum that
+      // can push it offscreen on short viewports or tall composers.
+      '--dock-max-height': `${Math.max(1, Math.min(820, rect.top - 16))}px`,
       '--dock-radius': `${Math.max(8, radius * 0.6)}px`,
       '--dock-bg': transparent ? 'var(--paper)' : style.backgroundColor,
       '--dock-ink': transparent ? 'var(--ink)' : style.color,
@@ -801,7 +873,10 @@ export function createCaptureControls(doc = document, win = window) {
     }
     if (!clearanceRoot) return;
     const clearance = Math.max(0, scrollBottom - overlayRect.top) + 20;
-    clearanceRoot.style.setProperty('--idea-capture-composer-clearance', `${clearance}px`);
+    const clearanceValue = `${clearance}px`;
+    if (clearanceRoot.style.getPropertyValue('--idea-capture-composer-clearance') !== clearanceValue) {
+      clearanceRoot.style.setProperty('--idea-capture-composer-clearance', clearanceValue);
+    }
   }
   function restoreConversationClearance() {
     if (!clearanceRoot) return;
@@ -925,14 +1000,15 @@ export function createCaptureControls(doc = document, win = window) {
   }
   function scheduleRefresh() { clearTimeout(timer); timer = win.setTimeout(refresh, 160); }
   const observer = new win.MutationObserver(records => {
-    const relevant = records.some(record => {
+    const relevant = records.filter(record => {
       if (host.contains(record.target) || record.target.closest?.(`.${HEADER_CLASS}`)) return false;
       if (record.type === 'childList' && [...record.addedNodes, ...record.removedNodes].every(node => node.nodeType === 1 && node.matches?.(`.${HEADER_CLASS},[${OWNED}]`))) return false;
       return true;
     });
-    if (relevant) scheduleRefresh();
+    if (relevant.some(record => record.type !== 'attributes')) scheduleRefresh();
+    if (relevant.length) scheduleDock();
   });
-  observer.observe(doc.body || doc.documentElement, { subtree: true, childList: true, characterData: true });
+  observer.observe(doc.documentElement || doc.body, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['class', 'style', 'hidden'] });
   const onRoute = scheduleRefresh;
   doc.addEventListener('scroll', scheduleActiveSection, true);
   doc.addEventListener('scroll', scheduleDock, true);
@@ -1015,7 +1091,7 @@ export function installCollapseStyle(doc = document) {
     if (!doc.getElementById(STYLE_ID)) style.id = STYLE_ID;
     style.setAttribute(OWNED, 'style');
     style.textContent = `.${COLLAPSED_CLASS}{display:none!important}
-      .idea-capture-section-header{box-sizing:border-box;display:flex;align-items:center;gap:9px;width:min(100%,720px);min-height:38px;padding:6px 9px;margin:7px auto;background:#f4f6f0;border:1px solid #d5dfd5;border-radius:5px;color:#293b30;font:12px/1.4 "Avenir Next","Trebuchet MS",sans-serif;position:relative;z-index:10;box-shadow:0 1px 2px #10251c0a}
+      .idea-capture-section-header{box-sizing:border-box;display:flex;align-items:center;gap:9px;width:min(100%,720px);min-height:38px;padding:6px 9px;margin:7px auto;background:#f4f6f0;border:1px solid #d5dfd5;border-radius:5px;color:#293b30;font:12px/1.4 "Avenir Next","Trebuchet MS",sans-serif;position:relative;box-shadow:0 1px 2px #10251c0a}
       .idea-capture-section-header input{appearance:auto!important;-webkit-appearance:checkbox!important;display:inline-block!important;visibility:visible!important;opacity:1!important;width:16px!important;height:16px!important;min-width:16px!important;min-height:16px!important;margin:0!important;accent-color:#285b42;flex:0 0 16px}
       .idea-capture-section-label{min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:550}
       .idea-capture-section-header button{min-height:27px;padding:3px 8px;font:600 10px/1.2 "Avenir Next","Trebuchet MS",sans-serif;cursor:pointer;border:1px solid #ccd8ce;border-radius:4px;background:#fbfaf5;color:inherit;white-space:nowrap}
