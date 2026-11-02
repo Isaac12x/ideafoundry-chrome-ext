@@ -462,6 +462,15 @@ try {
   await actualLayout.waitForFunction(() => getComputedStyle(document.querySelector('.idea-capture-section-collapsed')).display === 'none');
   assert.equal(await actualLayout.locator('.user-message-bubble').nth(0).isVisible(), false, 'the prompt-side header toggle collapses its whole prompt and response group');
   assert.equal(await actualLayout.locator('.user-message-bubble').nth(1).isVisible(), true, 'the next prompt stays visible');
+  // React re-renders rewrite className and drop the collapsed class; the section must stay collapsed.
+  await actualLayout.evaluate(() => { const node = document.querySelector('.idea-capture-section-collapsed'); node.dataset.reactRewrite = ''; node.className = node.className.replace('idea-capture-section-collapsed', '').trim(); });
+  await actualLayout.waitForFunction(() => document.querySelector('[data-react-rewrite]')?.classList.contains('idea-capture-section-collapsed'), null, { timeout: 2000 });
+  assert.equal(await actualLayout.locator('.user-message-bubble').nth(0).isVisible(), false, 'collapse survives a provider className rewrite');
+  const railOverSidebar = await actualLayout.evaluate(() => {
+    const rail = document.querySelector('[data-idea-capture-owned="host"]').shadowRoot.querySelector('#idea-capture-margin-controls');
+    return !rail.hidden && rail.getBoundingClientRect().left < document.querySelector('main.sidebar').getBoundingClientRect().right;
+  });
+  assert.equal(railOverSidebar, false, 'the side rail never sits over the history sidebar');
   await actualHeader.nth(0).locator('button[data-idea-section-id]').click();
   await actualLayout.waitForFunction(() => !document.querySelector('.idea-capture-section-collapsed'));
   const actualGutters = await actualLayout.evaluate(() => {
@@ -869,7 +878,10 @@ try {
   const pillTab = await tabSample(pill, '.input-surface');
   const claudeTab = await tabSample(claudeComposer, '.composer [contenteditable="true"]');
   assert.equal(pillTab.docked && claudeTab.docked, true, `both providers dock: ${JSON.stringify({ pillTab, claudeTab })}`);
-  for (const key of ['tl', 'tr', 'bl', 'br', 'height', 'width', 'fontSize', 'fontWeight', 'label', 'labelOpacity', 'buttonHeight', 'buttonWidth', 'shadow']) assert.equal(pillTab[key], claudeTab[key], `ChatGPT tab matches Claude tab on ${key}: ${JSON.stringify({ pillTab, claudeTab })}`);
+  for (const key of ['tl', 'tr', 'bl', 'br', 'height', 'width', 'fontSize', 'fontWeight', 'label', 'labelOpacity', 'buttonHeight', 'buttonWidth']) assert.equal(pillTab[key], claudeTab[key], `ChatGPT tab matches Claude tab on ${key}: ${JSON.stringify({ pillTab, claudeTab })}`);
+  // Borderless pill: the tab reuses the pill's own ring, clipped at its bottom, so both read as one outline.
+  const pillRing = await pill.evaluate(() => getComputedStyle(document.querySelector('.input-surface')).boxShadow);
+  assert.equal(pillTab.shadow, pillRing, `ChatGPT tab reuses the pill ring: ${JSON.stringify({ pillTab, pillRing })}`);
   // Measured on the real Claude screenshot (2x, ~1.32 px per CSS px): tab 235x31, corner ~7px, clearance ~12, button 50x23.5.
   assert.equal(pillTab.tl, '8px', `tab corner radius (measured ~7px +-1; formula floors at 8): ${pillTab.tl}`);
   assert.equal(pillTab.bl, '0px', 'tab bottom corners are flat');
@@ -878,6 +890,13 @@ try {
   // The tab's right edge sits exactly one composer radius in from the composer edge, so its flat bottom meets the straight border.
   assert.ok(Math.abs(pillTab.clearance - pillTab.radius) < .5 && Math.abs(claudeTab.clearance - claudeTab.radius) < .5, `clearance equals the composer radius: ${JSON.stringify({ pillTab, claudeTab })}`);
   assert.equal(pillTab.radius, 28, 'the pill fixture really has a 28px radius');
+  // Reported live: docked on load, then a later restyle dropped it to the bottom-right card.
+  await pill.evaluate(() => { const s = document.querySelector('.input-surface').style; s.boxShadow = 'none'; s.border = '0'; s.background = 'transparent'; });
+  await framesOf(pill);
+  await pill.evaluate(() => new Promise(resolve => setTimeout(resolve, 300)));
+  assert.equal(await pill.evaluate(() => !!document.querySelector('[data-idea-capture-owned="host"]').shadowRoot.querySelector('#idea-capture-panel.is-docked')), true, 'a late composer restyle keeps the tab docked');
+  await pill.evaluate(() => { const s = document.querySelector('.input-surface').style; s.boxShadow = s.border = s.background = ''; });
+  await framesOf(pill);
   assert.equal(pillTab.bg, await pill.evaluate(() => getComputedStyle(document.querySelector('.composer')).backgroundColor), `transparent pill surface uses the colour behind it: ${JSON.stringify(pillTab)}`);
   await pill.screenshot({ path: 'artifacts/widget-parity-chatgpt.png' });
   await claudeComposer.screenshot({ path: 'artifacts/widget-parity-claude.png' });

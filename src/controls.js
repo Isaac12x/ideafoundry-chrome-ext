@@ -97,7 +97,7 @@ export function createCaptureControls(doc = document, win = window) {
         #idea-capture-margin-controls button:active{transform:scale(.96)}
         #idea-capture-panel.is-docked{left:auto;right:var(--dock-right);bottom:var(--dock-bottom);width:min(440px,var(--dock-width))}
         #idea-capture-panel.is-docked:not(:has(.panel-body[hidden])){max-height:var(--dock-max-height)}
-        #idea-capture-panel.is-docked:has(.panel-body[hidden]){width:min(236px,var(--dock-width));background:var(--dock-bg);color:var(--dock-ink);border-color:var(--dock-line);border-bottom-color:transparent;border-radius:var(--dock-radius) var(--dock-radius) 0 0;box-shadow:0 -4px 14px #10251c12}
+        #idea-capture-panel.is-docked:has(.panel-body[hidden]){width:min(236px,var(--dock-width));background:var(--dock-bg);color:var(--dock-ink);border-color:var(--dock-line);border-bottom-color:transparent;border-radius:var(--dock-radius) var(--dock-radius) 0 0;box-shadow:var(--dock-shadow,0 -4px 14px #10251c12);clip-path:var(--dock-clip,none)}
         #idea-capture-panel.is-docked:has(.panel-body[hidden])>header{min-height:30px;padding:3px 4px 3px 13px;border-bottom:0;font-size:11px;font-weight:600;letter-spacing:.02em}
         #idea-capture-panel.is-docked:has(.panel-body[hidden])>header [data-export-status]{font-size:inherit;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
         #idea-capture-panel.is-docked:has(.panel-body[hidden])>header:not(.is-busy):not(.is-error) [data-export-status]{opacity:.72}
@@ -511,7 +511,7 @@ export function createCaptureControls(doc = document, win = window) {
     return geometryRoot;
   }
   function isNestedScrollRoot(node) {
-    if (!node) return false;
+    if (node?.nodeType !== 1) return false;
     if (node.matches?.('#thread')) return true;
     const style = win.getComputedStyle?.(node);
     const overflow = `${style?.overflow || ''} ${style?.overflowX || ''} ${style?.overflowY || ''}`;
@@ -665,6 +665,16 @@ export function createCaptureControls(doc = document, win = window) {
     }
     return null;
   }
+  function leftSidebarEdge() {
+    const viewport = win.innerWidth || doc.documentElement.clientWidth;
+    let edge = 0;
+    for (const node of doc.querySelectorAll('nav, aside, [role="navigation"], #stage-slideover-sidebar, [data-testid*="sidebar" i], [class*="sidebar" i]')) {
+      if (node.closest(`[${OWNED}]`)) continue;
+      const rect = node.getBoundingClientRect();
+      if (rect.left <= 1 && rect.width > 0 && rect.height > 0 && rect.right < viewport / 2) edge = Math.max(edge, rect.right);
+    }
+    return edge;
+  }
   function syncRail() {
     if (!sections.length) { rail.hidden = true; return; }
     const section = sections.find(candidate => candidate.id === activeSectionId) || sectionAtViewportCenter();
@@ -674,9 +684,10 @@ export function createCaptureControls(doc = document, win = window) {
     const viewport = win.innerWidth || doc.documentElement.clientWidth;
     if (!bounds) { rail.hidden = true; return; }
     const root = isChatGptPage() ? conversationGeometryRoot() : null;
-    const rootRect = root?.getBoundingClientRect();
+    const rootRect = root?.nodeType === 1 ? root.getBoundingClientRect() : null;
     const clampToRoot = isNestedScrollRoot(root) && rootRect?.width > 0;
-    const rootLeft = clampToRoot ? Math.max(0, rootRect.left) : 0;
+    // Never count the open history sidebar as free margin (the rail would sit over past chats).
+    const rootLeft = Math.max(clampToRoot ? Math.max(0, rootRect.left) : 0, leftSidebarEdge());
     const rootRight = clampToRoot ? Math.min(viewport, rootRect.right) : viewport;
     const leftSpace = Math.max(0, bounds.left - rootLeft);
     const rightSpace = Math.max(0, rootRight - bounds.right);
@@ -709,6 +720,22 @@ export function createCaptureControls(doc = document, win = window) {
     const shadow = style.boxShadow && style.boxShadow !== 'none';
     const fill = style.backgroundImage !== 'none' || !clear(style.backgroundColor);
     return border || shadow || fill && round;
+  }
+  // Why an ancestor clip hides this surface's top edge, or '' when it is visible.
+  function clipReason(candidate) {
+    const viewportHeight = win.innerHeight || doc.documentElement.clientHeight;
+    const candidateRect = candidate.getBoundingClientRect();
+    let clip = { left: Math.max(0, candidateRect.left), right: Math.min(win.innerWidth || doc.documentElement.clientWidth, candidateRect.right), top: Math.max(0, candidateRect.top), bottom: Math.min(viewportHeight, candidateRect.bottom) };
+    for (let parent = candidate.parentElement; parent && parent !== doc.documentElement; parent = parent.parentElement) {
+      const parentStyle = win.getComputedStyle(parent);
+      if (!/(hidden|clip|auto|scroll)/.test(`${parentStyle.overflowX} ${parentStyle.overflowY}`)) continue;
+      const parentRect = parent.getBoundingClientRect();
+      clip = { left: Math.max(clip.left, parentRect.left), right: Math.min(clip.right, parentRect.right), top: Math.max(clip.top, parentRect.top), bottom: Math.min(clip.bottom, parentRect.bottom) };
+    }
+    if (clip.right <= clip.left || clip.bottom <= clip.top) return 'surface fully clipped';
+    const topBorder = Number.parseFloat(win.getComputedStyle(candidate).borderTopWidth) || 0;
+    // A few px of shadow/ring spill under an ancestor clip must not drop the dock; a really clipped edge still falls back.
+    return clip.top > candidateRect.top + Math.max(topBorder, 6) ? 'surface top clipped' : '';
   }
   // On ChatGPT, anchor the tab to the nearest outlined input surface. Other
   // providers retain their existing composer selection behavior.
@@ -764,23 +791,10 @@ export function createCaptureControls(doc = document, win = window) {
           }
         }
         if (!surface) { dockWhy = how === 'nearest drawn' ? 'no drawn surface' : how; continue; }
-        const candidate = surface;
-        const candidateRect = candidate.getBoundingClientRect();
-        const left = Math.max(0, candidateRect.left), right = Math.min(win.innerWidth || doc.documentElement.clientWidth, candidateRect.right);
-        const top = Math.max(0, candidateRect.top), bottom = Math.min(viewportHeight, candidateRect.bottom);
-        let clip = { left, right, top, bottom };
-        for (let parent = candidate.parentElement; parent && parent !== doc.documentElement; parent = parent.parentElement) {
-          const parentStyle = win.getComputedStyle(parent);
-          if (!/(hidden|clip|auto|scroll)/.test(`${parentStyle.overflowX} ${parentStyle.overflowY}`)) continue;
-          const parentRect = parent.getBoundingClientRect();
-          clip = { left: Math.max(clip.left, parentRect.left), right: Math.min(clip.right, parentRect.right), top: Math.max(clip.top, parentRect.top), bottom: Math.min(clip.bottom, parentRect.bottom) };
-        }
-        if (clip.right <= clip.left || clip.bottom <= clip.top) { dockWhy = 'surface fully clipped'; continue; }
-        const topBorder = Number.parseFloat(win.getComputedStyle(candidate).borderTopWidth) || 0;
-        // A few px of shadow/ring spill under an ancestor clip must not drop the dock; a really clipped edge still falls back.
-        if (clip.top > candidateRect.top + Math.max(topBorder, 6)) { dockWhy = 'surface top clipped'; return null; }
+        const clipped = clipReason(surface);
+        if (clipped) { dockWhy = clipped; continue; }
         dockWhy = how;
-        return candidate;
+        return surface;
       }
       return null;
     }
@@ -811,8 +825,22 @@ export function createCaptureControls(doc = document, win = window) {
     }
     return false;
   }
+  // A transient miss (mid re-render, input briefly hidden) must not drop a dock
+  // that is still on screen to the bottom-right floating card.
+  function lastDockBox() {
+    const rect = dockBox?.isConnected && dockBox.getBoundingClientRect();
+    const viewportHeight = win.innerHeight || doc.documentElement.clientHeight;
+    if (!rect || rect.width < 160 || rect.height <= 0 || rect.top >= viewportHeight || hasInvisibleAncestor(dockBox) || clipReason(dockBox)) return null;
+    const editorOnScreen = [...dockBox.querySelectorAll('#prompt-textarea, textarea, [contenteditable="true"], [role="textbox"]')].some(input => {
+      const inputRect = input.getBoundingClientRect();
+      return inputRect.width > 0 && inputRect.height > 0 && inputRect.top < viewportHeight && inputRect.bottom > 0;
+    });
+    if (!editorOnScreen) return null;
+    dockWhy = `kept previous surface (${dockWhy})`;
+    return dockBox;
+  }
   function syncDock() {
-    const box = composerBox();
+    const box = composerBox() || lastDockBox();
     if (box !== dockBox) { dockResize?.disconnect(); clearanceOverlayNode = null; dockBox = box; if (box) dockResize?.observe(box); }
     const rect = box?.getBoundingClientRect();
     syncConversationClearance(rect);
@@ -843,6 +871,10 @@ export function createCaptureControls(doc = document, win = window) {
         if (opaque(bg)) { behind = bg; break; }
       }
     }
+    // Borderless pills (ChatGPT) draw their edge with a box-shadow ring. The tab
+    // reuses that exact shadow, clipped at its bottom so it never paints onto
+    // the pill, and the two read as one outline like Claude's bordered composer.
+    const ringed = !(parseFloat(style.borderTopWidth) > 0) && style.boxShadow && style.boxShadow !== 'none';
     const vars = {
       // Tab and open panel share the composer's inset right edge.
       '--dock-right': `${Math.max(8, viewport - rect.right + inset)}px`,
@@ -855,7 +887,9 @@ export function createCaptureControls(doc = document, win = window) {
       '--dock-radius': `${Math.max(8, radius * 0.6)}px`,
       '--dock-bg': transparent ? behind || 'var(--paper)' : style.backgroundColor,
       '--dock-ink': transparent && !behind ? 'var(--ink)' : style.color,
-      '--dock-line': parseFloat(style.borderTopWidth) > 0 ? style.borderTopColor : 'color-mix(in srgb,currentColor 16%,transparent)'
+      '--dock-line': parseFloat(style.borderTopWidth) > 0 ? style.borderTopColor : ringed ? 'transparent' : 'color-mix(in srgb,currentColor 16%,transparent)',
+      '--dock-shadow': ringed ? style.boxShadow : '0 -4px 14px #10251c12',
+      '--dock-clip': ringed ? 'inset(-32px -32px 0 -32px)' : 'none'
     };
     for (const [name, value] of Object.entries(vars)) panel.style.setProperty(name, value);
   }
@@ -1056,6 +1090,9 @@ export function createCaptureControls(doc = document, win = window) {
       return true;
     });
     if (relevant.some(record => record.type !== 'attributes')) scheduleRefresh();
+    // React rewrites className on re-render, dropping our collapsed class; put it back.
+    // ponytail: toggle() to the same state emits no mutation, so this cannot loop.
+    if (relevant.some(record => record.type === 'attributes' && classStates.has(record.target))) applyCollapse();
     if (relevant.length) scheduleDock();
   });
   observer.observe(doc.documentElement || doc.body, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['class', 'style', 'hidden'] });
@@ -1063,6 +1100,9 @@ export function createCaptureControls(doc = document, win = window) {
   doc.addEventListener('scroll', scheduleActiveSection, true);
   doc.addEventListener('scroll', scheduleDock, true);
   doc.addEventListener('input', scheduleDock, true);
+  // Late CSS, fonts and composer animations move the surface without a DOM mutation.
+  for (const type of ['transitionend', 'animationend']) doc.addEventListener(type, scheduleDock, true);
+  win.addEventListener('load', scheduleDock);
   doc.addEventListener('wheel', onUserScrollIntent, { capture: true, passive: true });
   doc.addEventListener('touchstart', onUserScrollIntent, { capture: true, passive: true });
   doc.addEventListener('keydown', onScrollKeyDown, true);
@@ -1119,6 +1159,8 @@ export function createCaptureControls(doc = document, win = window) {
     clearanceOverlayNode = null;
     restoreConversationClearance();
     doc.removeEventListener('scroll', scheduleDock, true); doc.removeEventListener('input', scheduleDock, true);
+    for (const type of ['transitionend', 'animationend']) doc.removeEventListener(type, scheduleDock, true);
+    win.removeEventListener('load', scheduleDock);
     rail.removeEventListener('click', onRailClick);
     toggleButton.removeEventListener('click', onTogglePanel); tools.removeEventListener('click', onToolsClick);
     empty.removeEventListener('click', onEmptyClick);
