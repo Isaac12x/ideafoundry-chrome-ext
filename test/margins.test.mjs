@@ -131,7 +131,7 @@ test('gutter hit regions are clipped by scroll containers and the viewport', t =
 test('ChatGPT conversation can scroll the final reply above its fixed composer', async t => {
   const dom = new JSDOM(`<!doctype html><html><body><main id="thread" style="overflow-y:auto;padding-bottom:12px">
     <div data-message-author-role="user">Question</div><div data-message-author-role="assistant">Final answer</div>
-    <form><textarea></textarea></form>
+    <form style="border:1px solid #aaa"><textarea></textarea></form>
   </main></body></html>`, { url: 'https://chatgpt.com/c/1', pretendToBeVisual: true });
   const observers = [];
   Object.defineProperty(dom.window, 'ResizeObserver', { configurable: true, value: class {
@@ -189,7 +189,7 @@ test('ChatGPT conversation can scroll the final reply above its fixed composer',
 test('a sticky composer inside the ChatGPT scroll root keeps its native scrollport geometry', async t => {
   const dom = new JSDOM(`<!doctype html><html><body><main id="thread" style="overflow-y:auto">
     <div data-message-author-role="user">Question</div><div data-message-author-role="assistant">Final answer</div>
-    <form style="position:sticky;bottom:0"><textarea></textarea></form>
+    <form style="position:sticky;bottom:0;border:1px solid #aaa"><textarea></textarea></form>
   </main></body></html>`, { url: 'https://chatgpt.com/c/1', pretendToBeVisual: true });
   Object.defineProperty(dom.window, 'innerWidth', { configurable: true, value: 1200 });
   Object.defineProperty(dom.window, 'innerHeight', { configurable: true, value: 800 });
@@ -214,6 +214,146 @@ test('a sticky composer inside the ChatGPT scroll root keeps its native scrollpo
   await new Promise(resolve => dom.window.requestAnimationFrame(resolve));
   assert.equal(thread.hasAttribute('data-idea-capture-scroll-clearance'), false, 'scroll updates do not introduce clearance that shifts the sticky edge');
   assert.equal(thread.style.paddingBottom, '');
+});
+
+test('ChatGPT docks the closed tab to the visible rounded input surface, not its broad composer or code textbox', async t => {
+  const dom = new JSDOM(`<!doctype html><html><body><main id="thread">
+    <div data-message-author-role="user">Question</div><div data-message-author-role="assistant">Answer</div>
+    <form class="composer" style="background:#f6f7f6"><div class="input-surface" data-visible-input-border style="border:1px solid #aeb8b0;border-top-left-radius:22px;border-top-right-radius:22px;border-bottom-left-radius:22px;border-bottom-right-radius:22px;background:white">
+      <div contenteditable="true" aria-label="Message composer">Ask anything</div><div>Send</div></div>
+      <pre role="textbox" aria-readonly="true">readonly code textbox decoy</pre>
+    </form>
+  </main></body></html>`, { url: 'https://chatgpt.com/g/demo/c/1', pretendToBeVisual: true });
+  Object.defineProperty(dom.window, 'innerWidth', { configurable: true, value: 1200 });
+  Object.defineProperty(dom.window, 'innerHeight', { configurable: true, value: 800 });
+  const { document } = dom.window;
+  const thread = document.querySelector('#thread');
+  const form = document.querySelector('.composer');
+  const surface = document.querySelector('[data-visible-input-border]');
+  const editor = surface.querySelector('[contenteditable="true"]');
+  const code = form.querySelector('pre');
+  setRect(thread, { left: 120, right: 1080, top: 0, bottom: 800 });
+  setRect(form, { left: 0, right: 1200, top: 650, bottom: 800 });
+  setRect(surface, { left: 250, right: 950, top: 690, bottom: 790 });
+  setRect(editor, { left: 270, right: 930, top: 700, bottom: 748 });
+  setRect(code, { left: 250, right: 950, top: 755, bottom: 785 });
+
+  const controls = createCaptureControls(document, dom.window);
+  t.after(() => { controls.destroy(); dom.window.close(); });
+  await new Promise(resolve => dom.window.requestAnimationFrame(resolve));
+  const panel = document.querySelector('[data-idea-capture-owned="host"]').shadowRoot.querySelector('#idea-capture-panel');
+  assert.equal(panel.classList.contains('is-docked'), true);
+  assert.equal(surface.getAttribute('data-visible-input-border'), '');
+  assert.equal(panel.style.getPropertyValue('--dock-right'), '272px', 'tab right edge follows the bordered input surface (inset = its 22px radius), not the viewport-wide form');
+  assert.equal(panel.style.getPropertyValue('--dock-bottom'), '109px', 'tab overlaps the visible input surface top border by one pixel');
+  assert.equal(thread.hasAttribute('data-idea-capture-scroll-clearance'), false, 'input anchoring does not alter native scroll geometry');
+});
+
+test('ChatGPT keeps a compact launcher available when no input edge is available', async t => {
+  const dom = new JSDOM('<!doctype html><html><body><main><p>Conversation without a composer</p></main></body></html>', { url: 'https://chatgpt.com/c/1', pretendToBeVisual: true });
+  const controls = createCaptureControls(dom.window.document, dom.window);
+  t.after(() => { controls.destroy(); dom.window.close(); });
+  const panel = dom.window.document.querySelector('[data-idea-capture-owned="host"]').shadowRoot.querySelector('#idea-capture-panel');
+  await new Promise(resolve => dom.window.requestAnimationFrame(resolve));
+  assert.equal(panel.hidden, false, 'the compact launcher remains available without a detected composer');
+  assert.equal(panel.querySelector('.panel-body').hidden, true, 'the panel still starts closed');
+  controls.open();
+  assert.equal(panel.hidden, false, 'opening the capture controls remains available to callers');
+});
+
+test('ChatGPT reattaches its widget if an SPA removes the shadow host during a rebuild', async t => {
+  const dom = new JSDOM('<!doctype html><html><body><main><div data-message-author-role="user">Question</div><div data-message-author-role="assistant">Answer</div></main></body></html>', { url: 'https://chatgpt.com/c/1', pretendToBeVisual: true });
+  const controls = createCaptureControls(dom.window.document, dom.window);
+  t.after(() => { controls.destroy(); dom.window.close(); });
+  const host = dom.window.document.querySelector('[data-idea-capture-owned="host"]');
+  host.remove();
+  await new Promise(resolve => dom.window.setTimeout(resolve, 0));
+  assert.equal(host.isConnected, true, 'the existing controller restores its shadow host after a page rebuild');
+  assert.ok(host.shadowRoot.querySelector('[data-idea-panel]'));
+});
+
+test('ChatGPT docks a named prompt to its form when nothing is drawn, but never an unnamed editor', async t => {
+  const dom = new JSDOM(`<!doctype html><html><body><main><form data-testid="composer">
+    <div id="surface" style="border-top-left-radius:20px;border-top-right-radius:20px"><textarea id="prompt-textarea"></textarea></div>
+  </form><form id="plain"><div id="plain-surface" style="border-top-left-radius:20px;border-top-right-radius:20px"><textarea id="plain-editor" aria-label="Notes"></textarea></div></form></main></body></html>`, { url: 'https://chatgpt.com/c/1', pretendToBeVisual: true });
+  Object.defineProperty(dom.window, 'innerWidth', { configurable: true, value: 1200 });
+  Object.defineProperty(dom.window, 'innerHeight', { configurable: true, value: 800 });
+  const { document } = dom.window;
+  const form = document.querySelector('form'), surface = document.querySelector('#surface'), prompt = document.querySelector('#prompt-textarea');
+  setRect(form, { left: 250, right: 950, top: 690, bottom: 790 });
+  setRect(surface, { left: 260, right: 940, top: 700, bottom: 780 });
+  setRect(prompt, { left: 270, right: 930, top: 710, bottom: 758 });
+  const plain = document.querySelector('#plain');
+  setRect(plain, { left: 250, right: 950, top: 400, bottom: 480 });
+  setRect(document.querySelector('#plain-surface'), { left: 260, right: 940, top: 410, bottom: 470 });
+  setRect(document.querySelector('#plain-editor'), { left: 270, right: 930, top: 420, bottom: 460 });
+  const controls = createCaptureControls(document, dom.window);
+  t.after(() => { controls.destroy(); dom.window.close(); });
+  const panel = document.querySelector('[data-idea-capture-owned="host"]').shadowRoot.querySelector('#idea-capture-panel');
+  const frames = async () => { await new Promise(resolve => dom.window.requestAnimationFrame(resolve)); await new Promise(resolve => dom.window.requestAnimationFrame(resolve)); };
+  await frames();
+  assert.equal(panel.hidden, false, 'the closed launcher remains reachable');
+  assert.equal(panel.classList.contains('is-docked'), true, 'a named prompt with no drawn edge docks to its form');
+  assert.equal(panel.style.getPropertyValue('--dock-bottom'), '109px', 'docked on the form top edge (the undrawn rounded wrapper is not an edge)');
+
+  surface.style.border = '1px solid rgb(180, 190, 180)';
+  await frames();
+  assert.equal(panel.style.getPropertyValue('--dock-bottom'), '99px', 'once the wrapper is drawn the tab follows it, not the form');
+  const shadow = document.querySelector('[data-idea-capture-owned="host"]').shadowRoot;
+  shadow.querySelector('[data-action="copy-diagnostics"]').click();
+  await frames();
+  const dock = JSON.parse(shadow.querySelector('[data-diagnostics-fallback]').value).dock;
+  assert.deepEqual({ docked: dock.docked, why: dock.why, tag: dock.surface.tag, top: dock.surface.top, width: dock.surface.width, radius: dock.surface.radius }, { docked: true, why: 'widest rounded', tag: 'div', top: 700, width: 680, radius: '20px' }, 'diagnostics report dock state and geometry only');
+  prompt.disabled = true;
+  await frames();
+  assert.equal(panel.hidden, false, 'generation disabling the prompt does not discard its visible surface');
+  assert.equal(panel.style.getPropertyValue('--dock-bottom'), '99px');
+
+  form.remove();
+  await frames();
+  assert.equal(panel.classList.contains('is-docked'), false, 'an unnamed editor in a form with no drawn edge never docks');
+  assert.equal(panel.hidden, false, 'the compact launcher stays reachable');
+  shadow.querySelector('[data-action="copy-diagnostics"]').click();
+  await frames();
+  const none = JSON.parse(shadow.querySelector('[data-diagnostics-fallback]').value).dock;
+  assert.deepEqual({ docked: none.docked, surface: none.surface }, { docked: false, surface: null }, 'diagnostics say why nothing docked');
+  assert.equal(none.why, 'no drawn surface');
+});
+
+test('ChatGPT refuses a viewport-wide form and a form-less prompt when nothing is drawn', async t => {
+  const dom = new JSDOM(`<!doctype html><html><body><main><form id="wide" data-testid="composer"><textarea id="prompt-textarea"></textarea></form></main></body></html>`, { url: 'https://chatgpt.com/c/1', pretendToBeVisual: true });
+  Object.defineProperty(dom.window, 'innerWidth', { configurable: true, value: 1200 });
+  Object.defineProperty(dom.window, 'innerHeight', { configurable: true, value: 800 });
+  const { document } = dom.window;
+  const form = document.querySelector('#wide'), prompt = document.querySelector('#prompt-textarea');
+  setRect(prompt, { left: 270, right: 670, top: 710, bottom: 758 });
+  const controls = createCaptureControls(document, dom.window);
+  t.after(() => { controls.destroy(); dom.window.close(); });
+  const panel = document.querySelector('[data-idea-capture-owned="host"]').shadowRoot.querySelector('#idea-capture-panel');
+  const frames = async () => { await new Promise(resolve => dom.window.requestAnimationFrame(resolve)); await new Promise(resolve => dom.window.requestAnimationFrame(resolve)); };
+  setRect(form, { left: 0, right: 1200, top: 690, bottom: 790 });
+  await frames();
+  assert.equal(panel.classList.contains('is-docked'), false, 'a form far wider than the prompt is a backdrop, not an edge');
+  assert.equal(panel.hidden, false, 'the compact launcher stays reachable');
+  setRect(form, { left: 250, right: 950, top: 690, bottom: 790 });
+  document.body.append(document.createElement('i'));
+  await frames();
+  assert.equal(panel.classList.contains('is-docked'), true, 'a form of normal width does dock');
+  setRect(form, { left: 250, right: 950, top: 20, bottom: 120 });
+  document.body.append(document.createElement('i'));
+  await frames();
+  const shadow = document.querySelector('[data-idea-capture-owned="host"]').shadowRoot;
+  shadow.querySelector('[data-action="copy-diagnostics"]').click();
+  await frames();
+  assert.equal(JSON.parse(shadow.querySelector('[data-diagnostics-fallback]').value).dock.why, 'surface too close to the viewport top', 'a refusal after a surface was found reports its own reason');
+  setRect(form, { left: 250, right: 950, top: 690, bottom: 790 });
+  document.body.append(document.createElement('i'));
+  await frames();
+  document.querySelector('main').append(prompt);
+  form.remove();
+  document.body.append(document.createElement('i'));
+  await frames();
+  assert.equal(panel.classList.contains('is-docked'), false, 'a named prompt with no form and nothing drawn falls back to the launcher');
 });
 
 test('an absolute composer inside a sticky wrapper also keeps the scroll root unchanged', async t => {

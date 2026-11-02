@@ -245,3 +245,48 @@ A constructed conversation fixture reproduced the report: a read-only `<pre role
 Extraction now treats the semantic readonly code surface as render content and recognizes a detached frame only when it has code plus a toolbar/header structure, readonly-only editors, and no form, composer, navigation, sidebar, or prose outside the code frame. Shared wrappers are split at foreign section nodes so a frame can collapse without hiding the next prompt. The controller uses the same readonly-code predicate and rechecks unsafe ancestors before applying targets. Regression coverage exercises an actual collapse button click, a detached classless frame nested beside the next prompt, a readonly pre inside a composer, and an unrelated readonly textarea beside prose.
 
 Root confirmed that the new extraction and controller regressions fail against the previous commit. Final verification passed in an isolated checkout of the staged implementation (excluding unrelated background changes): `npm run check` (100 tests and build) and `npm run test:browser`. Browser assertions cover full-panel visibility and geometry, both toolbar buttons, code preserved in export using a unique sentinel, original DOM identity/order on expansion, and late code insertion without shifting the neighboring prompt. Root reviewed the before/after screenshots at `artifacts/reported-layout-code-panel-baseline-visible.png` and `artifacts/reported-layout-code-panel-after-collapse.png`. The prior sticky-composer wheel regressions also pass. The correction is being committed and pushed to existing PR #4; reload the unpacked extension from `dist/` and refresh ChatGPT to apply it. The authenticated user page still needs live confirmation.
+
+## 2026-11-01 — ChatGPT composer border and panel docking
+
+The ChatGPT capture tab now sits on the top border of the visible typing input with a one-pixel overlap. Docking follows input movement and resizing, respects disabled and clipped states, ignores readonly decoys, and leaves provider headers in their normal stacking order. The open capture panel fits the visible viewport and keeps its body scrollable when opened at the top of the surface. Native conversation scroll geometry is preserved.
+
+Root's isolated final-tree verification passed 103 unit tests, the production build, and the full browser suite (`/tmp/idea-border-final-check.log`). Independent Chromium review also covered partial clipping, transparent radius-only inner editors, disabled surfaces, transformed surfaces, readonly decoys, hit testing, and body scrolling with the surface at the top of the viewport. Fixtures are synthetic; no authenticated live ChatGPT page was verified. Generated artifacts remain ignored.
+
+Publication: committed on `fix/chatgpt-input-border-docking` and opened as a stacked PR against `fix/chatgpt-scroll-and-collapse` (PR #4 dependency). The PR remains unmerged. Feedback and CI are checked five minutes after creation.
+
+Feedback check for PR #6 at 2026-11-01 17:57 UTC, five minutes after creation: no issue comments, inline review comments, submitted reviews, or CI checks were listed. No follow-up changes were required. PR #6 remains open and unmerged.
+
+## 2026-11-01 — capture size and count caps
+
+Removed the 24 MB serialized-conversation rejection from background capture/export, page-owned media 8 MB limits, 50-item/8 MB-per-item/20 MB aggregate media retrieval caps, the 20 MB rendered-export cap, the 51-file KB upload cap, and the 20-million-pixel/8 MB rasterized PDF media caps. README now explains that the extension does not impose media size/count limits while browser memory, download, and destination-service constraints still apply. Page/media processing keeps same-origin and URL validation, SVG sanitization, MIME checks, and request timeouts.
+
+Added ZIP64 metadata for entry counts and sizes beyond classic ZIP fields, indexed-loop base64 decoding for KB upload and print rendering, destination-specific Markdown media entry construction, unit regressions for media above the former byte/count thresholds and 65,535-entry archives, and browser regressions for KB uploads with 51 media companions, a 24.1 MB capture returned through `executeScript`, and a 24.1 MB Markdown export through the background handler with its ending sentinel intact.
+
+`npm run check` passed (104 tests and production build), and the final `npm run test:browser` passed. The first browser run exposed and led to correction of a fixture wait that assumed a second section header. Existing `src/background.js` action-menu serialization edits predate this task and must remain out of its eventual commit. No commit or push has been made.
+
+Publication update: root confirmed the exact implementation tree passes `npm run check` (104 tests and production build) and the full `npm run test:browser` suite (`/tmp/idea-unlimited-final-check.log`). The changes are committed on `fix/remove-capture-limits` and published as a stacked PR against `fix/chatgpt-input-border-docking` (PR #6 dependency). The pre-existing action-menu serialization change in `src/background.js` remains unstaged and uncommitted. PR feedback and checks will be reviewed after five minutes.
+
+Feedback check for PR #7 at 2026-11-01 18:46 UTC, five minutes after creation: no issue comments, inline review comments, submitted reviews, or CI checks were listed. No follow-up changes were required. PR #7 remains open and unmerged.
+
+
+## 2026-11-01 — Markdown fidelity and ChatGPT launcher recovery
+
+Markdown extraction now preserves renderer TeX sources, display equations, pre-wrapped lines, table cell breaks/pipes/backslashes/code, explicit ordered-list numbering, and loose text surrounding nested reply prose. Exceptional lists and tables containing code blocks use sanitized HTML in Markdown; a compatible HTML/math renderer is needed. Page styling remains the purpose of HTML/PDF exports. Only loaded DOM content is captured.
+
+The ChatGPT launcher stays compact, closed, and reachable when no visible composer border can be found. It docks when an input edge is available and recovers after its host is removed by a page rebuild. Reinjection stops an orphan controller before replacing its host. The compact title fits narrow windows; format hints explain content versus styling.
+
+Requested Luna implementation/review cycles were followed by root review, independent rendered-output probes, and a further quality pass. Review caught and corrected table escaping, inline-code backticks, list ordinals, hidden math sources, and links beside code blocks. Root visually reviewed the desktop and 320px fallback screenshots. New extraction/widget regressions failed against the previous source (15 failures), demonstrating coverage of the original defects. Final isolated verification excludes the pre-existing action-menu edit in src/background.js; that edit must remain unstaged and uncommitted.
+
+Final isolated verification: npm run check passed (120 tests and production build), npm run test:browser passed, and git diff --check passed. Root log: /tmp/idea-fidelity-final-check.log. Publication is recorded below when complete. The controlled Chromium fixtures cover keyboard/pointer access, narrow layout, missing/clipped composers, host recovery, native scrolling, selected exports and KB delivery. No authenticated live ChatGPT conversation was inspected. Reload the unpacked extension from dist/ and refresh existing ChatGPT tabs to apply the changes.
+
+Publication: PR #8 created 2026-11-01 19:06:49 UTC at https://github.com/Isaac12x/ideafoundry-chrome-ext/pull/8. Branch `fix/markdown-fidelity-and-widget` is stacked on `fix/remove-capture-limits`; implementation commit `e7561fe40f17437e4562f813fb3c276f64d81886`. The PR is open and unmerged. The pre-existing `src/background.js` edit remains unstaged and uncommitted.
+
+PR #8 feedback check at 2026-11-01 19:11:56 UTC (five minutes after creation): no issue comments, submitted reviews, status checks, or inline review comments. PR remains open and unmerged. Root reviewed the fresh-context 320×640 visual artifact at `artifacts/widget-fallback-narrow-fresh.png`; the screenshot compositor resize glitch was absent.
+
+## 2026-11-02 — ChatGPT widget docks like Claude
+
+Branch `fix/chatgpt-widget-parity` (commit 6676a42), stacked on `fix/markdown-fidelity-and-widget` (PR #8). On ChatGPT the widget fell back to the undocked floating card with a stale "Download started." label. Now: prompt editors dock to the widest rounded drawn surface in the form (form fallback bounded by width); pill inset clears the real radius with Claude-sized tab corners; tab colours resolved by alpha incl. oklch/color() and translucent surfaces; label restored on close and on export completing while closed (all providers, deliberately); `dock` state in Copy diagnostics (no page text); clip tolerance 6px. Tests: parity assertions against the Claude fixture, real-shaped fixtures, docking-race flake fix, crash handler.
+
+Gate on the exact commit (detached worktree, excludes dirty `src/background.js`): `npm run check` passed (121 tests + build), `npm run test:browser` passed, `git diff --check HEAD~1 HEAD` clean.
+
+Unverified: not checked on live ChatGPT (browser extension could not connect); all checks are on fixtures. The cause of the null `composerBox()` is inferred, not observed. Pill radius 28 and wrapper structure are assumed; 8px radius threshold, 6px clip tolerance and 1.8x+100 form limit are heuristics. If it still does not dock, Copy diagnostics `dock.why` shows why. Pre-existing `src/background.js` edit remains unstaged.

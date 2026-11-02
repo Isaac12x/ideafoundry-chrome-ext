@@ -33,8 +33,10 @@ async function captureAllowed() {
 }
 
 function teardownController() {
-  if (!globalThis.__ideaCaptureController) return;
-  globalThis.__ideaCaptureController.destroy?.();
+  const hostController = document.querySelector('[data-idea-capture-owned="host"]')?.__ideaCaptureController;
+  const controller = globalThis.__ideaCaptureController || hostController;
+  if (!controller) return;
+  controller.destroy?.();
   delete globalThis.__ideaCaptureController;
   delete globalThis.__ideaCaptureControllerVersion;
   for (const node of document.querySelectorAll('[data-idea-capture-collapse-state], .idea-capture-section-collapsed')) {
@@ -67,6 +69,9 @@ async function boot() {
       teardownController();
     }
     if (!globalThis.__ideaCaptureController) {
+      // A prior injection can leave a mounted shadow host after page globals
+      // were cleared. Stop its observer before replacing that host.
+      teardownController();
       for (const node of document.querySelectorAll('[data-idea-capture-collapse-state], .idea-capture-section-collapsed')) {
         const priorState = node.getAttribute('data-idea-capture-collapse-state');
         node.classList.toggle('idea-capture-section-collapsed', priorState === 'true');
@@ -76,7 +81,9 @@ async function boot() {
       installCollapseStyle(document);
       globalThis.__ideaCaptureController = createCaptureControls(document, window);
       globalThis.__ideaCaptureControllerVersion = version;
-      document.querySelector(hostSelector)?.setAttribute('data-idea-capture-version', version);
+      const mountedHost = document.querySelector(hostSelector);
+      mountedHost?.setAttribute('data-idea-capture-version', version);
+      if (mountedHost) mountedHost.__ideaCaptureController = globalThis.__ideaCaptureController;
     }
     globalThis.__ideaCapture = { ok: true };
   } catch (error) {

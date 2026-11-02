@@ -33,12 +33,13 @@ export function createCaptureControls(doc = document, win = window) {
   const sectionMediaNodes = new Map();
   let railFrame = 0;
   let dockFrame = 0;
-  let dockBox = null;
+  let dockBox = null, dockWhy = '';
   let clearanceOverlayNode = null;
   let clearanceRoot = null;
   let clearanceRootHadAttribute = null;
   let clearanceRootStyles = null;
-  // ChatGPT grows its composer upward via attribute changes the MutationObserver ignores.
+  // Attribute changes can move the composer before its size changes; the
+  // mutation observer schedules dock geometry updates for those changes.
   const dockResize = win.ResizeObserver ? new win.ResizeObserver(() => scheduleDock()) : null;
   let cachedContentBounds = null;
   let preserveActiveSection = false;
@@ -66,6 +67,7 @@ export function createCaptureControls(doc = document, win = window) {
         #idea-capture-panel>header.is-busy [data-export-status]{font-family:"Avenir Next","Trebuchet MS",sans-serif;font-size:12px;font-weight:600;color:var(--forest)}
         #idea-capture-panel>header.is-error [data-export-status]{color:#8a3b28}
         #idea-capture-panel:has(.panel-body[hidden])>header{padding:8px 10px;font-family:"Avenir Next","Trebuchet MS",sans-serif;font-size:12px;letter-spacing:0}
+        #idea-capture-panel:has(.panel-body[hidden])>header [data-export-status]{min-width:0;font-size:inherit;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
         button{min-height:30px;padding:5px 9px;border:1px solid #cbd6ce;border-radius:5px;background:#f5f7f2;font-family:"Avenir Next","Trebuchet MS",sans-serif;font-size:11px;font-weight:600;transition:background-color 120ms ease,border-color 120ms ease,transform 120ms ease}
         button:hover{background:#e8efe8;border-color:#aabcae}
         button:active{transform:translateY(1px)}
@@ -215,7 +217,8 @@ export function createCaptureControls(doc = document, win = window) {
       const successMessage = result.printDialog ? 'Print dialog opened. Choose “Save as PDF” to save your file.' : destination === 'kb'
         ? `Saved to knowledge base: ${result.name}${result.appUrl ? `. Open ${result.appUrl}` : ''}`
         : 'Download started.';
-      setExportFeedback(result.printDialog ? 'Choose “Save as PDF” in the print dialog.' : destination === 'kb' ? `Saved: ${result.name}` : 'Download started.', 'idle');
+      // Closed mid-export: the tab returns to its label; the panel status keeps the result.
+      setExportFeedback(body.hidden ? '' : result.printDialog ? 'Choose “Save as PDF” in the print dialog.' : destination === 'kb' ? `Saved: ${result.name}` : 'Download started.', 'idle');
       showCaptureStatus(successMessage, 'idle');
     } catch (error) {
       setExportFeedback(error.message, 'error');
@@ -231,7 +234,6 @@ export function createCaptureControls(doc = document, win = window) {
   }
   async function resolvePageMedia(items) {
     const results = [];
-    let total = 0;
     for (const item of items) {
       let url;
       try { url = new URL(item.url, win.location.href); } catch { continue; }
@@ -240,8 +242,8 @@ export function createCaptureControls(doc = document, win = window) {
       try {
         const response = await win.fetch(url.href, { credentials: 'same-origin', redirect: 'error', signal: AbortSignal.timeout(15_000) });
         if (!response.ok) throw new Error(`Page media read failed (${response.status}).`);
-        const reader = response.body.getReader(); const chunks = []; let size = 0;
-        while (true) { const { done, value } = await reader.read(); if (done) break; size += value.byteLength; total += value.byteLength; if (size > 8 * 1024 * 1024 || total > 8 * 1024 * 1024) { await reader.cancel(); throw new Error('Page-owned media exceeds the 8 MB capture limit.'); } chunks.push(value); }
+        const reader = response.body.getReader(); const chunks = [];
+        while (true) { const { done, value } = await reader.read(); if (done) break; chunks.push(value); }
         const blob = new win.Blob(chunks, { type: response.headers.get('content-type') || item.mime || '' });
         const data = await new Promise((resolve, reject) => { const reader = new win.FileReader(); reader.onload = () => resolve(String(reader.result).split(',')[1]); reader.onerror = () => reject(new Error('Could not read page media.')); reader.readAsDataURL(blob); });
         results.push({ id: item.id, data, mime: blob.type || item.mime || 'application/octet-stream' });
@@ -254,6 +256,8 @@ export function createCaptureControls(doc = document, win = window) {
     toggleButton.setAttribute('aria-expanded', String(open));
     toggleButton.textContent = open ? 'Close' : 'Open';
     body.hidden = !open;
+    // The one-line tab keeps only busy/error state; finished-export text stays in the panel status.
+    if (!open && !panelHeader.matches('.is-busy,.is-error')) setExportFeedback('');
     syncDock();
   };
   const onRailClick = event => {
@@ -288,7 +292,7 @@ export function createCaptureControls(doc = document, win = window) {
     const sendButton = captureActions.querySelector('[data-action="send-kb"]');
     const pdf = format === 'pdf';
     sendButton.disabled = pdf;
-    formatHint.textContent = pdf ? 'PDF opens the browser print dialog. Choose “Save as PDF”; use Markdown or HTML for direct knowledge-base delivery.' : format === 'html' ? 'HTML keeps the captured page styling and can be sent to your knowledge base.' : '';
+    formatHint.textContent = pdf ? 'PDF opens the browser print dialog. Choose “Save as PDF”; use Markdown or HTML for direct knowledge-base delivery.' : format === 'html' ? 'HTML preserves page styling. Markdown preserves content and structure.' : 'Markdown preserves content and structure. Choose HTML for page styling.';
   };
   const onListChange = event => {
     const input = event.target.closest('input[data-section-id]');
@@ -389,7 +393,10 @@ export function createCaptureControls(doc = document, win = window) {
     if (activeSection && activeKind) [...list.children].find(row => row.dataset.sectionId === activeSection)?.querySelector(activeKind === 'input' ? 'input' : 'button')?.focus();
   }
   async function copyDiagnostics() {
-    const text = JSON.stringify(collectDiagnostics(doc, win.location.href), null, 2);
+    // Dock state only (geometry and selector hints), never page text.
+    const rect = dockBox?.getBoundingClientRect();
+    const dock = { docked: panel.classList.contains('is-docked'), why: dockWhy, surface: dockBox && { tag: dockBox.localName, testid: dockBox.getAttribute('data-testid'), type: dockBox.getAttribute('data-type'), left: rect.left, top: rect.top, width: rect.width, height: rect.height, radius: win.getComputedStyle(dockBox).borderTopLeftRadius } };
+    const text = JSON.stringify({ ...collectDiagnostics(doc, win.location.href), dock }, null, 2);
     diagnosticsFallback.value = '';
     diagnosticsFallback.hidden = true;
     diagnosticsStatus.textContent = '';
@@ -689,9 +696,94 @@ export function createCaptureControls(doc = document, win = window) {
     railButton.setAttribute('aria-label', `Collapse section: ${section.label}`);
     railButton.title = `Collapse section: ${section.label}`;
   }
-  // The chat input's visible box: the outermost styled ancestor that is still
-  // composer-sized, so the closed widget can sit on its top edge like a tab.
+  // Computed colours come as rgb(), rgba(), oklch(), color(srgb ...) etc; read the alpha, whatever the form.
+  function alpha(color) {
+    const match = color.match(/(?:rgba\(.*,|\/)\s*([\d.]+)(%?)\s*\)$/);
+    return match ? match[1] / (match[2] ? 100 : 1) : color === 'transparent' ? 0 : 1;
+  }
+  // Does this node paint a perimeter (border, shadow, or fill with rounded corners)?
+  function drawn(style) {
+    const clear = color => alpha(color) === 0;
+    const round = ['TopLeft', 'TopRight', 'BottomLeft', 'BottomRight'].some(corner => parseFloat(style[`border${corner}Radius`]) > 0);
+    const border = ['Top', 'Right', 'Bottom', 'Left'].some(side => parseFloat(style[`border${side}Width`]) > 0 && !clear(style[`border${side}Color`]));
+    const shadow = style.boxShadow && style.boxShadow !== 'none';
+    const fill = style.backgroundImage !== 'none' || !clear(style.backgroundColor);
+    return border || shadow || fill && round;
+  }
+  // On ChatGPT, anchor the tab to the nearest outlined input surface. Other
+  // providers retain their existing composer selection behavior.
   function composerBox() {
+    dockWhy = isChatGptPage() ? 'no usable prompt editor' : 'non-ChatGPT provider';
+    if (isChatGptPage()) {
+      const editors = [...doc.querySelectorAll('#prompt-textarea, textarea, [contenteditable], [role="textbox"]')]
+        .filter(input => !input.closest(`[${OWNED}]`)
+          && !isReadOnlyCodeSurface(input)
+          && !input.matches('pre, code, [class*="code-editor" i], [data-testid*="code-editor" i]')
+          && (!input.matches('[role="textbox"]') || input.matches('#prompt-textarea') || /message|prompt|composer/i.test(`${input.getAttribute('aria-label') || ''} ${input.getAttribute('data-testid') || ''}`))
+          && (!input.matches('[readonly], [aria-readonly="true"]') || input.matches('#prompt-textarea'))
+          && !input.closest('[data-message-author-role], [data-testid^="conversation-turn-"], [data-turn-id], [data-message-id], article')
+          && !hasInvisibleAncestor(input));
+      const viewportHeight = win.innerHeight || doc.documentElement.clientHeight;
+      editors.sort((a, b) => {
+        const rank = node => node.matches('#prompt-textarea') ? 3
+          : /message|prompt|composer/i.test(`${node.getAttribute('aria-label') || ''} ${node.getAttribute('data-testid') || ''}`) ? 2
+            : node.closest('form, [class*="composer" i], [data-testid*="composer" i], [aria-label*="composer" i]') ? 2
+              : 1;
+        return rank(b) - rank(a);
+      });
+      for (const input of editors) {
+        const inputRect = input.getBoundingClientRect();
+        if (inputRect.width < 160 || inputRect.height <= 0 || inputRect.bottom <= 0 || inputRect.top >= viewportHeight) continue;
+        const named = input.matches('#prompt-textarea') || /message|prompt|composer/i.test(`${input.getAttribute('aria-label') || ''} ${input.getAttribute('data-testid') || ''}`);
+        const promptIdentity = named || !!input.closest('form, [class*="composer" i], [data-testid*="composer" i], [aria-label*="composer" i]');
+        if ((input.disabled || input.readOnly || input.getAttribute('aria-disabled') === 'true' || input.getAttribute('contenteditable') === 'false') && !promptIdentity) continue;
+        // Named prompts in a form: the widest drawn node with a real radius (>= 8) between the input and the form (the
+        // visible pill; never a narrower inner node, the form's backdrop, or a square wrapper), else the nearest drawn
+        // node, else the form unless it is far wider than the input. Other editors take the nearest drawn perimeter.
+        const form = input.closest('form');
+        let surface = null, how = 'nearest drawn';
+        if (form && named) {
+          let widest = 0, nearest = null;
+          for (let node = input; node && node !== form; node = node.parentElement) {
+            const style = win.getComputedStyle(node);
+            if (!drawn(style)) continue;
+            nearest ||= node;
+            const width = node.getBoundingClientRect().width;
+            if (parseFloat(style.borderTopLeftRadius) >= 8 && width > widest) { surface = node; widest = width; how = 'widest rounded'; }
+          }
+          if (!surface && !nearest) how = 'form';
+          surface ||= nearest || (form.getBoundingClientRect().width <= inputRect.width * 1.8 + 100 ? form : null);
+          if (!surface) how = 'form too wide';
+        } else {
+          for (let node = input; node && node !== doc.body && node !== doc.documentElement; node = node.parentElement) {
+            const rect = node.getBoundingClientRect();
+            if (!rect.width && !rect.height) continue;
+            if (rect.width > inputRect.width * 1.8 + 100 || rect.top < inputRect.top - 180) break;
+            if (drawn(win.getComputedStyle(node))) { surface = node; break; }
+            if (node.matches('form')) break;
+          }
+        }
+        if (!surface) { dockWhy = how === 'nearest drawn' ? 'no drawn surface' : how; continue; }
+        const candidate = surface;
+        const candidateRect = candidate.getBoundingClientRect();
+        const left = Math.max(0, candidateRect.left), right = Math.min(win.innerWidth || doc.documentElement.clientWidth, candidateRect.right);
+        const top = Math.max(0, candidateRect.top), bottom = Math.min(viewportHeight, candidateRect.bottom);
+        let clip = { left, right, top, bottom };
+        for (let parent = candidate.parentElement; parent && parent !== doc.documentElement; parent = parent.parentElement) {
+          const parentStyle = win.getComputedStyle(parent);
+          if (!/(hidden|clip|auto|scroll)/.test(`${parentStyle.overflowX} ${parentStyle.overflowY}`)) continue;
+          const parentRect = parent.getBoundingClientRect();
+          clip = { left: Math.max(clip.left, parentRect.left), right: Math.min(clip.right, parentRect.right), top: Math.max(clip.top, parentRect.top), bottom: Math.min(clip.bottom, parentRect.bottom) };
+        }
+        if (clip.right <= clip.left || clip.bottom <= clip.top) { dockWhy = 'surface fully clipped'; continue; }
+        const topBorder = Number.parseFloat(win.getComputedStyle(candidate).borderTopWidth) || 0;
+        // A few px of shadow/ring spill under an ancestor clip must not drop the dock; a really clipped edge still falls back.
+        if (clip.top > candidateRect.top + Math.max(topBorder, 6)) { dockWhy = 'surface top clipped'; return null; }
+        dockWhy = how;
+        return candidate;
+      }
+      return null;
+    }
     const viewportHeight = win.innerHeight || doc.documentElement.clientHeight;
     const inputs = [...doc.querySelectorAll('textarea, [contenteditable="true"], [role="textbox"]')].reverse();
     for (const input of inputs) {
@@ -712,6 +804,13 @@ export function createCaptureControls(doc = document, win = window) {
     }
     return null;
   }
+  function hasInvisibleAncestor(node) {
+    for (let current = node; current && current !== doc.documentElement; current = current.parentElement) {
+      const style = win.getComputedStyle(current);
+      if (style.display === 'none' || style.visibility === 'hidden' || style.contentVisibility === 'hidden' || Number.parseFloat(style.opacity) === 0) return true;
+    }
+    return false;
+  }
   function syncDock() {
     const box = composerBox();
     if (box !== dockBox) { dockResize?.disconnect(); clearanceOverlayNode = null; dockBox = box; if (box) dockResize?.observe(box); }
@@ -719,23 +818,43 @@ export function createCaptureControls(doc = document, win = window) {
     syncConversationClearance(rect);
     const docked = !!rect && rect.width >= 160 && rect.top > 60;
     panel.classList.toggle('is-docked', docked);
+    if (rect && !docked) dockWhy = rect.width < 160 ? 'surface narrower than 160px' : 'surface too close to the viewport top';
+    if (isChatGptPage()) {
+      // Keep a compact, keyboard-reachable launcher available if the page is
+      // between composer states or its input edge is clipped/unrecognized.
+      panel.hidden = false;
+    }
     if (!docked) return;
     const style = win.getComputedStyle(box);
     const viewport = win.innerWidth || doc.documentElement.clientWidth;
     const viewportHeight = win.innerHeight || doc.documentElement.clientHeight;
-    const radius = Math.min(parseFloat(style.borderTopLeftRadius) || 0, 22);
-    const inset = Math.max(12, radius);
-    const transparent = /^(transparent|rgba\(0, 0, 0, 0\))$/.test(style.backgroundColor);
+    const real = parseFloat(style.borderTopLeftRadius) || 0;
+    const chatgpt = isChatGptPage();
+    // Inset = composer radius (flat bottom meets the straight edge). Tab corners measured ~7px on real Claude (formula floors at 8); the cap keeps pills the same.
+    const radius = Math.min(real, chatgpt ? 12 : 22);
+    const inset = Math.max(12, chatgpt ? Math.min(real, rect.width / 4) : radius);
+    // ChatGPT: only an opaque colour can colour the tab (a translucent one would show the page through it).
+    const opaque = color => alpha(color) >= 1;
+    const transparent = chatgpt ? !opaque(style.backgroundColor) : /^(transparent|rgba\(0, 0, 0, 0\))$/.test(style.backgroundColor);
+    let behind = null;
+    if (chatgpt && transparent) {
+      for (let node = box.parentElement; node; node = node.parentElement) {
+        const bg = win.getComputedStyle(node).backgroundColor;
+        if (opaque(bg)) { behind = bg; break; }
+      }
+    }
     const vars = {
       // Tab and open panel share the composer's inset right edge.
       '--dock-right': `${Math.max(8, viewport - rect.right + inset)}px`,
       // ponytail: 1px overlap hides the composer's top border under the tab.
       '--dock-bottom': `${viewportHeight - rect.top - (body.hidden ? 1 : -8)}px`,
       '--dock-width': `${rect.width - inset * 2}px`,
-      '--dock-max-height': `${Math.max(240, rect.top - 16)}px`,
+      // Keep the open panel above the composer without forcing a minimum that
+      // can push it offscreen on short viewports or tall composers.
+      '--dock-max-height': `${Math.max(1, Math.min(820, rect.top - 16))}px`,
       '--dock-radius': `${Math.max(8, radius * 0.6)}px`,
-      '--dock-bg': transparent ? 'var(--paper)' : style.backgroundColor,
-      '--dock-ink': transparent ? 'var(--ink)' : style.color,
+      '--dock-bg': transparent ? behind || 'var(--paper)' : style.backgroundColor,
+      '--dock-ink': transparent && !behind ? 'var(--ink)' : style.color,
       '--dock-line': parseFloat(style.borderTopWidth) > 0 ? style.borderTopColor : 'color-mix(in srgb,currentColor 16%,transparent)'
     };
     for (const [name, value] of Object.entries(vars)) panel.style.setProperty(name, value);
@@ -801,7 +920,10 @@ export function createCaptureControls(doc = document, win = window) {
     }
     if (!clearanceRoot) return;
     const clearance = Math.max(0, scrollBottom - overlayRect.top) + 20;
-    clearanceRoot.style.setProperty('--idea-capture-composer-clearance', `${clearance}px`);
+    const clearanceValue = `${clearance}px`;
+    if (clearanceRoot.style.getPropertyValue('--idea-capture-composer-clearance') !== clearanceValue) {
+      clearanceRoot.style.setProperty('--idea-capture-composer-clearance', clearanceValue);
+    }
   }
   function restoreConversationClearance() {
     if (!clearanceRoot) return;
@@ -925,14 +1047,18 @@ export function createCaptureControls(doc = document, win = window) {
   }
   function scheduleRefresh() { clearTimeout(timer); timer = win.setTimeout(refresh, 160); }
   const observer = new win.MutationObserver(records => {
-    const relevant = records.some(record => {
+    // SPAs may remove the extension host during a body/composer rebuild. The
+    // controller and observers survive, so reattach the same shadow host.
+    if (!host.isConnected) (doc.body || doc.documentElement)?.append(host);
+    const relevant = records.filter(record => {
       if (host.contains(record.target) || record.target.closest?.(`.${HEADER_CLASS}`)) return false;
       if (record.type === 'childList' && [...record.addedNodes, ...record.removedNodes].every(node => node.nodeType === 1 && node.matches?.(`.${HEADER_CLASS},[${OWNED}]`))) return false;
       return true;
     });
-    if (relevant) scheduleRefresh();
+    if (relevant.some(record => record.type !== 'attributes')) scheduleRefresh();
+    if (relevant.length) scheduleDock();
   });
-  observer.observe(doc.body || doc.documentElement, { subtree: true, childList: true, characterData: true });
+  observer.observe(doc.documentElement || doc.body, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['class', 'style', 'hidden'] });
   const onRoute = scheduleRefresh;
   doc.addEventListener('scroll', scheduleActiveSection, true);
   doc.addEventListener('scroll', scheduleDock, true);
@@ -1015,7 +1141,7 @@ export function installCollapseStyle(doc = document) {
     if (!doc.getElementById(STYLE_ID)) style.id = STYLE_ID;
     style.setAttribute(OWNED, 'style');
     style.textContent = `.${COLLAPSED_CLASS}{display:none!important}
-      .idea-capture-section-header{box-sizing:border-box;display:flex;align-items:center;gap:9px;width:min(100%,720px);min-height:38px;padding:6px 9px;margin:7px auto;background:#f4f6f0;border:1px solid #d5dfd5;border-radius:5px;color:#293b30;font:12px/1.4 "Avenir Next","Trebuchet MS",sans-serif;position:relative;z-index:10;box-shadow:0 1px 2px #10251c0a}
+      .idea-capture-section-header{box-sizing:border-box;display:flex;align-items:center;gap:9px;width:min(100%,720px);min-height:38px;padding:6px 9px;margin:7px auto;background:#f4f6f0;border:1px solid #d5dfd5;border-radius:5px;color:#293b30;font:12px/1.4 "Avenir Next","Trebuchet MS",sans-serif;position:relative;box-shadow:0 1px 2px #10251c0a}
       .idea-capture-section-header input{appearance:auto!important;-webkit-appearance:checkbox!important;display:inline-block!important;visibility:visible!important;opacity:1!important;width:16px!important;height:16px!important;min-width:16px!important;min-height:16px!important;margin:0!important;accent-color:#285b42;flex:0 0 16px}
       .idea-capture-section-label{min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:550}
       .idea-capture-section-header button{min-height:27px;padding:3px 8px;font:600 10px/1.2 "Avenir Next","Trebuchet MS",sans-serif;cursor:pointer;border:1px solid #ccd8ce;border-radius:4px;background:#fbfaf5;color:inherit;white-space:nowrap}
