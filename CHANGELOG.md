@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Add a “Save to” menu to the capture widget's Send to knowledge base: choose one of your KB projects (locked ones are disabled) instead of the default folder. The choice is remembered when changed; the remembered choice and a cached project list show immediately without opening a background app tab, and the list is refreshed through an open app tab or when the menu is opened (needs an app with `GET /knowledge-base/project-list`; otherwise only the default folder is offered). Downloads and remote jobs are unaffected.
 - Make the ChatGPT capture tab match the Claude one: dock to the real rounded composer pill (clearing its full radius, ignoring inner nodes, wrappers and form backdrops), use the composer's own colours in any computed colour form, and restore "IdeaFoundry / Capture" on the tab after an export. Copy diagnostics adds dock state (no page text).
 - Keep the ChatGPT capture launcher reachable when the composer is unavailable or clipped, and recover the widget after a page rebuild.
 - Preserve Markdown equations, pre-wrapped message text, table cells, and explicit list numbering; add rendered-output regression coverage.

@@ -1,6 +1,6 @@
 import { chatGptConversationRoot, extractConversation, isCollapsibleCodePanel, isReadOnlyCodeSurface } from './extract.js';
 import { collectDiagnostics } from './diagnostics.js';
-import { markdown } from './shared.js';
+import { markdown, chooseProject } from './shared.js';
 
 const HOST_ID = 'idea-capture-controls';
 const COLLAPSED_CLASS = 'idea-capture-section-collapsed';
@@ -76,7 +76,7 @@ export function createCaptureControls(doc = document, win = window) {
         .tools{display:flex;gap:6px;flex-wrap:wrap;padding:10px 12px 7px}
         .tools button{min-height:28px;padding:4px 7px;font-size:10px}
         .count{padding:2px 14px 9px;color:var(--muted);font-size:11px}
-        .capture-meta{padding:13px 18px 5px}.capture-meta h2{margin:0 0 4px;font:500 19px/1.2 Georgia,"Iowan Old Style",serif;overflow-wrap:anywhere}.capture-meta p{margin:0;color:var(--muted);font-size:11px}.capture-tools{padding:12px 18px 14px;border-top:1px solid var(--line)}.capture-tools .format{display:flex;gap:8px;margin:0 0 10px}.capture-tools label{display:flex;align-items:center;gap:6px;padding:7px 10px;border:1px solid var(--line);background:#f7f7f0;cursor:pointer}.capture-tools label:has(:checked){border-color:var(--forest);background:var(--wash)}.capture-tools .format-hint{margin:0 0 9px;color:var(--muted);font-size:11px}.capture-tools .actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}.capture-tools .actions button{min-height:38px;font-size:12px}.capture-tools .actions [data-action="send-kb"]{grid-column:1/-1;background:var(--forest);border-color:var(--forest);color:var(--paper)}.capture-tools .actions [data-action="send-kb"]:disabled{opacity:.55;cursor:not-allowed}.capture-tools .actions [data-action="settings"]{background:transparent}.capture-status{min-height:17px;margin:9px 0 0;color:var(--forest);font-size:11px;overflow-wrap:anywhere}.capture-status.is-error{color:#8a3b28}.preview{margin:0 14px 12px}.preview summary{cursor:pointer;color:var(--muted);font-size:11px}.preview pre{max-height:190px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;background:#f0efe8;padding:10px;font:11px/1.5 ui-monospace,monospace}
+        .capture-meta{padding:13px 18px 5px}.capture-meta h2{margin:0 0 4px;font:500 19px/1.2 Georgia,"Iowan Old Style",serif;overflow-wrap:anywhere}.capture-meta p{margin:0;color:var(--muted);font-size:11px}.capture-tools{padding:12px 18px 14px;border-top:1px solid var(--line)}.capture-tools .format{display:flex;gap:8px;margin:0 0 10px}.capture-tools label{display:flex;align-items:center;gap:6px;padding:7px 10px;border:1px solid var(--line);background:#f7f7f0;cursor:pointer}.capture-tools label:has(:checked){border-color:var(--forest);background:var(--wash)}.capture-tools .format-hint{margin:0 0 9px;color:var(--muted);font-size:11px}.capture-tools label.kb-target,.capture-tools label.kb-target:has(:checked){display:flex;border:0;background:none;padding:0;margin:0 0 4px;cursor:default;gap:8px;font-size:12px}.kb-target select{flex:1;min-width:0;font:inherit;padding:5px 6px;border:1px solid var(--line);background:#f7f7f0;color:inherit}.capture-tools .actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}.capture-tools .actions button{min-height:38px;font-size:12px}.capture-tools .actions [data-action="send-kb"]{grid-column:1/-1;background:var(--forest);border-color:var(--forest);color:var(--paper)}.capture-tools .actions [data-action="send-kb"]:disabled{opacity:.55;cursor:not-allowed}.capture-tools .actions [data-action="settings"]{background:transparent}.capture-status{min-height:17px;margin:9px 0 0;color:var(--forest);font-size:11px;overflow-wrap:anywhere}.capture-status.is-error{color:#8a3b28}.preview{margin:0 14px 12px}.preview summary{cursor:pointer;color:var(--muted);font-size:11px}.preview pre{max-height:190px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;background:#f0efe8;padding:10px;font:11px/1.5 ui-monospace,monospace}
         .list:not(:empty){min-height:96px;max-height:min(38vh,360px);overflow:auto;overscroll-behavior:contain;padding:0 10px 12px}
         .row{display:grid;grid-template-columns:17px minmax(0,1fr) auto;align-items:start;gap:9px;padding:10px 5px;border-top:1px solid #e6ebe5}
         .row input{width:15px;height:15px;margin:2px 0 0;accent-color:var(--forest)}
@@ -109,7 +109,7 @@ export function createCaptureControls(doc = document, win = window) {
       </style>
       <section id="idea-capture-panel" data-idea-panel aria-label="Conversation capture" hidden>
         <header><span data-export-status>IdeaFoundry / Capture</span><button type="button" data-action="toggle-panel" aria-expanded="false">Open</button></header>
-        <div class="panel-body" hidden><div class="capture-meta"><h2 data-title>Conversation capture</h2><p data-summary></p><p data-warning></p></div><div class="tools"><button type="button" data-action="select-all">Select all</button><button type="button" data-action="select-none">Select none</button><button type="button" data-action="collapse-all">Collapse all</button><button type="button" data-action="expand-all">Expand all</button><button type="button" data-action="copy-diagnostics">Copy diagnostics</button></div><div class="count" aria-live="polite"></div><div class="empty" hidden><p data-empty-message></p><button type="button" data-action="retry">Retry detection</button><button type="button" data-action="copy-diagnostics">Copy diagnostics</button></div><div class="diagnostics"><p data-diagnostics-status aria-live="polite"></p><textarea data-diagnostics-fallback readonly hidden aria-label="Diagnostics to copy manually"></textarea></div><details class="preview" data-preview><summary>Review captured conversation</summary><pre data-preview-text></pre></details><div class="list"></div><div class="capture-tools"><div class="format" role="group" aria-label="File format"><label><input type="radio" name="format" value="md" checked> Markdown</label><label><input type="radio" name="format" value="html"> HTML</label><label><input type="radio" name="format" value="pdf"> PDF</label></div><p class="format-hint" data-format-hint></p><div class="actions"><button type="button" data-action="download">Download file</button><button type="button" data-action="settings">Settings</button><button type="button" data-action="send-kb">Send to knowledge base ↗</button></div><p class="capture-status" data-capture-status role="status" aria-live="polite"></p></div></div>
+        <div class="panel-body" hidden><div class="capture-meta"><h2 data-title>Conversation capture</h2><p data-summary></p><p data-warning></p></div><div class="tools"><button type="button" data-action="select-all">Select all</button><button type="button" data-action="select-none">Select none</button><button type="button" data-action="collapse-all">Collapse all</button><button type="button" data-action="expand-all">Expand all</button><button type="button" data-action="copy-diagnostics">Copy diagnostics</button></div><div class="count" aria-live="polite"></div><div class="empty" hidden><p data-empty-message></p><button type="button" data-action="retry">Retry detection</button><button type="button" data-action="copy-diagnostics">Copy diagnostics</button></div><div class="diagnostics"><p data-diagnostics-status aria-live="polite"></p><textarea data-diagnostics-fallback readonly hidden aria-label="Diagnostics to copy manually"></textarea></div><details class="preview" data-preview><summary>Review captured conversation</summary><pre data-preview-text></pre></details><div class="list"></div><div class="capture-tools"><div class="format" role="group" aria-label="File format"><label><input type="radio" name="format" value="md" checked> Markdown</label><label><input type="radio" name="format" value="html"> HTML</label><label><input type="radio" name="format" value="pdf"> PDF</label></div><p class="format-hint" data-format-hint></p><label class="kb-target">Save to <select data-kb-target aria-describedby="kb-target-hint"><option value="">Default folder</option></select></label><p class="format-hint" id="kb-target-hint" data-kb-target-hint>Applies to Send to knowledge base only; downloads ignore it.</p><div class="actions"><button type="button" data-action="download">Download file</button><button type="button" data-action="settings">Settings</button><button type="button" data-action="send-kb">Send to knowledge base ↗</button></div><p class="capture-status" data-capture-status role="status" aria-live="polite"></p></div></div>
       </section>
       <aside id="idea-capture-margin-controls" aria-label="Conversation section controls" hidden>
         <button type="button" data-idea-section-id aria-expanded="true" aria-label="Collapse current section"></button>
@@ -137,6 +137,13 @@ export function createCaptureControls(doc = document, win = window) {
   const panelHeader = shadow.querySelector('#idea-capture-panel>header');
   const captureActions = shadow.querySelector('.capture-tools');
   const formatHint = shadow.querySelector('[data-format-hint]');
+  const targetSelect = shadow.querySelector('[data-kb-target]');
+  const targetHint = shadow.querySelector('[data-kb-target-hint]');
+  const targetNote = 'Applies to Send to knowledge base only; downloads ignore it.';
+  let projects = [];
+  let loading = null;
+  let firstApply = true;
+  const loaded = { open: false, hidden: false, fresh: false };
   const defaultHeaderLabel = 'IdeaFoundry / Capture';
   let busy = false;
   function setExportFeedback(message, tone = 'idle') {
@@ -163,6 +170,7 @@ export function createCaptureControls(doc = document, win = window) {
     toggleButton.setAttribute('aria-expanded', 'true');
     toggleButton.textContent = 'Close';
     body.hidden = false;
+    void loadProjects(false);
     syncDock();
   }
   function showCaptureStatus(message, tone = 'idle') {
@@ -186,10 +194,56 @@ export function createCaptureControls(doc = document, win = window) {
       previewText.textContent = '';
     }
   }
+  const selectedProject = () => (targetSelect.value === '' ? null : projects[Number(targetSelect.value)] || null);
+  function applyProjects(reply) {
+    const current = selectedProject();
+    const wanted = firstApply ? reply.remembered : current ? { source: current.source, directory: current.rel, name: current.name } : { default: true };
+    firstApply = false;
+    const { list, index, missing } = chooseProject(reply.projects || [], wanted, reply.fresh);
+    projects = list;
+    while (targetSelect.options.length > 1) targetSelect.remove(1);
+    targetSelect.options[0].textContent = reply.defaultDirectory ? `Default folder (${reply.defaultDirectory})` : 'Default folder';
+    for (const [i, project] of projects.entries()) {
+      const option = doc.createElement('option');
+      option.value = String(i);
+      option.textContent = project.locked ? `${project.name} (locked)` : project.name;
+      option.title = project.rel;
+      option.disabled = project.locked;
+      targetSelect.append(option);
+    }
+    targetSelect.value = index >= 0 ? String(index) : '';
+    if (missing) void request({ type: 'kb-remember', target: null }).catch(() => {});
+    targetHint.textContent = [
+      missing ? 'Your last project is no longer available; using the default folder.' : '',
+      reply.unavailable ? `Could not refresh projects (${reply.unavailable})${projects.length ? '' : ' Using the default folder.'}` : '',
+      targetNote,
+    ].filter(Boolean).join(' ');
+  }
+  // On panel open: remembered choice + cached list, refreshed only through an already-open app tab.
+  // hidden: the user opened the menu, so a background app tab may be used. Each at most once per panel open.
+  function loadProjects(hidden) {
+    if (hidden ? loaded.hidden || loaded.fresh : loaded.open) return loading;
+    loaded[hidden ? 'hidden' : 'open'] = true;
+    loading = (loading || Promise.resolve()).then(async () => {
+      let reply;
+      try { reply = await request({ type: 'kb-projects', hidden }); }
+      catch (error) { reply = { projects: [], unavailable: error.message }; }
+      if (reply.fresh) loaded.fresh = true;
+      applyProjects(reply);
+    }).catch(() => {});
+    return loading;
+  }
+  const resetProjectLoads = () => { loaded.open = loaded.hidden = loaded.fresh = false; };
+  targetSelect.addEventListener('change', () => {
+    const project = selectedProject();
+    void request({ type: 'kb-remember', target: project ? { source: project.source, directory: project.rel, name: project.name } : null }).catch(() => {});
+  });
+  for (const type of ['focus', 'pointerdown']) targetSelect.addEventListener(type, () => { void loadProjects(true); });
   async function exportFromWidget(destination) {
     if (busy) return;
     busy = true;
     ensurePanelOpen();
+    if (destination === 'kb') await loading; // so Send uses what the select shows
     panel.hidden = false;
     const sendButton = captureActions.querySelector('[data-action="send-kb"]');
     const downloadButton = captureActions.querySelector('[data-action="download"]');
@@ -213,9 +267,11 @@ export function createCaptureControls(doc = document, win = window) {
         setExportFeedback('Uploading to your knowledge base…', 'busy');
         showCaptureStatus('Uploading to your knowledge base…', 'busy');
       }
-      const result = await request({ type: 'widget-export', destination, format, conversation });
+      const project = destination === 'kb' ? selectedProject() : null;
+      const target = project ? { source: project.source, directory: project.rel } : undefined;
+      const result = await request({ type: 'widget-export', destination, format, conversation, target });
       const successMessage = result.printDialog ? 'Print dialog opened. Choose “Save as PDF” to save your file.' : destination === 'kb'
-        ? `Saved to knowledge base: ${result.name}${result.appUrl ? `. Open ${result.appUrl}` : ''}`
+        ? `Saved to ${target ? `project ${project.name}` : 'knowledge base'}: ${result.name}${result.appUrl ? `. Open ${result.appUrl}` : ''}`
         : 'Download started.';
       // Closed mid-export: the tab returns to its label; the panel status keeps the result.
       setExportFeedback(body.hidden ? '' : result.printDialog ? 'Choose “Save as PDF” in the print dialog.' : destination === 'kb' ? `Saved: ${result.name}` : 'Download started.', 'idle');
@@ -258,6 +314,7 @@ export function createCaptureControls(doc = document, win = window) {
     body.hidden = !open;
     // The one-line tab keeps only busy/error state; finished-export text stays in the panel status.
     if (!open && !panelHeader.matches('.is-busy,.is-error')) setExportFeedback('');
+    if (open) void loadProjects(false); else resetProjectLoads();
     syncDock();
   };
   const onRailClick = event => {
@@ -1142,7 +1199,7 @@ export function createCaptureControls(doc = document, win = window) {
     delete conversation.nodes;
     return conversation;
   }
-  function open() { toggleButton.setAttribute('aria-expanded', 'true'); toggleButton.textContent = 'Close'; body.hidden = false; panel.hidden = false; syncDock(); refresh(); }
+  function open() { toggleButton.setAttribute('aria-expanded', 'true'); toggleButton.textContent = 'Close'; body.hidden = false; panel.hidden = false; void loadProjects(false); syncDock(); refresh(); }
   return { capture, refresh, open, destroy() {
     if (destroyed) return;
     destroyed = true;

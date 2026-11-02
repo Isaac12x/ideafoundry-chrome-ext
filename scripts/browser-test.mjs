@@ -56,6 +56,10 @@ const app = createServer(async (req, res) => {
     </main>`);
   }
   if (locked) { res.writeHead(423, { 'Content-Type': 'application/json' }); return res.end('{"error":"Workspace locked"}'); }
+  if (req.method === 'GET' && new URL(req.url, 'http://fixture').pathname === '/knowledge-base/project-list') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    return res.end(JSON.stringify({ projects: [{ source: 0, rel: 'Ferment', name: 'Ferment', locked: false }, { source: 1, rel: 'Deep/Sealed <b>', name: 'Sealed <b>', locked: true }] }));
+  }
   if (req.method === 'GET' && req.headers.accept === 'application/json') { res.writeHead(406); return res.end('No JSON template'); }
   if (req.method === 'POST') {
     if (req.headers['x-csrf-token'] !== 'fixture-csrf') { res.writeHead(403); return res.end(); }
@@ -1608,6 +1612,32 @@ try {
   assert.match(widgetUpload, /Widget should keep this long research turn/);
   assert.match(widgetUpload, /Research evidence 72/);
   assert.doesNotMatch(widgetUpload, /Widget should exclude this turn|This answer should not be uploaded/);
+
+  const targetSelect = widget.locator('[data-kb-target]');
+  await targetSelect.focus(); // opening the menu is what fetches the list
+  await targetSelect.locator('option', { hasText: 'Ferment' }).waitFor({ state: 'attached', timeout: 15000 });
+  assert.deepEqual(await targetSelect.locator('option').allTextContents(), ['Default folder', 'Ferment', 'Sealed <b> (locked)'], 'the Save to menu lists the default, projects, and locked projects');
+  assert.equal(await targetSelect.locator('option').nth(2).evaluate(option => option.disabled), true, 'locked projects cannot be chosen');
+  assert.equal(await widget.locator('[data-kb-target-hint]').count(), 1);
+  await targetSelect.selectOption({ label: 'Ferment' });
+  const projectUploadCount = uploads.length;
+  await widget.locator('[data-action="send-kb"]').click();
+  await target.waitForFunction(() => /Saved to project Ferment:/i.test(document.querySelector('#idea-capture-controls')?.shadowRoot?.querySelector('[data-capture-status]')?.textContent || ''), null, { timeout: 10000 });
+  assert.equal(uploads.length, projectUploadCount + 1);
+  assert.match(uploads.at(-1).toString(), /name="src"\r\n\r\n0\r\n[\s\S]*name="dir"\r\n\r\nFerment\r\n/, 'the capture is uploaded into the chosen project folder');
+  assert.deepEqual(await ui.evaluate(async () => (await chrome.storage.local.get('lastKbTarget')).lastKbTarget), { source: 0, directory: 'Ferment', name: 'Ferment' }, 'the choice is remembered on change');
+  const fresh = await context.newPage(); // a new page: the widget is rebuilt and must show the remembered project at once
+  await fresh.goto(target.url());
+  const reopened = fresh.locator('#idea-capture-panel');
+  await reopened.locator('[data-action="toggle-panel"]').waitFor({ state: 'attached' });
+  if (await reopened.locator('[data-action="toggle-panel"]').getAttribute('aria-expanded') !== 'true') await reopened.locator('[data-action="toggle-panel"]').click();
+  await fresh.waitForFunction(() => document.querySelector('#idea-capture-controls')?.shadowRoot?.querySelector('[data-kb-target]')?.selectedOptions[0]?.textContent === 'Ferment', null, { timeout: 10000 });
+  await reopened.locator('[data-kb-target]').selectOption({ label: 'Default folder' });
+  assert.deepEqual(await ui.evaluate(async () => (await chrome.storage.local.get('lastKbTarget')).lastKbTarget), { default: true }, 'the default folder is stored as an explicit choice');
+  await reopened.locator('[data-kb-target]').focus();
+  await reopened.locator('[data-kb-target] option', { hasText: 'Sealed' }).waitFor({ state: 'attached' });
+  await fresh.close();
+  await targetSelect.selectOption({ label: 'Default folder' });
 
   await widget.locator('[name="format"][value="html"]').check();
   const htmlUploadCount = uploads.length;

@@ -3,7 +3,7 @@
 import { chromium } from 'playwright';
 import { createServer } from 'node:http';
 import assert from 'node:assert/strict';
-import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -64,25 +64,29 @@ try {
   const saveSettings = async remote => {
     await ui.fill('#appUrl', appUrl); await ui.fill('#source', source); await ui.fill('#directory', '');
     await ui.fill('#queueUrl', queueUrl); await ui.fill('#queueToken', apiKey);
-    await ui.setChecked('#remoteEnabled', remote); await ui.fill('#allowedOrigins', `${chat}\n${fixtureOrigin}`);
+    await ui.setChecked('#remoteEnabled', remote); await ui.fill('#allowedOrigins', `${chat}\n${chat}/*\n${fixtureOrigin}\n${fixtureOrigin}/*`); // a bare origin matches only its root path
     await ui.click('button[type=submit]');
     await ui.locator('#status', { hasText: 'Connections saved.' }).waitFor();
   };
 
   // 1. Extension -> KB through the on-page widget, Markdown then styled HTML.
   await saveSettings(false);
+  // A KB project for the widget's "Save to" menu (marker file = project); not counted as a capture result.
+  await mkdir(join(kbDir, 'E2E Project'), { recursive: true });
+  await writeFile(join(kbDir, 'E2E Project', '.kb-project.yml'), 'status: active\n');
+  preexisting.add('E2E Project/.kb-project.yml');
   const page = await context.newPage();
   await page.goto(`${chat}/c/e2e`);
   const widget = page.locator('#idea-capture-panel');
   const toggle = widget.locator('[data-action="toggle-panel"]');
   await toggle.waitFor();
   if (await toggle.getAttribute('aria-expanded') !== 'true') await toggle.click();
-  const sendKb = async format => {
+  const sendKb = async (format, expected = /Saved to knowledge base:/) => {
     await widget.locator(`[name="format"][value="${format}"]`).check();
     await widget.locator('[data-action="send-kb"]').click();
-    await page.waitForFunction(() => /Saved to knowledge base:|failed|error|unlock|allow/i.test(document.querySelector('#idea-capture-controls')?.shadowRoot?.querySelector('[data-capture-status]')?.textContent || ''), null, { timeout: 30000 });
+    await page.waitForFunction(() => /Saved to (knowledge base|project .+):|failed|error|unlock|allow/i.test(document.querySelector('#idea-capture-controls')?.shadowRoot?.querySelector('[data-capture-status]')?.textContent || ''), null, { timeout: 30000 });
     const status = await page.evaluate(() => document.querySelector('#idea-capture-controls').shadowRoot.querySelector('[data-capture-status]').textContent);
-    assert.match(status, /Saved to knowledge base:/, status);
+    assert.match(status, expected, status);
   };
   await sendKb('md');
   const afterMd = await kbFiles();
@@ -109,13 +113,28 @@ try {
   assert.match(await readFile(join(kbDir, conversationHtml), 'utf8'), /Interviews give context/);
   console.log('KB after html:', afterHtml);
 
+  // 1b. Save to a project: the capture lands in that project's folder.
+  const projectSelect = widget.locator('[data-kb-target]');
+  await projectSelect.focus(); // opening the menu fetches the project list (no app tab is open)
+  await projectSelect.locator('option', { hasText: 'E2E Project' }).waitFor({ state: 'attached', timeout: 15000 });
+  await projectSelect.selectOption({ label: 'E2E Project' });
+  await sendKb('md', /Saved to project E2E Project:/);
+  const inProject = (await kbFiles()).filter(f => f.startsWith('E2E Project/') && f.endsWith('.md'));
+  assert.equal(inProject.length, 1, `the capture landed in the project folder: ${await kbFiles()}`);
+  await projectSelect.selectOption({ label: 'Default folder' });
+
   // 2. App -> extension: jobs from the in-app settings form and from the API.
   await saveSettings(true);
   const app = await context.newPage();
   const claims = [];
   context.on('response', async r => { if (r.url() === `${queueUrl}/jobs/claim` && r.status() === 200) claims.push(await r.json().catch(() => null)); });
   const listRow = url => app.locator('.api-key-row', { hasText: url });
+  // Newer app versions removed the queue form and job list from /settings/api_keys (jobs come from the KB's "Download from URL").
+  await app.goto(`${appUrl}/settings/api_keys`);
+  const hasForm = await app.locator('input[name=url]').count() > 0;
+  if (!hasForm) console.log('NOTE: settings/api_keys has no queue form; creating jobs through the API and skipping the UI list checks.');
   const createViaForm = async (url, format = 'md') => {
+    if (!hasForm) return createViaApi(url, format);
     await app.goto(`${appUrl}/settings/api_keys`);
     await app.fill('input[name=url]', url); await app.selectOption('select[name=file_format]', format);
     await app.click('input[value="Queue Capture"]');
@@ -140,6 +159,7 @@ try {
     return job;
   };
   const showsInList = async (url, text) => {
+    if (!hasForm) return;
     await app.goto(`${appUrl}/settings/api_keys`);
     const meta = await listRow(url).first().locator('.api-key-meta').innerText();
     assert.match(meta, text, `settings list for ${url}: ${meta}`);

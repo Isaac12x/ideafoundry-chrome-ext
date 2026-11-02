@@ -99,6 +99,33 @@ export function kbDirectory(value) {
   if (dir.startsWith('/') || dir.split(/[\\/]/).includes('..')) throw new Error('Use a relative KB folder without .. segments.');
   return dir;
 }
+// Widget-chosen KB destination ({source, directory}); absent means "use the settings".
+export function validateTarget(raw) {
+  if (raw == null) return {};
+  return { source: kbSource(raw.source), directory: kbDirectory(raw.directory) };
+}
+// The app's /knowledge-base/projects reply, reduced to what the widget may show.
+export function normalizeProjects(raw) {
+  if (!Array.isArray(raw)) return [];
+  const out = [];
+  for (const item of raw.slice(0, 500)) {
+    try {
+      const directory = kbDirectory(item.rel);
+      if (!directory) continue;
+      out.push({ source: kbSource(item.source), rel: directory, name: String(item.name || directory).slice(0, 200), locked: item.locked === true });
+    } catch { /* skip malformed rows */ }
+  }
+  return out;
+}
+// Resolve the wanted destination against a project list. wanted: {source, directory, name} or null/{default:true} for the default folder.
+// A project absent from a cached (not fresh) list stays selectable; absent from a fresh list, or locked, it falls back to the default (missing).
+export function chooseProject(projects, wanted, fresh) {
+  if (!wanted || wanted.default) return { list: projects, index: -1, missing: false };
+  const found = projects.findIndex(p => p.source === wanted.source && p.rel === wanted.directory);
+  if (found >= 0) return projects[found].locked ? { list: projects, index: -1, missing: true } : { list: projects, index: found, missing: false };
+  if (fresh) return { list: projects, index: -1, missing: true };
+  return { list: [...projects, { source: wanted.source, rel: wanted.directory, name: wanted.name || wanted.directory, locked: false }], index: projects.length, missing: false };
+}
 export function validateSettings(input) {
   const value = withDefaults(input);
   value.appUrl = serviceOrigin(value.appUrl);

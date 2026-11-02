@@ -35,3 +35,16 @@ export async function uploadInApp(file, settings) {
     return { ok: false, error: error.message };
   }
 }
+
+// Runs in the app tab like uploadInApp. Never throws: { ok, projects } or { ok: false, error, unsupported? }.
+export async function listProjectsInApp(settings) {
+  try {
+    if (location.origin !== settings.appUrl) throw new Error('The app tab changed origin.');
+    const response = await fetch('/knowledge-base/project-list', { credentials: 'same-origin', signal: AbortSignal.timeout(20_000), headers: { Accept: 'application/json' } });
+    if (response.status === 404) return { ok: false, unsupported: true, error: 'This IdeaFoundry version cannot list projects. Update the app.' };
+    if (!response.ok || !(response.headers.get('content-type') || '').includes('json')) throw new Error('Unlock the IdeaFoundry workspace to list projects.');
+    return { ok: true, projects: (await response.json()).projects };
+  } catch (error) {
+    return { ok: false, error: error.message };
+  }
+}
