@@ -523,6 +523,7 @@ export function createCaptureControls(doc = document, win = window) {
       && node !== doc.body && node !== doc.documentElement
       && !node.matches?.('main, [role="main"], footer, [role="contentinfo"], nav, [role="navigation"], aside, [role="complementary"]')
       && !foreignNodes.some(foreign => node.contains(foreign))
+      && !node.querySelector?.(`.${HEADER_CLASS}`) // a node holding a header would hide it (and zero a virtualized item)
       && !hasUnsafeAncestor(node)
       && (isCollapsibleCodePanel(node) || (
         ![...node.querySelectorAll?.('textarea, input:not([data-idea-section-id]), [contenteditable="true"]') || []].some(editor => !isReadOnlyCodeSurface(editor))
@@ -1260,15 +1261,16 @@ export function installCollapseStyle(doc = document) {
     style.setAttribute(OWNED, 'style');
     style.textContent = `.${COLLAPSED_CLASS}{display:none!important}
       .idea-capture-section-header{box-sizing:border-box;display:flex;align-items:center;gap:9px;width:min(100%,720px);min-height:38px;padding:6px 9px;margin:7px auto;background:#f4f6f0;border:1px solid #d5dfd5;border-radius:5px;color:#293b30;font:12px/1.4 "Avenir Next","Trebuchet MS",sans-serif;position:relative;box-shadow:0 1px 2px #10251c0a}
-      /* In a virtualized turn the header is the measured box: margins would collapse through the turn, so spacing is a transparent border. */
-      [data-turn-key]>.idea-capture-section-header{margin:0 auto;min-height:52px;border-color:transparent;border-width:7px 1px;border-radius:12px;background-clip:padding-box;box-shadow:inset 0 0 0 1px #d5dfd5}
+      /* In a virtualized turn the header is the measured box and margins would collapse through the turn: the gap is padding, the card is a ::before inset by it (same look as the base header). */
+      [data-turn-key]>.idea-capture-section-header{margin:0 auto;min-height:52px;padding:14px 10px;border:0;border-radius:0;background:none;box-shadow:none;isolation:isolate}
+      [data-turn-key]>.idea-capture-section-header::before{content:"";position:absolute;inset:7px 0;z-index:-1;box-sizing:border-box;background:#f4f6f0;border:1px solid #d5dfd5;border-radius:5px;box-shadow:0 1px 2px #10251c0a}
       .idea-capture-section-header input{appearance:auto!important;-webkit-appearance:checkbox!important;display:inline-block!important;visibility:visible!important;opacity:1!important;width:16px!important;height:16px!important;min-width:16px!important;min-height:16px!important;margin:0!important;accent-color:#285b42;flex:0 0 16px}
       .idea-capture-section-label{min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:550}
       .idea-capture-section-header button{min-height:27px;padding:3px 8px;font:600 10px/1.2 "Avenir Next","Trebuchet MS",sans-serif;cursor:pointer;border:1px solid #ccd8ce;border-radius:4px;background:#fbfaf5;color:inherit;white-space:nowrap}
       .idea-capture-section-header button:hover{background:#e8efe8}
       [data-idea-capture-scroll-clearance]{padding-bottom:calc(var(--idea-capture-original-padding-bottom,0px) + var(--idea-capture-composer-clearance,0px))!important}
       .idea-capture-section-header button:focus-visible,.idea-capture-section-header input:focus-visible{outline:2px solid #397650;outline-offset:2px}
-      @media(max-width:520px){.idea-capture-section-header{gap:7px;padding-inline:7px;margin-block:5px}.idea-capture-section-header button{font-size:9px;padding-inline:6px}}`;
+      @media(max-width:520px){.idea-capture-section-header{gap:7px;padding-inline:7px;margin-block:5px}[data-turn-key]>.idea-capture-section-header{padding-inline:8px;margin-block:0}.idea-capture-section-header button{font-size:9px;padding-inline:6px}}`;
     (doc.head || doc.documentElement).append(style);
   }
   styles.set(doc, style);

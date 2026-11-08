@@ -93,3 +93,16 @@ test('2026 markup: with no composer on screen a code block (header or editor) is
   await new Promise(resolve => dom.window.requestAnimationFrame(resolve));
   assert.equal(document.querySelector('[data-idea-capture-owned="host"]').shadowRoot.querySelector('#idea-capture-panel').classList.contains('is-docked'), false);
 });
+
+test('2026 markup: destroy removes headers and collapse state, leaving the turns intact', t => {
+  const dom = page(); const { document } = dom.window;
+  const controls = createCaptureControls(document, dom.window);
+  installCollapseStyle(document);
+  document.querySelectorAll('.idea-capture-section-header button').forEach((button, i) => { if (i !== 1) button.click(); });
+  assert.equal(document.querySelectorAll('.idea-capture-section-collapsed').length, 2);
+  controls.destroy(); t.after(() => dom.window.close());
+  assert.equal(document.querySelectorAll('.idea-capture-section-header, .idea-capture-section-collapsed, [data-idea-capture-collapse-state]').length, 0);
+  assert.equal(document.querySelectorAll('[data-turn-key]').length, 3);
+  assert.equal(document.querySelectorAll('[data-content-search-turn-key]').length, 3);
+  assert.ok([...document.querySelectorAll('[data-turn-key]')].every(turnEl => turnEl.children.length === 1 && turnEl.firstElementChild.hasAttribute('data-content-search-turn-key')), 'turn children are only ChatGPT\'s own');
+});
