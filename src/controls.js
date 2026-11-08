@@ -1,4 +1,4 @@
-import { chatGptConversationRoot, extractConversation, isCollapsibleCodePanel, isReadOnlyCodeSurface } from './extract.js';
+import { chatGptConversationRoot, classHint, extractConversation, isCollapsibleCodePanel, isReadOnlyCodeSurface } from './extract.js';
 import { collectDiagnostics } from './diagnostics.js';
 import { markdown, chooseProject } from './shared.js';
 
@@ -6,6 +6,8 @@ const HOST_ID = 'idea-capture-controls';
 const COLLAPSED_CLASS = 'idea-capture-section-collapsed';
 const STYLE_ID = 'idea-capture-section-style';
 const HEADER_CLASS = 'idea-capture-section-header';
+// data-turn-key / data-content-search-turn-key: current ChatGPT turn wrappers (no article / testid / role attrs).
+const TURN_SELECTOR = 'article, [data-testid^="conversation-turn-"], [data-turn-id], [data-turn-key], [data-content-search-turn-key], [data-message-id], [class~="turn"], [class*="assistant-turn"], [class*="agent-turn"]';
 const OWNED = 'data-idea-capture-owned';
 const styles = new WeakMap();
 
@@ -512,7 +514,7 @@ export function createCaptureControls(doc = document, win = window) {
     const hasEditableTextbox = node => [...node.querySelectorAll?.('[role="textbox"]') || []].some(candidate => !isReadOnlyCodeSurface(candidate));
     const hasUnsafeAncestor = node => {
       for (let ancestor = node.parentElement; ancestor && ancestor !== doc.body && ancestor !== doc.documentElement; ancestor = ancestor.parentElement) {
-        if (ancestor.matches('form, textarea, input:not([data-idea-section-id]), [contenteditable="true"], [class*="sidebar" i], [class*="composer" i], [data-testid*="composer" i], [aria-label*="composer" i]')) return true;
+        if (ancestor.matches('form, textarea, input:not([data-idea-section-id]), [contenteditable="true"], [data-testid*="composer" i], [aria-label*="composer" i]') || classHint(ancestor, 'sidebar', 'composer')) return true;
         if (ancestor.matches('[role="textbox"]') && !isReadOnlyCodeSurface(ancestor)) return true;
       }
       return false;
@@ -523,7 +525,7 @@ export function createCaptureControls(doc = document, win = window) {
       && !foreignNodes.some(foreign => node.contains(foreign))
       && !hasUnsafeAncestor(node)
       && (isCollapsibleCodePanel(node) || (
-        !node.querySelector?.('textarea, input:not([data-idea-section-id]), [contenteditable="true"]')
+        ![...node.querySelectorAll?.('textarea, input:not([data-idea-section-id]), [contenteditable="true"]') || []].some(editor => !isReadOnlyCodeSurface(editor))
         && !hasEditableTextbox(node)
       ));
     if (section.collapseNodes?.length) {
@@ -532,14 +534,14 @@ export function createCaptureControls(doc = document, win = window) {
     }
     const targets = new Set();
     for (const node of section.nodes) {
-      if (node.matches?.('article, [data-testid^="conversation-turn-"], [data-turn-id], [data-message-id], [class~="turn"], [class*="assistant-turn"], [class*="agent-turn"]')
+      if (node.matches?.(TURN_SELECTOR)
         && safeCollapseNode(node)) {
         targets.add(node);
         continue;
       }
       const candidates = [];
       for (let ancestor = node.parentElement; ancestor && ancestor !== doc.body && ancestor !== doc.documentElement; ancestor = ancestor.parentElement) {
-        if (!ancestor.matches('article, [data-testid^="conversation-turn-"], [data-turn-id], [data-message-id], [class~="turn"], [class*="assistant-turn"], [class*="agent-turn"]')) continue;
+        if (!ancestor.matches(TURN_SELECTOR)) continue;
         if (!safeCollapseNode(ancestor)) continue;
         candidates.push(ancestor);
       }
@@ -588,7 +590,7 @@ export function createCaptureControls(doc = document, win = window) {
     const section = sections.find(candidate => candidate.id === activeSectionId) || sectionAtViewportCenter();
     for (const node of section?.nodes.slice(0, 3) || []) {
       if (!node.isConnected) continue;
-      const layout = node.closest?.('article, [data-testid^="conversation-turn-"], [data-turn-id], [data-message-id], [class~="turn"], [class*="assistant-turn"], [class*="agent-turn"]');
+      const layout = node.closest?.(TURN_SELECTOR);
       if (layout && !layout.querySelector('textarea, input, [contenteditable="true"], [role="textbox"]')) {
         const rect = layout.getBoundingClientRect();
         if (rect.width >= 160 && rect.width <= maxWidth && rect.height > 0) rects.push(rect);
@@ -679,7 +681,7 @@ export function createCaptureControls(doc = document, win = window) {
     const rootRect = isNestedScrollRoot(root) ? clippedRect(root) : null;
     if (rootRect && (x < rootRect.left || x > rootRect.right || y < rootRect.top || y > rootRect.bottom)) return null;
 
-    const turnSelector = 'article, [data-testid^="conversation-turn-"], [data-turn-id], [data-message-id], [class~="turn"], [class*="assistant-turn"], [class*="agent-turn"]';
+    const turnSelector = TURN_SELECTOR;
     const contentSelector = 'p, h1, h2, h3, h4, h5, h6, a, img, video, audio, iframe, object, embed, canvas, svg, pre, code, table, blockquote, li, [class*="markdown"], [class*="prose"], [class*="gallery"]';
     const safeTurn = (node, section) => {
       let candidate = null;
@@ -803,6 +805,15 @@ export function createCaptureControls(doc = document, win = window) {
   }
   // On ChatGPT, anchor the tab to the nearest outlined input surface. Other
   // providers retain their existing composer selection behavior.
+  const promptName = /ask chatgpt|message|prompt|composer/i;
+  const isNamedPrompt = node => node.matches('#prompt-textarea, [data-composer-markdown]') || promptName.test(`${node.getAttribute('aria-label') || ''} ${node.getAttribute('data-testid') || ''}`);
+  // form / composer-marked ancestor; class hints ignore Tailwind variant tokens that thread scrollers carry.
+  const composerAncestor = node => {
+    for (let current = node; current && current !== doc.body; current = current.parentElement) {
+      if (current.matches('form, [data-composer-input], [data-testid*="composer" i], [aria-label*="composer" i]') || classHint(current, 'composer')) return current;
+    }
+    return null;
+  };
   function composerBox() {
     dockWhy = isChatGptPage() ? 'no usable prompt editor' : 'non-ChatGPT provider';
     if (isChatGptPage()) {
@@ -810,23 +821,23 @@ export function createCaptureControls(doc = document, win = window) {
         .filter(input => !input.closest(`[${OWNED}]`)
           && !isReadOnlyCodeSurface(input)
           && !input.matches('pre, code, [class*="code-editor" i], [data-testid*="code-editor" i]')
-          && (!input.matches('[role="textbox"]') || input.matches('#prompt-textarea') || /message|prompt|composer/i.test(`${input.getAttribute('aria-label') || ''} ${input.getAttribute('data-testid') || ''}`))
+          && !input.closest('[data-code-block], .cm-editor')
+          && (!input.matches('[role="textbox"]') || isNamedPrompt(input))
           && (!input.matches('[readonly], [aria-readonly="true"]') || input.matches('#prompt-textarea'))
-          && !input.closest('[data-message-author-role], [data-testid^="conversation-turn-"], [data-turn-id], [data-message-id], article')
+          && !input.closest('[data-message-author-role], [data-testid^="conversation-turn-"], [data-turn-id], [data-turn-key], [data-message-id], article')
           && !hasInvisibleAncestor(input));
       const viewportHeight = win.innerHeight || doc.documentElement.clientHeight;
       editors.sort((a, b) => {
-        const rank = node => node.matches('#prompt-textarea') ? 3
-          : /message|prompt|composer/i.test(`${node.getAttribute('aria-label') || ''} ${node.getAttribute('data-testid') || ''}`) ? 2
-            : node.closest('form, [class*="composer" i], [data-testid*="composer" i], [aria-label*="composer" i]') ? 2
-              : 1;
+        const rank = node => node.matches('#prompt-textarea, [data-composer-markdown]') ? 3
+          : isNamedPrompt(node) || composerAncestor(node) ? 2
+            : 1;
         return rank(b) - rank(a);
       });
       for (const input of editors) {
         const inputRect = input.getBoundingClientRect();
         if (inputRect.width < 160 || inputRect.height <= 0 || inputRect.bottom <= 0 || inputRect.top >= viewportHeight) continue;
-        const named = input.matches('#prompt-textarea') || /message|prompt|composer/i.test(`${input.getAttribute('aria-label') || ''} ${input.getAttribute('data-testid') || ''}`);
-        const promptIdentity = named || !!input.closest('form, [class*="composer" i], [data-testid*="composer" i], [aria-label*="composer" i]');
+        const named = isNamedPrompt(input);
+        const promptIdentity = named || !!composerAncestor(input);
         if ((input.disabled || input.readOnly || input.getAttribute('aria-disabled') === 'true' || input.getAttribute('contenteditable') === 'false') && !promptIdentity) continue;
         // Named prompts in a form: the widest drawn node with a real radius (>= 8) between the input and the form (the
         // visible pill; never a narrower inner node, the form's backdrop, or a square wrapper), else the nearest drawn
@@ -1116,7 +1127,7 @@ export function createCaptureControls(doc = document, win = window) {
         return { ...section, id };
       });
       sectionMediaNodes.clear();
-      const turnSelector = 'article, [data-testid^="conversation-turn-"], [data-turn-id], [data-message-id], [class~="turn"], [class*="assistant-turn"], [class*="agent-turn"]';
+      const turnSelector = TURN_SELECTOR;
       for (const section of sections) {
         const media = new Set();
         const foreignNodes = sections.filter(candidate => candidate.id !== section.id).flatMap(candidate => candidate.nodes);

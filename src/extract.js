@@ -148,12 +148,22 @@ function chatGptCommonAncestor(nodes) {
 // These nodes mark real boundaries in the page. Presentation-only nodes such
 // as buttons and screen-reader labels are removed from the export clone, but
 // they must not split one reply into a pile of inferred messages.
-const inferredBarrierSelector = `${chatGptUserBubbleSelector},script,style,nav,aside,header,footer,form,textarea,input,select,[contenteditable="true"],[role="navigation"],[role="complementary"],[role="toolbar"],[class*="sidebar" i],[class*="composer" i],[data-testid*="composer" i],[data-testid*="header" i],[aria-label*="composer" i],[hidden],[aria-hidden="true"],[data-idea-capture-control],[data-idea-capture-owned]`;
-const collapseUnsafeSelector = `nav,aside,header,footer,form,textarea,input:not([data-idea-section-id]),select,[contenteditable="true"],[role="navigation"],[role="complementary"],[class*="sidebar" i],[class*="composer" i],[data-testid*="composer" i],[aria-label*="composer" i]`;
+// Tailwind variant/arbitrary tokens (e.g. group-has-[[data-expanded-composer]]/x:overflow-hidden) name composer/sidebar
+// on thread ancestors for unrelated reasons; only plain class tokens count as a hint.
+export const classHint = (node, ...words) => [...node?.classList || []].some(token => !/[[:]/.test(token) && words.some(word => token.toLowerCase().includes(word)));
+const hintedUnsafe = node => classHint(node, 'sidebar', 'composer');
+const hintSelector = '[class*="sidebar" i],[class*="composer" i]';
+const inferredBarrierSelector = `${chatGptUserBubbleSelector},script,style,nav,aside,header,footer,form,textarea,input,select,[contenteditable="true"],[role="navigation"],[role="complementary"],[role="toolbar"],[data-testid*="composer" i],[data-testid*="header" i],[aria-label*="composer" i],[hidden],[aria-hidden="true"],[data-idea-capture-control],[data-idea-capture-owned]`;
+const isInferredBarrier = node => !!node.matches?.(inferredBarrierSelector) || hintedUnsafe(node);
+const collapseUnsafeSelector = `nav,aside,header,footer,form,textarea,input:not([data-idea-section-id]),select,[contenteditable="true"],[role="navigation"],[role="complementary"],[data-testid*="composer" i],[aria-label*="composer" i]`;
+// ChatGPT renders code blocks as CodeMirror ([data-code-block] > .cm-editor, no pre/code) whose .cm-content is a
+// contenteditable role=textbox; it is viewer content, never a prompt (the composer is ProseMirror in a form).
 export function isReadOnlyCodeSurface(node) {
+  if (node?.closest?.('.cm-editor, #code-block-viewer, [data-code-block]') && !node.closest('form')) return true;
   return !!node?.matches?.('[role="textbox"]') && node.matches('pre[aria-readonly="true"]') && !!node.querySelector('code');
 }
 export function isCollapsibleCodePanel(node) {
+  if (node?.matches?.('[data-code-block]')) return !node.closest('form');
   if (!node?.querySelector?.('pre code')) return false;
   const hasToolbar = [...node.children].some(child => child.matches('header, [role="toolbar"], [class*="code-toolbar" i], [data-testid*="code-toolbar" i]') ||
     (child.querySelector('button') && !child.querySelector('pre, textarea, input')));
@@ -161,8 +171,9 @@ export function isCollapsibleCodePanel(node) {
   const hasCodeFrame = node.matches('[class*="code-panel" i], [data-testid*="code-panel" i]') || (hasToolbar && hasDirectCode);
   if (!hasCodeFrame) return false;
   if (node.matches('html, body, main, [role="main"], article, [data-testid^="conversation-turn-"], [data-turn-id], [data-message-id]')) return false;
-  if (node.matches('form, nav, aside, footer, [role="navigation"], [role="complementary"], [contenteditable="true"], [class*="sidebar" i], [class*="composer" i], [data-testid*="composer" i], [aria-label*="composer" i]') ||
-      node.querySelector('form, nav, aside, footer, [role="navigation"], [role="complementary"], [contenteditable="true"], [class*="sidebar" i], [class*="composer" i], [data-testid*="composer" i], [aria-label*="composer" i]')) return false;
+  const unsafeSelector = 'form, nav, aside, footer, [role="navigation"], [role="complementary"], [contenteditable="true"], [data-testid*="composer" i], [aria-label*="composer" i]';
+  if (node.matches(unsafeSelector) || hintedUnsafe(node) ||
+      [...node.querySelectorAll(`${unsafeSelector}, ${hintSelector}`)].some(unsafe => !isReadOnlyCodeSurface(unsafe) && (unsafe.matches(unsafeSelector) || hintedUnsafe(unsafe)))) return false;
   if ([...node.querySelectorAll('textarea, input:not([data-idea-section-id])')].some(editor => !editor.readOnly)) return false;
   if ([...node.querySelectorAll('[role="textbox"]')].some(textbox => !isReadOnlyCodeSurface(textbox) &&
       !(textbox.matches('textarea[readonly]') && textbox.closest('pre')?.querySelector('code')))) return false;
@@ -171,20 +182,21 @@ export function isCollapsibleCodePanel(node) {
   return true;
 }
 function collapseUnsafe(node) {
-  if (node.matches?.(collapseUnsafeSelector)) return true;
+  if (isReadOnlyCodeSurface(node)) return false;
+  if (node.matches?.(collapseUnsafeSelector) || hintedUnsafe(node)) return true;
   // Read-only code surfaces may use textbox semantics for selection. They are
   // rendered content; editable textboxes remain protected.
   return node.matches?.('[role="textbox"]') && !isReadOnlyCodeSurface(node);
 }
 function containsCollapseUnsafe(node) {
-  return collapseUnsafe(node) || [...node.querySelectorAll(`${collapseUnsafeSelector}, [role="textbox"]`)].some(collapseUnsafe);
+  return collapseUnsafe(node) || [...node.querySelectorAll(`${collapseUnsafeSelector}, ${hintSelector}, [role="textbox"]`)].some(collapseUnsafe);
 }
 const exportExcludedSelector = `script,style,nav,aside,header,footer,form,textarea,input,select,[contenteditable="true"],[role="navigation"],[role="complementary"],[role="toolbar"],[class*="sidebar" i],[class*="toolbar" i],[class*="composer" i],[data-testid*="composer" i],[data-testid*="header" i],[aria-label*="composer" i],[hidden],[aria-hidden="true"],.sr-only,[data-idea-capture-control],[data-idea-capture-owned]`;
 const mathSourceSelector = '.katex-mathml, annotation[encoding="application/x-tex"], annotation[encoding="application/x-mathml"]';
 function isMathSource(node) { return !!node.closest?.(mathSourceSelector); }
 
 function inferredContentNodes(source) {
-  if (source.matches?.(inferredBarrierSelector)) return [];
+  if (isInferredBarrier(source)) return [];
   // Keep the structural reply wrapper as one message. The converter removes
   // nested page chrome and controls, preserving surrounding text, citations,
   // and media without turning each surviving child into a separate message.
@@ -192,7 +204,7 @@ function inferredContentNodes(source) {
 }
 
 function inferredUncoveredContentNodes(source, existingCandidates) {
-  if (source.matches?.(inferredBarrierSelector)) return [];
+  if (isInferredBarrier(source)) return [];
   const overlapping = existingCandidates.filter(candidate => candidate.role !== 'user' &&
     (source === candidate.node || candidate.node.contains(source) || source.contains(candidate.node)));
   if (!overlapping.some(candidate => source !== candidate.node && source.contains(candidate.node))) {
