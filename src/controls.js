@@ -1,4 +1,4 @@
-import { chatGptConversationRoot, extractConversation, isCollapsibleCodePanel, isReadOnlyCodeSurface } from './extract.js';
+import { chatGptConversationRoot, classHint, extractConversation, isCollapsibleCodePanel, isReadOnlyCodeSurface } from './extract.js';
 import { collectDiagnostics } from './diagnostics.js';
 import { markdown, chooseProject } from './shared.js';
 
@@ -6,6 +6,8 @@ const HOST_ID = 'idea-capture-controls';
 const COLLAPSED_CLASS = 'idea-capture-section-collapsed';
 const STYLE_ID = 'idea-capture-section-style';
 const HEADER_CLASS = 'idea-capture-section-header';
+// data-turn-key / data-content-search-turn-key: current ChatGPT turn wrappers (no article / testid / role attrs).
+const TURN_SELECTOR = 'article, [data-testid^="conversation-turn-"], [data-turn-id], [data-turn-key], [data-content-search-turn-key], [data-message-id], [class~="turn"], [class*="assistant-turn"], [class*="agent-turn"]';
 const OWNED = 'data-idea-capture-owned';
 const styles = new WeakMap();
 
@@ -56,7 +58,7 @@ export function createCaptureControls(doc = document, win = window) {
   if (!shadow.querySelector('[data-idea-panel]')) {
     shadow.innerHTML = `
       <style>
-        :host{color-scheme:light;--paper:#fbfaf5;--ink:#24352b;--muted:#65746a;--line:#d9e0d8;--forest:#285b42;--wash:#edf3ed;font-family:"Avenir Next","Trebuchet MS",sans-serif;font-size:13px;line-height:1.45;color:var(--ink)}
+        :host{color-scheme:light;--paper:#fbfaf5;--ink:#24352b;--muted:#65746a;--line:#d9e0d8;--forest:#285b42;--wash:#edf3ed;font-family:"Avenir Next","Trebuchet MS",sans-serif;font-size:13px;line-height:1.45;color:var(--ink);pointer-events:auto}
         *,*::before,*::after{box-sizing:border-box}
         [hidden]{display:none!important}
         button,input,textarea{font:inherit;color:inherit}
@@ -97,6 +99,7 @@ export function createCaptureControls(doc = document, win = window) {
         #idea-capture-margin-controls button:hover{background:var(--wash);border-color:#9db5a3}
         #idea-capture-margin-controls button:active{transform:scale(.96)}
         #idea-capture-panel.is-docked{left:auto;right:var(--dock-right);bottom:var(--dock-bottom);width:min(440px,var(--dock-width))}
+        #idea-capture-panel.is-docked.in-overlay{position:absolute}
         #idea-capture-panel.is-docked:not(:has(.panel-body[hidden])){max-height:var(--dock-max-height)}
         #idea-capture-panel.is-docked:has(.panel-body[hidden]){width:min(236px,var(--dock-width));background:var(--dock-bg);color:var(--dock-ink);border-color:var(--dock-line);border-bottom-color:transparent;border-radius:var(--dock-radius) var(--dock-radius) 0 0;box-shadow:var(--dock-shadow,0 -4px 14px #10251c12);clip-path:var(--dock-clip,none)}
         #idea-capture-panel.is-docked:has(.panel-body[hidden])>header{min-height:30px;padding:3px 4px 3px 13px;border-bottom:0;font-size:11px;font-weight:600;letter-spacing:.02em}
@@ -117,6 +120,10 @@ export function createCaptureControls(doc = document, win = window) {
       </aside>`;
   }
   const panel = shadow.querySelector('[data-idea-panel]');
+  // The host can sit under ChatGPT's React tree: keep our interactions from reaching its handlers (bubble phase only; our doc listeners are capture).
+  for (const type of ['click', 'dblclick', 'keydown', 'keyup', 'keypress', 'pointerdown', 'pointerup', 'mousedown', 'mouseup', 'input', 'paste', 'focusin', 'focusout']) host.addEventListener(type, event => event.stopPropagation());
+  // A move is deferred while focus is inside the panel; syncing again once it leaves performs it.
+  shadow.addEventListener('focusout', () => scheduleDock());
   const body = shadow.querySelector('.panel-body');
   const toggleButton = shadow.querySelector('[data-action="toggle-panel"]');
   const rail = shadow.querySelector('#idea-capture-margin-controls');
@@ -512,7 +519,7 @@ export function createCaptureControls(doc = document, win = window) {
     const hasEditableTextbox = node => [...node.querySelectorAll?.('[role="textbox"]') || []].some(candidate => !isReadOnlyCodeSurface(candidate));
     const hasUnsafeAncestor = node => {
       for (let ancestor = node.parentElement; ancestor && ancestor !== doc.body && ancestor !== doc.documentElement; ancestor = ancestor.parentElement) {
-        if (ancestor.matches('form, textarea, input:not([data-idea-section-id]), [contenteditable="true"], [class*="sidebar" i], [class*="composer" i], [data-testid*="composer" i], [aria-label*="composer" i]')) return true;
+        if (ancestor.matches('form, textarea, input:not([data-idea-section-id]), [contenteditable="true"], [data-testid*="composer" i], [aria-label*="composer" i]') || classHint(ancestor, 'sidebar', 'composer')) return true;
         if (ancestor.matches('[role="textbox"]') && !isReadOnlyCodeSurface(ancestor)) return true;
       }
       return false;
@@ -521,9 +528,10 @@ export function createCaptureControls(doc = document, win = window) {
       && node !== doc.body && node !== doc.documentElement
       && !node.matches?.('main, [role="main"], footer, [role="contentinfo"], nav, [role="navigation"], aside, [role="complementary"]')
       && !foreignNodes.some(foreign => node.contains(foreign))
+      && !node.querySelector?.(`.${HEADER_CLASS}`) // a node holding a header would hide it (and zero a virtualized item)
       && !hasUnsafeAncestor(node)
       && (isCollapsibleCodePanel(node) || (
-        !node.querySelector?.('textarea, input:not([data-idea-section-id]), [contenteditable="true"]')
+        ![...node.querySelectorAll?.('textarea, input:not([data-idea-section-id]), [contenteditable="true"]') || []].some(editor => !isReadOnlyCodeSurface(editor))
         && !hasEditableTextbox(node)
       ));
     if (section.collapseNodes?.length) {
@@ -532,14 +540,14 @@ export function createCaptureControls(doc = document, win = window) {
     }
     const targets = new Set();
     for (const node of section.nodes) {
-      if (node.matches?.('article, [data-testid^="conversation-turn-"], [data-turn-id], [data-message-id], [class~="turn"], [class*="assistant-turn"], [class*="agent-turn"]')
+      if (node.matches?.(TURN_SELECTOR)
         && safeCollapseNode(node)) {
         targets.add(node);
         continue;
       }
       const candidates = [];
       for (let ancestor = node.parentElement; ancestor && ancestor !== doc.body && ancestor !== doc.documentElement; ancestor = ancestor.parentElement) {
-        if (!ancestor.matches('article, [data-testid^="conversation-turn-"], [data-turn-id], [data-message-id], [class~="turn"], [class*="assistant-turn"], [class*="agent-turn"]')) continue;
+        if (!ancestor.matches(TURN_SELECTOR)) continue;
         if (!safeCollapseNode(ancestor)) continue;
         candidates.push(ancestor);
       }
@@ -588,7 +596,7 @@ export function createCaptureControls(doc = document, win = window) {
     const section = sections.find(candidate => candidate.id === activeSectionId) || sectionAtViewportCenter();
     for (const node of section?.nodes.slice(0, 3) || []) {
       if (!node.isConnected) continue;
-      const layout = node.closest?.('article, [data-testid^="conversation-turn-"], [data-turn-id], [data-message-id], [class~="turn"], [class*="assistant-turn"], [class*="agent-turn"]');
+      const layout = node.closest?.(TURN_SELECTOR);
       if (layout && !layout.querySelector('textarea, input, [contenteditable="true"], [role="textbox"]')) {
         const rect = layout.getBoundingClientRect();
         if (rect.width >= 160 && rect.width <= maxWidth && rect.height > 0) rects.push(rect);
@@ -678,13 +686,11 @@ export function createCaptureControls(doc = document, win = window) {
     };
     const rootRect = isNestedScrollRoot(root) ? clippedRect(root) : null;
     if (rootRect && (x < rootRect.left || x > rootRect.right || y < rootRect.top || y > rootRect.bottom)) return null;
-
-    const turnSelector = 'article, [data-testid^="conversation-turn-"], [data-turn-id], [data-message-id], [class~="turn"], [class*="assistant-turn"], [class*="agent-turn"]';
     const contentSelector = 'p, h1, h2, h3, h4, h5, h6, a, img, video, audio, iframe, object, embed, canvas, svg, pre, code, table, blockquote, li, [class*="markdown"], [class*="prose"], [class*="gallery"]';
     const safeTurn = (node, section) => {
       let candidate = null;
       for (let ancestor = node.parentElement; ancestor && ancestor !== doc.body && ancestor !== doc.documentElement; ancestor = ancestor.parentElement) {
-        if (!ancestor.matches(turnSelector)) continue;
+        if (!ancestor.matches(TURN_SELECTOR)) continue;
         const foreignNodes = sections.filter(other => other.id !== section.id).flatMap(other => other.nodes);
         if (foreignNodes.some(foreign => ancestor.contains(foreign))) continue;
         if (ancestor.querySelector('textarea, input, [contenteditable="true"], [role="textbox"]')) continue;
@@ -803,6 +809,15 @@ export function createCaptureControls(doc = document, win = window) {
   }
   // On ChatGPT, anchor the tab to the nearest outlined input surface. Other
   // providers retain their existing composer selection behavior.
+  const promptName = /message|prompt|composer/i;
+  const isNamedPrompt = node => node.matches('#prompt-textarea, [data-composer-markdown]') || promptName.test(`${node.getAttribute('aria-label') || ''} ${node.getAttribute('data-testid') || ''}`);
+  // form / composer-marked ancestor; class hints ignore Tailwind variant tokens that thread scrollers carry.
+  const composerAncestor = node => {
+    for (let current = node; current && current !== doc.body; current = current.parentElement) {
+      if (current.matches('form, [data-composer-input], [data-testid*="composer" i], [aria-label*="composer" i]') || classHint(current, 'composer')) return current;
+    }
+    return null;
+  };
   function composerBox() {
     dockWhy = isChatGptPage() ? 'no usable prompt editor' : 'non-ChatGPT provider';
     if (isChatGptPage()) {
@@ -810,23 +825,23 @@ export function createCaptureControls(doc = document, win = window) {
         .filter(input => !input.closest(`[${OWNED}]`)
           && !isReadOnlyCodeSurface(input)
           && !input.matches('pre, code, [class*="code-editor" i], [data-testid*="code-editor" i]')
-          && (!input.matches('[role="textbox"]') || input.matches('#prompt-textarea') || /message|prompt|composer/i.test(`${input.getAttribute('aria-label') || ''} ${input.getAttribute('data-testid') || ''}`))
+          && !input.closest('[data-code-block], .cm-editor')
+          && (!input.matches('[role="textbox"]') || isNamedPrompt(input))
           && (!input.matches('[readonly], [aria-readonly="true"]') || input.matches('#prompt-textarea'))
-          && !input.closest('[data-message-author-role], [data-testid^="conversation-turn-"], [data-turn-id], [data-message-id], article')
+          && !input.closest('[data-message-author-role], [data-testid^="conversation-turn-"], [data-turn-id], [data-turn-key], [data-message-id], article')
           && !hasInvisibleAncestor(input));
       const viewportHeight = win.innerHeight || doc.documentElement.clientHeight;
       editors.sort((a, b) => {
-        const rank = node => node.matches('#prompt-textarea') ? 3
-          : /message|prompt|composer/i.test(`${node.getAttribute('aria-label') || ''} ${node.getAttribute('data-testid') || ''}`) ? 2
-            : node.closest('form, [class*="composer" i], [data-testid*="composer" i], [aria-label*="composer" i]') ? 2
-              : 1;
+        const rank = node => node.matches('#prompt-textarea, [data-composer-markdown]') ? 3
+          : isNamedPrompt(node) || composerAncestor(node) ? 2
+            : 1;
         return rank(b) - rank(a);
       });
       for (const input of editors) {
         const inputRect = input.getBoundingClientRect();
         if (inputRect.width < 160 || inputRect.height <= 0 || inputRect.bottom <= 0 || inputRect.top >= viewportHeight) continue;
-        const named = input.matches('#prompt-textarea') || /message|prompt|composer/i.test(`${input.getAttribute('aria-label') || ''} ${input.getAttribute('data-testid') || ''}`);
-        const promptIdentity = named || !!input.closest('form, [class*="composer" i], [data-testid*="composer" i], [aria-label*="composer" i]');
+        const named = isNamedPrompt(input);
+        const promptIdentity = named || !!composerAncestor(input);
         if ((input.disabled || input.readOnly || input.getAttribute('aria-disabled') === 'true' || input.getAttribute('contenteditable') === 'false') && !promptIdentity) continue;
         // Named prompts in a form: the widest drawn node with a real radius (>= 8) between the input and the form (the
         // visible pill; never a narrower inner node, the form's backdrop, or a square wrapper), else the nearest drawn
@@ -905,6 +920,36 @@ export function createCaptureControls(doc = document, win = window) {
     dockWhy = `kept previous surface (${dockWhy})`;
     return dockBox;
   }
+  // The compositor bounces fixed elements on elastic overscroll but not ones inside ChatGPT's composer overlay, so a
+  // docked widget lives there (abs-positioned) and returns to <body> (fixed) whenever there is no safe overlay.
+  let rejectedOverlay = null; // ponytail: a rejected overlay stays rejected until a different one appears
+  function overlayFor(surface) {
+    let container = null;
+    for (let node = (surface.closest('form') || surface).parentElement; node && node !== doc.body && node !== doc.documentElement; node = node.parentElement) {
+      const style = win.getComputedStyle(node);
+      if (/^(absolute|fixed|sticky)$/.test(style.position)) { container = node; break; }
+      if (/(auto|scroll)/.test(`${style.overflowX} ${style.overflowY}`)) return null;
+    }
+    // Fixed descendants must still resolve against the viewport (the margin rail is fixed). Probe empirically, only
+    // when the overlay changes: transform/filter/layout containment ancestors would offset the probe from (0,0).
+    if (container && container === rejectedOverlay) return null;
+    if (container && container !== host.parentElement) {
+      const probe = doc.createElement('div');
+      probe.setAttribute(OWNED, 'probe');
+      probe.style.cssText = 'position:fixed;top:0;left:0;width:0;height:0;visibility:hidden;pointer-events:none';
+      container.append(probe);
+      const at = probe.getBoundingClientRect();
+      probe.remove();
+      if (Math.abs(at.left) > 1 || Math.abs(at.top) > 1) { rejectedOverlay = container; return null; }
+    }
+    return container;
+  }
+  function mountHost(parent) {
+    const target = parent || doc.body || doc.documentElement;
+    if (host.parentNode !== target) { if (shadow.activeElement) return; target.append(host); }
+    host.style.display = parent ? 'contents' : '';
+    panel.classList.toggle('in-overlay', !!parent);
+  }
   function syncDock() {
     const box = composerBox() || lastDockBox();
     if (box !== dockBox) { dockResize?.disconnect(); clearanceOverlayNode = null; dockBox = box; if (box) dockResize?.observe(box); }
@@ -918,10 +963,20 @@ export function createCaptureControls(doc = document, win = window) {
       // between composer states or its input edge is clipped/unrecognized.
       panel.hidden = false;
     }
+    const overlay = docked && isChatGptPage() ? overlayFor(box) : null;
+    mountHost(overlay);
     if (!docked) return;
+    // In the overlay the open panel sits under clipping scrollers (e.g. below ChatGPT's header): keep its top inside them.
+    const mounted = panel.classList.contains('in-overlay') ? host.parentElement : null;
+    let clipTop = 0;
+    if (mounted) for (let node = mounted.parentElement; node && node !== doc.documentElement; node = node.parentElement) {
+      if (/(hidden|clip|auto|scroll)/.test(`${win.getComputedStyle(node).overflowY}`)) clipTop = Math.max(clipTop, node.getBoundingClientRect().top);
+    }
     const style = win.getComputedStyle(box);
-    const viewport = win.innerWidth || doc.documentElement.clientWidth;
-    const viewportHeight = win.innerHeight || doc.documentElement.clientHeight;
+    // Offsets are measured from the overlay's edges when mounted there (position:absolute), else from the viewport.
+    const origin = mounted?.getBoundingClientRect();
+    const viewport = origin ? origin.right : win.innerWidth || doc.documentElement.clientWidth;
+    const viewportHeight = origin ? origin.bottom : win.innerHeight || doc.documentElement.clientHeight;
     const real = parseFloat(style.borderTopLeftRadius) || 0;
     const chatgpt = isChatGptPage();
     // Inset = composer radius (flat bottom meets the straight edge). Tab corners measured ~7px on real Claude (formula floors at 8); the cap keeps pills the same.
@@ -949,7 +1004,7 @@ export function createCaptureControls(doc = document, win = window) {
       '--dock-width': `${rect.width - inset * 2}px`,
       // Keep the open panel above the composer without forcing a minimum that
       // can push it offscreen on short viewports or tall composers.
-      '--dock-max-height': `${Math.max(1, Math.min(820, rect.top - 16))}px`,
+      '--dock-max-height': `${Math.max(1, Math.min(820, rect.top - 16 - clipTop))}px`,
       '--dock-radius': `${Math.max(8, radius * 0.6)}px`,
       '--dock-bg': transparent ? behind || 'var(--paper)' : style.backgroundColor,
       '--dock-ink': transparent && !behind ? 'var(--ink)' : style.color,
@@ -1116,12 +1171,11 @@ export function createCaptureControls(doc = document, win = window) {
         return { ...section, id };
       });
       sectionMediaNodes.clear();
-      const turnSelector = 'article, [data-testid^="conversation-turn-"], [data-turn-id], [data-message-id], [class~="turn"], [class*="assistant-turn"], [class*="agent-turn"]';
       for (const section of sections) {
         const media = new Set();
         const foreignNodes = sections.filter(candidate => candidate.id !== section.id).flatMap(candidate => candidate.nodes);
         for (const node of section.nodes) {
-          const wrapper = node.closest?.(turnSelector);
+          const wrapper = node.closest?.(TURN_SELECTOR);
           const contentRoot = wrapper && foreignNodes.some(foreign => wrapper.contains(foreign)) ? node : wrapper || node;
           if (contentRoot.querySelector('textarea, input, [contenteditable="true"], [role="textbox"]')) continue;
           const mediaSelector = 'img[src], img[srcset], video, audio, iframe, object, embed, canvas, svg[aria-label]';
@@ -1149,7 +1203,7 @@ export function createCaptureControls(doc = document, win = window) {
   const observer = new win.MutationObserver(records => {
     // SPAs may remove the extension host during a body/composer rebuild. The
     // controller and observers survive, so reattach the same shadow host.
-    if (!host.isConnected) (doc.body || doc.documentElement)?.append(host);
+    if (!host.isConnected) mountHost(null);
     const relevant = records.filter(record => {
       if (host.contains(record.target) || record.target.closest?.(`.${HEADER_CLASS}`)) return false;
       if (record.type === 'childList' && [...record.addedNodes, ...record.removedNodes].every(node => node.nodeType === 1 && node.matches?.(`.${HEADER_CLASS},[${OWNED}]`))) return false;
@@ -1252,13 +1306,16 @@ export function installCollapseStyle(doc = document) {
     style.setAttribute(OWNED, 'style');
     style.textContent = `.${COLLAPSED_CLASS}{display:none!important}
       .idea-capture-section-header{box-sizing:border-box;display:flex;align-items:center;gap:9px;width:min(100%,720px);min-height:38px;padding:6px 9px;margin:7px auto;background:#f4f6f0;border:1px solid #d5dfd5;border-radius:5px;color:#293b30;font:12px/1.4 "Avenir Next","Trebuchet MS",sans-serif;position:relative;box-shadow:0 1px 2px #10251c0a}
+      /* In a virtualized turn the header is the measured box and margins would collapse through the turn: the gap is padding, the card is a ::before inset by it (same look as the base header). */
+      [data-turn-key]>.idea-capture-section-header{margin:0 auto;min-height:52px;padding:14px 10px;border:0;border-radius:0;background:none;box-shadow:none;isolation:isolate}
+      [data-turn-key]>.idea-capture-section-header::before{content:"";position:absolute;inset:7px 0;z-index:-1;box-sizing:border-box;background:#f4f6f0;border:1px solid #d5dfd5;border-radius:5px;box-shadow:0 1px 2px #10251c0a}
       .idea-capture-section-header input{appearance:auto!important;-webkit-appearance:checkbox!important;display:inline-block!important;visibility:visible!important;opacity:1!important;width:16px!important;height:16px!important;min-width:16px!important;min-height:16px!important;margin:0!important;accent-color:#285b42;flex:0 0 16px}
       .idea-capture-section-label{min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:550}
       .idea-capture-section-header button{min-height:27px;padding:3px 8px;font:600 10px/1.2 "Avenir Next","Trebuchet MS",sans-serif;cursor:pointer;border:1px solid #ccd8ce;border-radius:4px;background:#fbfaf5;color:inherit;white-space:nowrap}
       .idea-capture-section-header button:hover{background:#e8efe8}
       [data-idea-capture-scroll-clearance]{padding-bottom:calc(var(--idea-capture-original-padding-bottom,0px) + var(--idea-capture-composer-clearance,0px))!important}
       .idea-capture-section-header button:focus-visible,.idea-capture-section-header input:focus-visible{outline:2px solid #397650;outline-offset:2px}
-      @media(max-width:520px){.idea-capture-section-header{gap:7px;padding-inline:7px;margin-block:5px}.idea-capture-section-header button{font-size:9px;padding-inline:6px}}`;
+      @media(max-width:520px){.idea-capture-section-header{gap:7px;padding-inline:7px;margin-block:5px}[data-turn-key]>.idea-capture-section-header{padding-inline:8px;margin-block:0}.idea-capture-section-header button{font-size:9px;padding-inline:6px}}`;
     (doc.head || doc.documentElement).append(style);
   }
   styles.set(doc, style);
