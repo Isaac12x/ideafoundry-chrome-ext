@@ -8,8 +8,8 @@ const hash = value => {
 };
 
 function messageId(node) {
-  const providerNode = node.closest('[data-message-id], [data-turn-id], [data-testid^="conversation-turn-"]') || node;
-  return providerNode.getAttribute('data-message-id') || providerNode.getAttribute('data-turn-id') ||
+  const providerNode = node.closest('[data-message-id], [data-turn-id], [data-turn-key], [data-testid^="conversation-turn-"]') || node;
+  return providerNode.getAttribute('data-message-id') || providerNode.getAttribute('data-turn-id') || providerNode.getAttribute('data-turn-key') ||
     (providerNode.getAttribute('data-testid') || '').match(/^conversation-turn-(.+)$/)?.[1] || null;
 }
 
@@ -88,13 +88,29 @@ export function chatGptConversationRoot(doc) {
     .filter(candidate => !isInSidebar(candidate) && visible(candidate)).length;
   const score = node => {
     const roles = count(node, '[data-message-author-role], [data-role="user"], [data-role="assistant"]');
-    const turns = count(node, '[data-testid^="conversation-turn-"], [data-turn-id]');
+    const turns = count(node, '[data-testid^="conversation-turn-"], [data-turn-id], [data-turn-key]');
     const bubbles = count(node, chatGptUserBubbleSelector);
     const prose = count(node, '.markdown, .prose');
     const result = roles * 8 + turns * 6 + bubbles * 7 + prose * 3;
     return result > 0 && node.id === 'thread' ? result + 2 : result;
   };
   return roots.sort((a, b) => score(b) - score(a) || (a.contains(b) ? 1 : b.contains(a) ? -1 : 0))[0] || doc;
+}
+
+// Current ChatGPT: one [data-turn-key] per Q-A, no article/role attrs. The sr-only "You said:" headings sit
+// outside the bubble and the markdown node, so they never reach the export.
+function chatGptKeyedTurns(root) {
+  const result = [];
+  for (const turn of root.querySelectorAll('[data-turn-key]')) {
+    if (isInSidebar(turn) || !isVisibleConversationNode(turn)) continue;
+    const bubble = turn.querySelector('[data-user-message-bubble]');
+    const user = bubble?.closest('[data-chatgpt-search-unit-key$=":user"]') || bubble || turn.querySelector('[data-content-search-unit-key$=":user"]');
+    if (user && hasMeaningfulContent(user)) result.push({ node: user, role: 'user' });
+    let replies = [...turn.querySelectorAll('[data-markdown-text-style="assistant-message"]')];
+    if (!replies.length) replies = [...turn.querySelectorAll('[data-content-search-unit-key$=":assistant"]')];
+    for (const reply of replies) if (isVisibleConversationNode(reply) && hasMeaningfulContent(reply)) result.push({ node: reply, role: 'assistant' });
+  }
+  return result;
 }
 
 function chatGptClassTurns(root) {
@@ -170,7 +186,7 @@ export function isCollapsibleCodePanel(node) {
   const hasDirectCode = [...node.children].some(child => child.matches('pre') && child.querySelector('code'));
   const hasCodeFrame = node.matches('[class*="code-panel" i], [data-testid*="code-panel" i]') || (hasToolbar && hasDirectCode);
   if (!hasCodeFrame) return false;
-  if (node.matches('html, body, main, [role="main"], article, [data-testid^="conversation-turn-"], [data-turn-id], [data-message-id]')) return false;
+  if (node.matches('html, body, main, [role="main"], article, [data-testid^="conversation-turn-"], [data-turn-id], [data-turn-key], [data-message-id]')) return false;
   const unsafeSelector = 'form, nav, aside, footer, [role="navigation"], [role="complementary"], [contenteditable="true"], [data-testid*="composer" i], [aria-label*="composer" i]';
   if (node.matches(unsafeSelector) || hintedUnsafe(node) ||
       [...node.querySelectorAll(`${unsafeSelector}, ${hintSelector}`)].some(unsafe => !isReadOnlyCodeSurface(unsafe) && (unsafe.matches(unsafeSelector) || hintedUnsafe(unsafe)))) return false;
@@ -220,6 +236,9 @@ function inferredUncoveredContentNodes(source, existingCandidates) {
 }
 
 function sectionCollapseNodes(section, root, sections) {
+  // [data-turn-key] markup: the turn element is the unit, unless it is shared with another section.
+  const turns = [...new Set(section.nodes.map(node => node.closest('[data-turn-key]')))];
+  if (turns.length && turns.every(Boolean) && !sections.some(other => other !== section && other.nodes.some(node => turns.includes(node.closest('[data-turn-key]'))))) return turns;
   if (!section.identityNode || !root.contains(section.identityNode)) return [...new Set(section.nodes)];
   const sources = [...new Set([section.identityNode, ...section.nodes])].filter(node => root.contains(node));
   const foreignBubbles = sections.filter(other => other !== section)
@@ -546,6 +565,14 @@ export function extractConversation(doc = document, url = location.href, options
     originalElements.forEach((original, index) => {
       if (!isVisibleConversationNode(original) && !isMathSource(original)) clonedElements[index]?.remove();
     });
+    // ChatGPT's CodeMirror panels have no pre/code and their editor is dropped as an input below: rebuild a fenced block from the raw code.
+    copy.querySelectorAll('[data-code-block]').forEach(block => {
+      const content = block.querySelector('.cm-content');
+      const raw = block.closest('[data-chatgpt-copy-code]')?.getAttribute('data-chatgpt-copy-code') ?? [...block.querySelectorAll('.cm-line')].map(line => line.textContent).join('\n');
+      const pre = doc.createElement('pre'), codeEl = doc.createElement('code');
+      if (content?.dataset.language) codeEl.className = `language-${content.dataset.language}`;
+      codeEl.textContent = raw; pre.append(codeEl); block.replaceWith(pre);
+    });
     copy.querySelectorAll(exportExcludedSelector).forEach(n => { if (!isMathSource(n)) n.remove(); });
 
 
@@ -705,6 +732,9 @@ export function extractConversation(doc = document, url = location.href, options
   if (/(^|\.)(chatgpt\.com|chat\.openai\.com)$/.test(host)) {
     provider = 'ChatGPT';
     const root = chatGptConversationRoot(doc);
+    const keyed = chatGptKeyedTurns(root);
+    if (keyed.length) candidates = keyed;
+    else {
     candidates = [...root.querySelectorAll('[data-message-author-role]')]
       .filter(node => !isInSidebar(node))
       .filter(isVisibleConversationNode)
@@ -750,6 +780,7 @@ export function extractConversation(doc = document, url = location.href, options
       if (candidates.length) unlabeledChatGptTurns = true;
     }
     candidates.sort((a, b) => a.node === b.node ? 0 : (a.node.compareDocumentPosition(b.node) & 4) ? -1 : 1);
+    }
   } else if (/(^|\.)claude\.ai$/.test(host)) {
     provider = 'Claude';
     candidates = [...doc.querySelectorAll('[data-testid="user-message"], [data-is-streaming]')].map(node => ({ node, role: node.matches('[data-testid="user-message"]') ? 'user' : 'assistant' }));

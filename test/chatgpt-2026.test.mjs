@@ -5,36 +5,53 @@ import { createCaptureControls, installCollapseStyle } from '../src/controls.js'
 
 // Mirrors ChatGPT's Nov 2026 markup: no article / role attrs, data-turn-key turns, CodeMirror code panel
 // (no pre/code), Tailwind variant tokens naming "composer" on thread ancestors, ProseMirror composer.
-const code = `<div data-client-defined-widget="code_block"><div class="CodeBlock-a" data-chatgpt-copy-code="x = 1"><div class="CodeSurface-b" data-code-block="true" data-markdown-copy="code-block" style="border-radius:24px">
-  <div data-markdown-copy="exclude" contenteditable="false"><span>Plain text</span><button>Copy</button></div>
-  <div class="cm-editor"><div class="cm-scroller chatgpt-code-scrollport"><div class="cm-content" contenteditable="true" role="textbox" aria-label="Edit code" data-language="python"><div class="cm-line">x = 1</div></div></div></div></div></div></div>`;
-const turn = (n, q, a) => `<div data-turn-key="uuid-${n}"><div data-content-search-turn-key="fallback-turn-${n}"><div data-talvt-turn-state="complete">
-  <div data-content-search-unit-key="fallback-turn-${n}:0:user"><div data-conversation-role="user"><div data-user-message-bubble="true" class="user-message-bubble-color">${q}</div></div></div>
-  <div data-content-search-unit-key="fallback-turn-${n}:1:assistant"><div data-chatgpt-selection-message-id="m${n}"><div data-markdown-text-style="assistant-message" class="markdown prose"><p>${a}</p>${n === 1 ? code : ''}</div></div></div>
-</div></div></div>`;
+const code = `<div data-client-defined-widget="code_block"><div class="CodeBlock-a" data-chatgpt-copy-code="x = 1\nprint(x)"><div class="CodeSurface-b" data-code-block="true" data-markdown-copy="code-block" style="border-radius:24px">
+  <div data-markdown-copy="exclude" contenteditable="false"><span>python</span><button>Copy</button></div>
+  <div class="cm-editor"><div class="cm-scroller chatgpt-code-scrollport"><div class="cm-content" contenteditable="true" role="textbox" aria-label="Edit code" data-language="python"><div class="cm-line">x = 1</div><div class="cm-line">print(x)</div></div></div></div></div></div></div>`;
+const turn = (n, q, a, { withCode = false, attachment = false } = {}) => `<div data-turn-key="uuid-${n}"><div data-content-search-turn-key="fallback-turn-${n}"><div><div data-talvt-turn-state="complete"><div><div>
+  <h4 data-conversation-role="user"><span>You said:</span><span>You</span></h4>
+  <div data-chatgpt-search-unit-key="fallback-turn-${n}:0:user"><div>${attachment ? '<div role="button" aria-label="User attachment"><img src="https://cdn.example/a.png" alt=""></div>' : ''}<div data-content-search-unit-key="fallback-turn-${n}:0:user"><div><div data-user-message-bubble="true"><div><div><div data-search-result-target><div><div>${q}</div></div></div></div></div></div></div></div></div></div>
+  <button>Edit</button><span data-chatgpt-agent-turn-start></span>
+  <div data-content-search-unit-key="fallback-turn-${n}:1:assistant" data-chatgpt-search-unit-key="fallback-turn-${n}:1:assistant"><h4 data-conversation-role="assistant"><span>ChatGPT said:</span></h4>
+    <div data-chatgpt-selection-conversation-id="c" data-chatgpt-selection-message-id="m${n}"><div data-markdown-text-style="assistant-message"><p>${a}</p>${withCode ? code : ''}</div></div></div>
+  <button>Copy</button><button>Share</button>
+</div></div></div></div></div></div>`;
 const composer = `<form><fieldset><div data-composer-input data-composer-layout="x"><div class="pill" style="border-top-left-radius:28px;border-top-right-radius:28px;border-bottom-left-radius:28px;border-bottom-right-radius:28px;box-shadow:0 0 0 1px #ccc;background:#fff"><div class="ProseMirror" contenteditable="true" role="textbox" aria-label="Ask ChatGPT" data-composer-markdown><p>Ask</p></div></div></div></fieldset></form>`;
 const scroller = 'thread-scroll-container group-has-[[data-expanded-composer]]/thread-scroll-layout:overflow-y-hidden [--thread-composer-disclaimer-visibility:initial] has-[[data-composer-expand-toggle]]:[container-type:size]';
-const page = (extra = '') => new JSDOM(`<!doctype html><html><body><style>.idea-capture-section-collapsed{display:none!important}</style><main>
-  <div class="${scroller}" style="overflow-y:auto">${turn(1, 'First question', 'First answer')}${turn(2, 'Second question', 'Second answer')}</div>${extra}${composer}</main></body></html>`,
-  { url: 'https://chatgpt.com/c/1', pretendToBeVisual: true });
+const page = () => new JSDOM(`<!doctype html><html><body><style>.idea-capture-section-collapsed{display:none!important}</style><main>
+  <div class="${scroller}" style="overflow-y:auto"><div data-thread-find-target="conversation"><div></div><div id="turns">
+    ${turn(1, 'First question', 'First answer')}${turn(2, 'Second question', 'Second answer', { withCode: true })}${turn(3, 'Third question', 'Third answer', { attachment: true })}
+  </div><div></div></div></div>${composer}</main></body></html>`, { url: 'https://chatgpt.com/c/1', pretendToBeVisual: true });
 const setRect = (node, { left, right, top, bottom }) => { node.getBoundingClientRect = () => ({ left, right, top, bottom, width: right - left, height: bottom - top, x: left, y: top, toJSON() {} }); };
 const start = (t, dom) => { installCollapseStyle(dom.window.document); const controls = createCaptureControls(dom.window.document, dom.window); t.after(() => { controls.destroy(); dom.window.close(); }); return controls; };
 
-test('2026 markup: collapsing a section hides the whole Q-A including its code block, expand restores it', t => {
+test('2026 markup: one section per turn, header before the turn, collapse hides exactly the turn, expand restores', t => {
   const dom = page(); const { document } = dom.window;
-  start(t, dom);
-  const headers = document.querySelectorAll('.idea-capture-section-header');
-  assert.equal(headers.length, 2);
-  headers[0].querySelector('button').click();
-  const turns = document.querySelectorAll('[data-turn-key]');
-  assert.ok(turns[0].classList.contains('idea-capture-section-collapsed') || turns[0].querySelector('[data-content-search-unit-key$=":0:user"]').closest('.idea-capture-section-collapsed'), 'question collapses');
-  assert.ok(document.querySelector('.cm-editor').closest('.idea-capture-section-collapsed'), 'code block collapses');
-  assert.ok(document.querySelector('[data-code-block]').closest('.idea-capture-section-collapsed'));
-  assert.equal(turns[1].closest('.idea-capture-section-collapsed'), null, 'neighbor stays visible');
-  assert.equal(document.querySelector('form').closest('.idea-capture-section-collapsed'), null, 'composer stays visible');
-  assert.equal(headers[0].closest('.idea-capture-section-collapsed'), null, 'its own header stays visible');
-  document.querySelector('.idea-capture-section-header button').click();
+  const controls = start(t, dom);
+  const turns = [...document.querySelectorAll('[data-turn-key]')];
+  const headers = [...document.querySelectorAll('.idea-capture-section-header')];
+  assert.equal(headers.length, 3);
+  assert.deepEqual(headers.map(h => h.querySelector('.idea-capture-section-label').textContent), ['First question', 'Second question', 'Third question']);
+  headers.forEach((header, i) => assert.equal(header.nextElementSibling, turns[i], `header ${i} sits directly before its turn`));
+  headers[1].querySelector('button').click();
+  const hidden = [...document.querySelectorAll('.idea-capture-section-collapsed')];
+  assert.deepEqual(hidden, [turns[1]], 'only the second turn (with its code block) collapses');
+  assert.ok(document.querySelector('.cm-editor').closest('.idea-capture-section-collapsed'));
+  document.querySelectorAll('.idea-capture-section-header button')[1].click();
   assert.equal(document.querySelectorAll('.idea-capture-section-collapsed').length, 0, 'expand restores everything');
+  headers[2].querySelector('button').click();
+  assert.deepEqual([...document.querySelectorAll('.idea-capture-section-collapsed')], [turns[2]], 'last turn collapses; headers, composer and neighbors stay');
+  assert.equal(headers[2].closest('.idea-capture-section-collapsed'), null);
+  void controls;
+});
+
+test('2026 markup: export has user and assistant text, a fenced code block, and no sr-only headings', t => {
+  const dom = page(); const controls = start(t, dom);
+  const { messages } = controls.capture('export');
+  assert.deepEqual(messages.map(m => m.role), ['User', 'Assistant', 'User', 'Assistant', 'User', 'Assistant']);
+  assert.equal(messages[0].markdown, 'First question');
+  assert.equal(messages[3].markdown, 'Second answer\n\n```python\nx = 1\nprint(x)\n```');
+  assert.ok(messages.every(m => !/said:/i.test(m.markdown)));
 });
 
 test('2026 markup: the tab docks on the composer pill, not the code block header or editor', async t => {

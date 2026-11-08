@@ -680,13 +680,11 @@ export function createCaptureControls(doc = document, win = window) {
     };
     const rootRect = isNestedScrollRoot(root) ? clippedRect(root) : null;
     if (rootRect && (x < rootRect.left || x > rootRect.right || y < rootRect.top || y > rootRect.bottom)) return null;
-
-    const turnSelector = TURN_SELECTOR;
     const contentSelector = 'p, h1, h2, h3, h4, h5, h6, a, img, video, audio, iframe, object, embed, canvas, svg, pre, code, table, blockquote, li, [class*="markdown"], [class*="prose"], [class*="gallery"]';
     const safeTurn = (node, section) => {
       let candidate = null;
       for (let ancestor = node.parentElement; ancestor && ancestor !== doc.body && ancestor !== doc.documentElement; ancestor = ancestor.parentElement) {
-        if (!ancestor.matches(turnSelector)) continue;
+        if (!ancestor.matches(TURN_SELECTOR)) continue;
         const foreignNodes = sections.filter(other => other.id !== section.id).flatMap(other => other.nodes);
         if (foreignNodes.some(foreign => ancestor.contains(foreign))) continue;
         if (ancestor.querySelector('textarea, input, [contenteditable="true"], [role="textbox"]')) continue;
@@ -805,7 +803,7 @@ export function createCaptureControls(doc = document, win = window) {
   }
   // On ChatGPT, anchor the tab to the nearest outlined input surface. Other
   // providers retain their existing composer selection behavior.
-  const promptName = /ask chatgpt|message|prompt|composer/i;
+  const promptName = /message|prompt|composer/i;
   const isNamedPrompt = node => node.matches('#prompt-textarea, [data-composer-markdown]') || promptName.test(`${node.getAttribute('aria-label') || ''} ${node.getAttribute('data-testid') || ''}`);
   // form / composer-marked ancestor; class hints ignore Tailwind variant tokens that thread scrollers carry.
   const composerAncestor = node => {
@@ -1127,12 +1125,11 @@ export function createCaptureControls(doc = document, win = window) {
         return { ...section, id };
       });
       sectionMediaNodes.clear();
-      const turnSelector = TURN_SELECTOR;
       for (const section of sections) {
         const media = new Set();
         const foreignNodes = sections.filter(candidate => candidate.id !== section.id).flatMap(candidate => candidate.nodes);
         for (const node of section.nodes) {
-          const wrapper = node.closest?.(turnSelector);
+          const wrapper = node.closest?.(TURN_SELECTOR);
           const contentRoot = wrapper && foreignNodes.some(foreign => wrapper.contains(foreign)) ? node : wrapper || node;
           if (contentRoot.querySelector('textarea, input, [contenteditable="true"], [role="textbox"]')) continue;
           const mediaSelector = 'img[src], img[srcset], video, audio, iframe, object, embed, canvas, svg[aria-label]';
