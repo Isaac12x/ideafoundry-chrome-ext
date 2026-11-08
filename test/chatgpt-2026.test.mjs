@@ -145,11 +145,14 @@ test('2026 markup: the docked widget lives in the composer overlay (outside the 
   assert.equal(document.querySelector('[data-idea-capture-owned="host"]'), null, 'destroy removes the host wherever it is');
 });
 
-test('2026 markup: a transformed overlay ancestor keeps the widget on <body>', async t => {
+test('2026 markup: an overlay that captures fixed descendants keeps the widget on <body>', async t => {
   const dom = overlayPage(); const { document } = dom.window;
   sizeOverlayPage(dom);
-  document.querySelector('#overlay').style.transform = 'translateZ(0)';
+  // jsdom has no layout: a probe that does not land at the viewport origin stands in for a transform/filter ancestor.
+  const real = dom.window.Element.prototype.getBoundingClientRect;
+  dom.window.Element.prototype.getBoundingClientRect = function () { return this.getAttribute('data-idea-capture-owned') === 'probe' ? { left: 341, top: 52, right: 341, bottom: 52, width: 0, height: 0 } : real.call(this); };
   start(t, dom);
   await new Promise(resolve => dom.window.requestAnimationFrame(resolve));
   assert.equal(document.querySelector('[data-idea-capture-owned="host"]').parentElement, document.body);
+  assert.equal(document.querySelector('[data-idea-capture-owned="probe"]'), null, 'probe is removed');
 });

@@ -925,12 +925,16 @@ export function createCaptureControls(doc = document, win = window) {
       if (/^(absolute|fixed|sticky)$/.test(style.position)) { container = node; break; }
       if (/(auto|scroll)/.test(`${style.overflowX} ${style.overflowY}`)) return null;
     }
-    // A containing block for fixed descendants anywhere above would misplace the viewport-fixed margin rail.
-    for (let node = container; node; node = node.parentElement) {
-      const style = win.getComputedStyle(node);
-      const set = value => !!value && value !== 'none';
-      if (set(style.transform) || set(style.filter) || set(style.perspective) || /layout|paint|strict|content/.test(style.contain || '') ||
-          (style.containerType || 'normal') !== 'normal' || /transform|filter|perspective/.test(style.willChange || '')) return null;
+    // Fixed descendants must still resolve against the viewport (the margin rail is fixed). Probe empirically, only
+    // when the overlay changes: transform/filter/layout containment ancestors would offset the probe from (0,0).
+    if (container && container !== host.parentElement) {
+      const probe = doc.createElement('div');
+      probe.setAttribute(OWNED, 'probe');
+      probe.style.cssText = 'position:fixed;top:0;left:0;width:0;height:0;visibility:hidden;pointer-events:none';
+      container.append(probe);
+      const at = probe.getBoundingClientRect();
+      probe.remove();
+      if (Math.abs(at.left) > 1 || Math.abs(at.top) > 1) return null;
     }
     return container;
   }
