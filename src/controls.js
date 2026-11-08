@@ -58,7 +58,7 @@ export function createCaptureControls(doc = document, win = window) {
   if (!shadow.querySelector('[data-idea-panel]')) {
     shadow.innerHTML = `
       <style>
-        :host{color-scheme:light;--paper:#fbfaf5;--ink:#24352b;--muted:#65746a;--line:#d9e0d8;--forest:#285b42;--wash:#edf3ed;font-family:"Avenir Next","Trebuchet MS",sans-serif;font-size:13px;line-height:1.45;color:var(--ink)}
+        :host{color-scheme:light;--paper:#fbfaf5;--ink:#24352b;--muted:#65746a;--line:#d9e0d8;--forest:#285b42;--wash:#edf3ed;font-family:"Avenir Next","Trebuchet MS",sans-serif;font-size:13px;line-height:1.45;color:var(--ink);pointer-events:auto}
         *,*::before,*::after{box-sizing:border-box}
         [hidden]{display:none!important}
         button,input,textarea{font:inherit;color:inherit}
@@ -99,6 +99,7 @@ export function createCaptureControls(doc = document, win = window) {
         #idea-capture-margin-controls button:hover{background:var(--wash);border-color:#9db5a3}
         #idea-capture-margin-controls button:active{transform:scale(.96)}
         #idea-capture-panel.is-docked{left:auto;right:var(--dock-right);bottom:var(--dock-bottom);width:min(440px,var(--dock-width))}
+        #idea-capture-panel.is-docked.in-overlay{position:absolute}
         #idea-capture-panel.is-docked:not(:has(.panel-body[hidden])){max-height:var(--dock-max-height)}
         #idea-capture-panel.is-docked:has(.panel-body[hidden]){width:min(236px,var(--dock-width));background:var(--dock-bg);color:var(--dock-ink);border-color:var(--dock-line);border-bottom-color:transparent;border-radius:var(--dock-radius) var(--dock-radius) 0 0;box-shadow:var(--dock-shadow,0 -4px 14px #10251c12);clip-path:var(--dock-clip,none)}
         #idea-capture-panel.is-docked:has(.panel-body[hidden])>header{min-height:30px;padding:3px 4px 3px 13px;border-bottom:0;font-size:11px;font-weight:600;letter-spacing:.02em}
@@ -915,6 +916,30 @@ export function createCaptureControls(doc = document, win = window) {
     dockWhy = `kept previous surface (${dockWhy})`;
     return dockBox;
   }
+  // The compositor bounces fixed elements on elastic overscroll but not ones inside ChatGPT's composer overlay, so a
+  // docked widget lives there (abs-positioned) and returns to <body> (fixed) whenever there is no safe overlay.
+  function overlayFor(surface) {
+    let container = null;
+    for (let node = (surface.closest('form') || surface).parentElement; node && node !== doc.body && node !== doc.documentElement; node = node.parentElement) {
+      const style = win.getComputedStyle(node);
+      if (/^(absolute|fixed|sticky)$/.test(style.position)) { container = node; break; }
+      if (/(auto|scroll)/.test(`${style.overflowX} ${style.overflowY}`)) return null;
+    }
+    // A containing block for fixed descendants anywhere above would misplace the viewport-fixed margin rail.
+    for (let node = container; node; node = node.parentElement) {
+      const style = win.getComputedStyle(node);
+      const set = value => !!value && value !== 'none';
+      if (set(style.transform) || set(style.filter) || set(style.perspective) || /layout|paint|strict|content/.test(style.contain || '') ||
+          (style.containerType || 'normal') !== 'normal' || /transform|filter|perspective/.test(style.willChange || '')) return null;
+    }
+    return container;
+  }
+  function mountHost(parent) {
+    const target = parent || doc.body || doc.documentElement;
+    if (host.parentNode !== target) target.append(host);
+    host.style.display = parent ? 'contents' : '';
+    panel.classList.toggle('in-overlay', !!parent);
+  }
   function syncDock() {
     const box = composerBox() || lastDockBox();
     if (box !== dockBox) { dockResize?.disconnect(); clearanceOverlayNode = null; dockBox = box; if (box) dockResize?.observe(box); }
@@ -928,10 +953,14 @@ export function createCaptureControls(doc = document, win = window) {
       // between composer states or its input edge is clipped/unrecognized.
       panel.hidden = false;
     }
+    const overlay = docked && isChatGptPage() ? overlayFor(box) : null;
+    mountHost(overlay);
     if (!docked) return;
     const style = win.getComputedStyle(box);
-    const viewport = win.innerWidth || doc.documentElement.clientWidth;
-    const viewportHeight = win.innerHeight || doc.documentElement.clientHeight;
+    // Offsets are measured from the overlay's edges when mounted there (position:absolute), else from the viewport.
+    const origin = overlay?.getBoundingClientRect();
+    const viewport = origin ? origin.right : win.innerWidth || doc.documentElement.clientWidth;
+    const viewportHeight = origin ? origin.bottom : win.innerHeight || doc.documentElement.clientHeight;
     const real = parseFloat(style.borderTopLeftRadius) || 0;
     const chatgpt = isChatGptPage();
     // Inset = composer radius (flat bottom meets the straight edge). Tab corners measured ~7px on real Claude (formula floors at 8); the cap keeps pills the same.
@@ -1158,7 +1187,7 @@ export function createCaptureControls(doc = document, win = window) {
   const observer = new win.MutationObserver(records => {
     // SPAs may remove the extension host during a body/composer rebuild. The
     // controller and observers survive, so reattach the same shadow host.
-    if (!host.isConnected) (doc.body || doc.documentElement)?.append(host);
+    if (!host.isConnected) mountHost(null);
     const relevant = records.filter(record => {
       if (host.contains(record.target) || record.target.closest?.(`.${HEADER_CLASS}`)) return false;
       if (record.type === 'childList' && [...record.addedNodes, ...record.removedNodes].every(node => node.nodeType === 1 && node.matches?.(`.${HEADER_CLASS},[${OWNED}]`))) return false;

@@ -106,3 +106,50 @@ test('2026 markup: destroy removes headers and collapse state, leaving the turns
   assert.equal(document.querySelectorAll('[data-content-search-turn-key]').length, 3);
   assert.ok([...document.querySelectorAll('[data-turn-key]')].every(turnEl => turnEl.children.length === 1 && turnEl.firstElementChild.hasAttribute('data-content-search-turn-key')), 'turn children are only ChatGPT\'s own');
 });
+
+// ChatGPT's composer overlay: abs-positioned, pointer-events:none, inside the scroller and outside the form.
+const overlayPage = () => new JSDOM(`<!doctype html><html><body><style>.idea-capture-section-collapsed{display:none!important}</style><main>
+  <div class="${scroller}" style="overflow-y:auto"><div data-thread-find-target="conversation">${turn(1, 'First question', 'First answer')}</div>
+    <div id="overlay" style="position:absolute;bottom:0;z-index:20;pointer-events:none"><div style="position:relative;pointer-events:none"><div style="position:relative;z-index:10;pointer-events:none">${composer}</div></div></div></div></main></body></html>`,
+  { url: 'https://chatgpt.com/c/1', pretendToBeVisual: true });
+const sizeOverlayPage = dom => {
+  Object.defineProperty(dom.window, 'innerWidth', { configurable: true, value: 1440 });
+  Object.defineProperty(dom.window, 'innerHeight', { configurable: true, value: 900 });
+  const { document } = dom.window;
+  setRect(document.querySelector('.thread-scroll-container'), { left: 0, right: 1440, top: 0, bottom: 900 });
+  setRect(document.querySelector('#overlay'), { left: 134, right: 1306, top: 824, bottom: 900 });
+  setRect(document.querySelector('form'), { left: 336, right: 1104, top: 820, bottom: 872 });
+  setRect(document.querySelector('.pill'), { left: 336, right: 1104, top: 820, bottom: 872 });
+  setRect(document.querySelector('.ProseMirror'), { left: 360, right: 1000, top: 830, bottom: 860 });
+};
+
+test('2026 markup: the docked widget lives in the composer overlay (outside the form), absolute, and falls back to body', async t => {
+  const dom = overlayPage(); const { document } = dom.window;
+  sizeOverlayPage(dom);
+  const controls = start(t, dom);
+  const frame = () => new Promise(resolve => dom.window.requestAnimationFrame(resolve));
+  await frame();
+  const host = document.querySelector('[data-idea-capture-owned="host"]');
+  const panel = host.shadowRoot.querySelector('#idea-capture-panel');
+  assert.equal(host.parentElement, document.querySelector('#overlay'), 'host mounted in the overlay');
+  assert.equal(document.querySelector('form').contains(host), false, 'never inside ChatGPT\'s form');
+  assert.equal(panel.classList.contains('is-docked') && panel.classList.contains('in-overlay'), true);
+  assert.equal(panel.style.getPropertyValue('--dock-bottom'), '79px', 'offset from the overlay bottom edge');
+  assert.equal(panel.style.getPropertyValue('--dock-right'), `${1306 - 1104 + 28}px`, 'offset from the overlay right edge, inset by the 28px radius');
+  // Overlay removed (React re-render): the host is recovered to <body> with today's fixed behaviour.
+  document.querySelector('#overlay').remove();
+  await new Promise(resolve => setTimeout(resolve, 300));
+  assert.equal(host.parentElement, document.body, 'detached host recovered to body');
+  assert.equal(panel.classList.contains('in-overlay'), false);
+  controls.destroy();
+  assert.equal(document.querySelector('[data-idea-capture-owned="host"]'), null, 'destroy removes the host wherever it is');
+});
+
+test('2026 markup: a transformed overlay ancestor keeps the widget on <body>', async t => {
+  const dom = overlayPage(); const { document } = dom.window;
+  sizeOverlayPage(dom);
+  document.querySelector('#overlay').style.transform = 'translateZ(0)';
+  start(t, dom);
+  await new Promise(resolve => dom.window.requestAnimationFrame(resolve));
+  assert.equal(document.querySelector('[data-idea-capture-owned="host"]').parentElement, document.body);
+});
