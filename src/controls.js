@@ -120,6 +120,10 @@ export function createCaptureControls(doc = document, win = window) {
       </aside>`;
   }
   const panel = shadow.querySelector('[data-idea-panel]');
+  // The host can sit under ChatGPT's React tree: keep our interactions from reaching its handlers (bubble phase only; our doc listeners are capture).
+  for (const type of ['click', 'dblclick', 'keydown', 'keyup', 'keypress', 'pointerdown', 'pointerup', 'mousedown', 'mouseup', 'input', 'paste', 'focusin', 'focusout']) host.addEventListener(type, event => event.stopPropagation());
+  // A move is deferred while focus is inside the panel; syncing again once it leaves performs it.
+  shadow.addEventListener('focusout', () => scheduleDock());
   const body = shadow.querySelector('.panel-body');
   const toggleButton = shadow.querySelector('[data-action="toggle-panel"]');
   const rail = shadow.querySelector('#idea-capture-margin-controls');
@@ -918,6 +922,7 @@ export function createCaptureControls(doc = document, win = window) {
   }
   // The compositor bounces fixed elements on elastic overscroll but not ones inside ChatGPT's composer overlay, so a
   // docked widget lives there (abs-positioned) and returns to <body> (fixed) whenever there is no safe overlay.
+  let rejectedOverlay = null; // ponytail: a rejected overlay stays rejected until a different one appears
   function overlayFor(surface) {
     let container = null;
     for (let node = (surface.closest('form') || surface).parentElement; node && node !== doc.body && node !== doc.documentElement; node = node.parentElement) {
@@ -927,6 +932,7 @@ export function createCaptureControls(doc = document, win = window) {
     }
     // Fixed descendants must still resolve against the viewport (the margin rail is fixed). Probe empirically, only
     // when the overlay changes: transform/filter/layout containment ancestors would offset the probe from (0,0).
+    if (container && container === rejectedOverlay) return null;
     if (container && container !== host.parentElement) {
       const probe = doc.createElement('div');
       probe.setAttribute(OWNED, 'probe');
@@ -934,13 +940,13 @@ export function createCaptureControls(doc = document, win = window) {
       container.append(probe);
       const at = probe.getBoundingClientRect();
       probe.remove();
-      if (Math.abs(at.left) > 1 || Math.abs(at.top) > 1) return null;
+      if (Math.abs(at.left) > 1 || Math.abs(at.top) > 1) { rejectedOverlay = container; return null; }
     }
     return container;
   }
   function mountHost(parent) {
     const target = parent || doc.body || doc.documentElement;
-    if (host.parentNode !== target) target.append(host);
+    if (host.parentNode !== target) { if (shadow.activeElement) return; target.append(host); }
     host.style.display = parent ? 'contents' : '';
     panel.classList.toggle('in-overlay', !!parent);
   }
@@ -960,9 +966,15 @@ export function createCaptureControls(doc = document, win = window) {
     const overlay = docked && isChatGptPage() ? overlayFor(box) : null;
     mountHost(overlay);
     if (!docked) return;
+    // In the overlay the open panel sits under clipping scrollers (e.g. below ChatGPT's header): keep its top inside them.
+    const mounted = panel.classList.contains('in-overlay') ? host.parentElement : null;
+    let clipTop = 0;
+    if (mounted) for (let node = mounted.parentElement; node && node !== doc.documentElement; node = node.parentElement) {
+      if (/(hidden|clip|auto|scroll)/.test(`${win.getComputedStyle(node).overflowY}`)) clipTop = Math.max(clipTop, node.getBoundingClientRect().top);
+    }
     const style = win.getComputedStyle(box);
     // Offsets are measured from the overlay's edges when mounted there (position:absolute), else from the viewport.
-    const origin = overlay?.getBoundingClientRect();
+    const origin = mounted?.getBoundingClientRect();
     const viewport = origin ? origin.right : win.innerWidth || doc.documentElement.clientWidth;
     const viewportHeight = origin ? origin.bottom : win.innerHeight || doc.documentElement.clientHeight;
     const real = parseFloat(style.borderTopLeftRadius) || 0;
@@ -992,7 +1004,7 @@ export function createCaptureControls(doc = document, win = window) {
       '--dock-width': `${rect.width - inset * 2}px`,
       // Keep the open panel above the composer without forcing a minimum that
       // can push it offscreen on short viewports or tall composers.
-      '--dock-max-height': `${Math.max(1, Math.min(820, rect.top - 16))}px`,
+      '--dock-max-height': `${Math.max(1, Math.min(820, rect.top - 16 - clipTop))}px`,
       '--dock-radius': `${Math.max(8, radius * 0.6)}px`,
       '--dock-bg': transparent ? behind || 'var(--paper)' : style.backgroundColor,
       '--dock-ink': transparent && !behind ? 'var(--ink)' : style.color,

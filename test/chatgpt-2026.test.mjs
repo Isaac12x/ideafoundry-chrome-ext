@@ -126,6 +126,7 @@ const sizeOverlayPage = dom => {
 test('2026 markup: the docked widget lives in the composer overlay (outside the form), absolute, and falls back to body', async t => {
   const dom = overlayPage(); const { document } = dom.window;
   sizeOverlayPage(dom);
+  setRect(document.querySelector('.thread-scroll-container'), { left: 0, right: 1440, top: 52, bottom: 900 });
   const controls = start(t, dom);
   const frame = () => new Promise(resolve => dom.window.requestAnimationFrame(resolve));
   await frame();
@@ -136,6 +137,12 @@ test('2026 markup: the docked widget lives in the composer overlay (outside the 
   assert.equal(panel.classList.contains('is-docked') && panel.classList.contains('in-overlay'), true);
   assert.equal(panel.style.getPropertyValue('--dock-bottom'), '79px', 'offset from the overlay bottom edge');
   assert.equal(panel.style.getPropertyValue('--dock-right'), `${1306 - 1104 + 28}px`, 'offset from the overlay right edge, inset by the 28px radius');
+  assert.equal(panel.style.getPropertyValue('--dock-max-height'), '752px', 'open panel top stays 8px below the clipping scroller (52px)');
+  // Our interactions never reach ChatGPT's handlers above the host.
+  let leaked = 0;
+  document.querySelector('#overlay').addEventListener('click', () => leaked++);
+  host.shadowRoot.querySelector('[data-action="toggle-panel"]').click();
+  assert.equal(leaked, 0, 'panel clicks do not bubble past the host');
   // Overlay removed (React re-render): the host is recovered to <body> with today's fixed behaviour.
   document.querySelector('#overlay').remove();
   await new Promise(resolve => setTimeout(resolve, 300));
@@ -155,4 +162,15 @@ test('2026 markup: an overlay that captures fixed descendants keeps the widget o
   await new Promise(resolve => dom.window.requestAnimationFrame(resolve));
   assert.equal(document.querySelector('[data-idea-capture-owned="host"]').parentElement, document.body);
   assert.equal(document.querySelector('[data-idea-capture-owned="probe"]'), null, 'probe is removed');
+});
+
+test('2026 markup: a rejected overlay is probed once, not on every sync', async t => {
+  const dom = overlayPage(); const { document } = dom.window;
+  sizeOverlayPage(dom);
+  let probes = 0;
+  const real = dom.window.Element.prototype.getBoundingClientRect;
+  dom.window.Element.prototype.getBoundingClientRect = function () { if (this.getAttribute('data-idea-capture-owned') === 'probe') { probes++; return { left: 341, top: 52, right: 341, bottom: 52, width: 0, height: 0 }; } return real.call(this); };
+  start(t, dom);
+  for (let i = 0; i < 3; i++) { document.querySelector('.thread-scroll-container').dispatchEvent(new dom.window.Event('scroll')); await new Promise(resolve => dom.window.requestAnimationFrame(resolve)); }
+  assert.equal(probes, 1);
 });
