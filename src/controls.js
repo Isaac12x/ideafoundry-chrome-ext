@@ -1260,6 +1260,8 @@ export function installCollapseStyle(doc = document) {
     style.setAttribute(OWNED, 'style');
     style.textContent = `.${COLLAPSED_CLASS}{display:none!important}
       .idea-capture-section-header{box-sizing:border-box;display:flex;align-items:center;gap:9px;width:min(100%,720px);min-height:38px;padding:6px 9px;margin:7px auto;background:#f4f6f0;border:1px solid #d5dfd5;border-radius:5px;color:#293b30;font:12px/1.4 "Avenir Next","Trebuchet MS",sans-serif;position:relative;box-shadow:0 1px 2px #10251c0a}
+      /* In a virtualized turn the header is the measured box: margins would collapse through the turn, so spacing is a transparent border. */
+      [data-turn-key]>.idea-capture-section-header{margin:0 auto;min-height:52px;border-color:transparent;border-width:7px 1px;border-radius:12px;background-clip:padding-box;box-shadow:inset 0 0 0 1px #d5dfd5}
       .idea-capture-section-header input{appearance:auto!important;-webkit-appearance:checkbox!important;display:inline-block!important;visibility:visible!important;opacity:1!important;width:16px!important;height:16px!important;min-width:16px!important;min-height:16px!important;margin:0!important;accent-color:#285b42;flex:0 0 16px}
       .idea-capture-section-label{min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:550}
       .idea-capture-section-header button{min-height:27px;padding:3px 8px;font:600 10px/1.2 "Avenir Next","Trebuchet MS",sans-serif;cursor:pointer;border:1px solid #ccd8ce;border-radius:4px;background:#fbfaf5;color:inherit;white-space:nowrap}

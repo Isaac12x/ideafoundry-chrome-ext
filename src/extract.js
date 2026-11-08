@@ -236,9 +236,10 @@ function inferredUncoveredContentNodes(source, existingCandidates) {
 }
 
 function sectionCollapseNodes(section, root, sections) {
-  // [data-turn-key] markup: the turn element is the unit, unless it is shared with another section.
+  // [data-turn-key] markup: the turn's own children are the unit (never the turn itself: the virtualizer measures
+  // the turn, and the section header lives in it as first child so a collapsed item keeps the header's height).
   const turns = [...new Set(section.nodes.map(node => node.closest('[data-turn-key]')))];
-  if (turns.length && turns.every(Boolean) && !sections.some(other => other !== section && other.nodes.some(node => turns.includes(node.closest('[data-turn-key]'))))) return turns;
+  if (turns.length && turns.every(Boolean) && !sections.some(other => other !== section && other.nodes.some(node => turns.includes(node.closest('[data-turn-key]'))))) return turns.flatMap(turn => [...turn.children].filter(child => !child.matches('[data-idea-capture-control],[data-idea-capture-owned]')));
   if (!section.identityNode || !root.contains(section.identityNode)) return [...new Set(section.nodes)];
   const sources = [...new Set([section.identityNode, ...section.nodes])].filter(node => root.contains(node));
   const foreignBubbles = sections.filter(other => other !== section)

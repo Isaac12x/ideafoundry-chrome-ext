@@ -25,24 +25,25 @@ const page = () => new JSDOM(`<!doctype html><html><body><style>.idea-capture-se
 const setRect = (node, { left, right, top, bottom }) => { node.getBoundingClientRect = () => ({ left, right, top, bottom, width: right - left, height: bottom - top, x: left, y: top, toJSON() {} }); };
 const start = (t, dom) => { installCollapseStyle(dom.window.document); const controls = createCaptureControls(dom.window.document, dom.window); t.after(() => { controls.destroy(); dom.window.close(); }); return controls; };
 
-test('2026 markup: one section per turn, header before the turn, collapse hides exactly the turn, expand restores', t => {
+test('2026 markup: header is the first child of its turn, collapse hides only the turn content, expand restores', t => {
   const dom = page(); const { document } = dom.window;
-  const controls = start(t, dom);
+  start(t, dom);
   const turns = [...document.querySelectorAll('[data-turn-key]')];
   const headers = [...document.querySelectorAll('.idea-capture-section-header')];
   assert.equal(headers.length, 3);
   assert.deepEqual(headers.map(h => h.querySelector('.idea-capture-section-label').textContent), ['First question', 'Second question', 'Third question']);
-  headers.forEach((header, i) => assert.equal(header.nextElementSibling, turns[i], `header ${i} sits directly before its turn`));
+  headers.forEach((header, i) => assert.equal(turns[i].firstElementChild, header, `header ${i} is the first child of its turn (the virtualizer measures the turn)`));
+  const content = turn => turn.querySelector('[data-content-search-turn-key]');
   headers[1].querySelector('button').click();
-  const hidden = [...document.querySelectorAll('.idea-capture-section-collapsed')];
-  assert.deepEqual(hidden, [turns[1]], 'only the second turn (with its code block) collapses');
+  assert.deepEqual([...document.querySelectorAll('.idea-capture-section-collapsed')], [content(turns[1])], 'only the second turn content (with its code block) collapses');
   assert.ok(document.querySelector('.cm-editor').closest('.idea-capture-section-collapsed'));
   document.querySelectorAll('.idea-capture-section-header button')[1].click();
   assert.equal(document.querySelectorAll('.idea-capture-section-collapsed').length, 0, 'expand restores everything');
-  headers[2].querySelector('button').click();
-  assert.deepEqual([...document.querySelectorAll('.idea-capture-section-collapsed')], [turns[2]], 'last turn collapses; headers, composer and neighbors stay');
-  assert.equal(headers[2].closest('.idea-capture-section-collapsed'), null);
-  void controls;
+  // All three collapsed: each header stays in its own visible turn, so every virtualized item keeps a non-zero box.
+  document.querySelectorAll('.idea-capture-section-header button').forEach(button => button.click());
+  assert.deepEqual([...document.querySelectorAll('.idea-capture-section-collapsed')], turns.map(content));
+  turns.forEach((turnEl, i) => { assert.equal(turnEl.classList.contains('idea-capture-section-collapsed'), false); assert.equal(turnEl.firstElementChild, document.querySelectorAll('.idea-capture-section-header')[i]); });
+  assert.ok(document.querySelector('form') && !document.querySelector('form').closest('.idea-capture-section-collapsed'));
 });
 
 test('2026 markup: export has user and assistant text, a fenced code block, and no sr-only headings', t => {
@@ -51,7 +52,8 @@ test('2026 markup: export has user and assistant text, a fenced code block, and 
   assert.deepEqual(messages.map(m => m.role), ['User', 'Assistant', 'User', 'Assistant', 'User', 'Assistant']);
   assert.equal(messages[0].markdown, 'First question');
   assert.equal(messages[3].markdown, 'Second answer\n\n```python\nx = 1\nprint(x)\n```');
-  assert.ok(messages.every(m => !/said:/i.test(m.markdown)));
+  assert.ok(messages.every(m => !/said:|Collapse|Expand/i.test(m.markdown)), 'no heading or header text');
+  assert.deepEqual(controls.capture('export').sections.map(sec => sec.label), ['First question', 'Second question', 'Third question']);
 });
 
 test('2026 markup: the tab docks on the composer pill, not the code block header or editor', async t => {
