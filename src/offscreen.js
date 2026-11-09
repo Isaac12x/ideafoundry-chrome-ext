@@ -1,6 +1,7 @@
 import { filename, bytesToBase64 } from './shared.js';
 import { resolveMedia, mediaFileEntries, mediaArchiveEntries, makeZip } from './media.js';
 import { htmlFile } from './html-export.js';
+import { prepareArtifactConversation } from './prepare-artifacts.js';
 const urls = new Set();
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
   if (sender.id !== chrome.runtime.id || message.target !== 'offscreen') return;
@@ -12,6 +13,8 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
     const { format, download } = message;
     const assetBase = message.assetBase && { ...message.assetBase, stamp: Date.now().toString(36) + crypto.randomUUID().slice(0, 6) };
     let conversation = await resolveMedia(message.conversation);
+    if (format === 'html') conversation = await prepareArtifactConversation(conversation);
+    if (format === 'pdf' && conversation.artifacts?.length) throw new Error('Interactive artifacts require HTML export. PDF cannot retain their behavior.');
     const mime = format === 'pdf' ? 'text/html;charset=utf-8' : format === 'html' ? 'text/html;charset=utf-8' : 'text/markdown;charset=utf-8';
     let bytes;
     const mdEntries = format === 'md'
