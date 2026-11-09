@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Preserve native disclosures, safe local form controls and their live values/selections in styled HTML capture; convert supported local ARIA disclosures into script-free expand/collapse controls.
+- Keep CodeMirror code-panel presentation in HTML while preserving fenced code in Markdown; retain embedded audio/video players and download links for standalone use.
+- Add Chromium interaction regressions for ChatGPT/Claude exports and the script-free IdeaFoundry viewer sandbox. Document that provider scripts, generated app runtimes, external fonts/assets, and exact pixel parity remain outside DOM snapshot capture.
+
 - Add a “Save to” menu to the capture widget's Send to knowledge base: choose one of your KB projects (locked ones are disabled) instead of the default folder. The choice is remembered when changed; the remembered choice and a cached project list show immediately without opening a background app tab, and the list is refreshed through an open app tab or when the menu is opened (needs an app with `GET /knowledge-base/project-list`; otherwise only the default folder is offered). Downloads and remote jobs are unaffected.
 - Make the ChatGPT capture tab match the Claude one: dock to the real rounded composer pill (clearing its full radius, ignoring inner nodes, wrappers and form backdrops), use the composer's own colours in any computed colour form, and restore "IdeaFoundry / Capture" on the tab after an export. Copy diagnostics adds dock state (no page text).
 - Keep the ChatGPT capture tab docked to the input after later loads, re-renders and restyles: it keeps the last good surface, re-syncs after transitions, animations and page load, and no longer fails on pages without a conversation root. Its edge now merges with ChatGPT's borderless pill like on Claude.

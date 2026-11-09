@@ -290,3 +290,14 @@ Branch `fix/chatgpt-widget-parity` (commit 6676a42), stacked on `fix/markdown-fi
 Gate on the exact commit (detached worktree, excludes dirty `src/background.js`): `npm run check` passed (121 tests + build), `npm run test:browser` passed, `git diff --check HEAD~1 HEAD` clean.
 
 Unverified: not checked on live ChatGPT (browser extension could not connect); all checks are on fixtures. The cause of the null `composerBox()` is inferred, not observed. Pill radius 28 and wrapper structure are assumed; 8px radius threshold, 6px clip tolerance and 1.8x+100 form limit are heuristics. If it still does not dock, Copy diagnostics `dock.why` shows why. Pre-existing `src/background.js` edit remains unstaged.
+
+
+## 2026-11-09 — Portable HTML interactions
+
+User requested interactive behavior and 1:1 appearance in ChatGPT/Claude HTML sent to idea-app, with Luna implementers and root orchestration. Read both project visions. Three Luna agents split capture, HTML export, and receiver/browser verification. Regressions reproduced removal of controls and loss of live state. The upload transports file bytes unchanged; idea-app reads HTML directly, but its raw response CSP and `sandbox="allow-same-origin"` viewer block scripts. No sibling idea-app files were changed.
+
+Changes preserve native disclosures and safe local controls with captured values/selections, convert supported local ARIA disclosures into native details/summary, retain CodeMirror layout in HTML and fenced code in Markdown, and embed audio/video players plus download links for standalone use. Script and resource sanitization remains. README explicitly distinguishes these portable interactions from generated React/artifact apps, provider actions, external fonts/resources, and guaranteed pixel parity; those are not implemented by this snapshot fix. Media playback remains blocked by the current idea-app viewer policy.
+
+Validation and publication will be recorded below after the final tree is checked. Authenticated live ChatGPT/Claude pages and a running idea-app receiver were not exercised; browser coverage uses controlled provider fixtures and the receiver's sandbox/CSP policy.
+
+Final validation: `npm run check` passed (147 tests and production build); `npm run test:html-interactions` passed for both providers standalone and sandboxed; `npm run test:browser` passed the full extension suite including HTML KB upload; `git diff --check` passed. Logs: `/tmp/idea-html-final-check.log`, `/tmp/idea-html-final-interactions.log`, `/tmp/idea-html-final-browser.log`.

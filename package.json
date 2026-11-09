@@ -7,6 +7,7 @@
     "build": "node scripts/build.mjs",
     "test": "node --test test/*.test.mjs",
     "test:browser": "node scripts/browser-test.mjs",
+    "test:html-interactions": "node scripts/html-interaction-test.mjs",
     "queue": "node server/index.mjs",
     "check": "npm test && npm run build",
     "test:idea-app": "node scripts/idea-app-e2e.mjs"

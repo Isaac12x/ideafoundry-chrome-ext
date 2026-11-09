@@ -131,6 +131,62 @@ test('pre-wrap and table Markdown normalization does not rewrite layout HTML', (
   assert.match(result.messages[0].html, /a \| b/);
   dom.window.close();
 });
+test('layout extraction preserves safe native interaction state and local disclosure relationships', () => {
+  const dom = new JSDOM(`<style>.panel-hidden{display:none}</style><main><article data-message-author-role="assistant">
+    <p>Choose an option:</p>
+    <input type="checkbox" id="done"><label for="done">Complete</label>
+    <select id="choice"><option value="a">A</option><option value="b">B</option></select>
+    <details open><summary>More</summary><p>Additional detail.</p></details>
+    <button type="button" aria-expanded="true" aria-controls="answer-panel">Show answer</button>
+    <div id="answer-panel">Revealed answer.<p class="panel-hidden">Independently hidden detail.</p></div>
+  </article></main>`, { url: 'https://chatgpt.com/c/x' });
+  const checkbox = dom.window.document.querySelector('#done');
+  checkbox.checked = true;
+  dom.window.document.querySelector('#choice').value = 'b';
+  const result = extractConversation(dom.window.document, dom.window.location.href, { includeLayout: true });
+  const html = result.messages[0].html;
+  assert.match(html, /<input[^>]*type="checkbox"[^>]*checked/i);
+  assert.match(html, /<select[^>]*id="choice"[^>]*>[\s\S]*?<option[^>]*value="b"[^>]*selected/i);
+  assert.match(html, /<details[^>]*open/i);
+  assert.match(html, /data-idea-interaction="disclosure"/);
+  assert.match(html, /aria-controls="answer-panel"/);
+  assert.match(html, /id="answer-panel"/);
+  assert.doesNotMatch(html, /Independently hidden detail/);
+  assert.doesNotMatch(html, /<script| on\w+=/i);
+  assert.doesNotMatch(result.messages[0].markdown, /Show answer/);
+  dom.window.close();
+});
+test('layout extraction retains CodeMirror presentation and omits unsupported inactive tab panels', () => {
+  const dom = new JSDOM(`<main><article data-message-author-role="assistant">
+    <div data-code-block><div class="cm-editor"><div class="cm-content" contenteditable="true" data-language="js"><div class="cm-line">const answer = 42;</div></div></div></div>
+    <div role="tablist"><button role="tab" id="tab-a" aria-controls="panel-a" aria-selected="true">A</button></div>
+    <div role="tabpanel" id="panel-a" aria-hidden="true"><p>Tab panel content.</p></div>
+    <button aria-controls="unrelated">Action</button><div id="unrelated" aria-hidden="true">Private unrelated panel.</div>
+  </article></main>`, { url: 'https://chatgpt.com/c/x' });
+  const result = extractConversation(dom.window.document, dom.window.location.href, { includeLayout: true });
+  const html = result.messages[0].html;
+  assert.match(html, /data-code-block/);
+  assert.match(html, /class="cm-line"/);
+  assert.doesNotMatch(html, /contenteditable=/i);
+  assert.doesNotMatch(html, /data-idea-interaction="tab"/);
+  assert.doesNotMatch(html, /Tab panel content/);
+  assert.doesNotMatch(html, /Private unrelated panel/);
+  assert.match(result.messages[0].markdown, /```js\nconst answer = 42/);
+  dom.window.close();
+});
+test('layout capture keeps control-only conversation messages and neutralizes captured forms', () => {
+  const dom = new JSDOM(`<main>
+    <article data-message-author-role="user"><input type="checkbox" id="standalone"></article>
+    <article data-message-author-role="assistant"><form action="https://chatgpt.com/submit" method="post"><input type="checkbox" checked><label>Enabled</label></form></article>
+  </main>`, { url: 'https://chatgpt.com/c/x' });
+  const result = extractConversation(dom.window.document, dom.window.location.href, { includeLayout: true });
+  assert.equal(result.messages.length, 2);
+  assert.match(result.messages[0].html, /<input[^>]*type="checkbox"/i);
+  assert.match(result.messages[1].html, /<form/);
+  assert.match(result.messages[1].html, /<input[^>]*checked/i);
+  assert.doesNotMatch(result.messages[1].html, /action=|method=/i);
+  dom.window.close();
+});
 test('hidden conversation branches are skipped while extension-collapsed selected turns remain capturable', () => {
   const dom = new JSDOM(`<style>.idea-capture-section-collapsed{display:none}.provider-hidden{display:none}</style><main>
     <div data-message-author-role="user" class="idea-capture-section-collapsed"><p>Selected collapsed prompt</p><img src="https://cdn.example/selected.png"></div>

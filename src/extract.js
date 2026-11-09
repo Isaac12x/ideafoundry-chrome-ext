@@ -21,6 +21,9 @@ function userLabel(node) {
 
 function hasMeaningfulContent(node) {
   const copy = node.cloneNode(true);
+  const conversationControlOnly = (node.matches?.('[data-message-author-role], [data-role="user"], [data-role="assistant"], [data-turn-role="user"], [data-turn-role="assistant"], [data-testid^="conversation-turn-"]') ||
+    !!node.closest?.('[data-message-author-role], [data-testid^="conversation-turn-"]')) &&
+    [...copy.querySelectorAll('input,select,textarea')].some(control => !/^(?:password|file|hidden|submit|reset|button|image)$/i.test(control.type || 'text'));
   copy.querySelectorAll('script,style,nav,textarea,input,[aria-hidden="true"],[hidden],.sr-only,[data-idea-capture-control],[data-idea-capture-owned]').forEach(element => element.remove());
   const labeledSvg = [...copy.querySelectorAll('svg[aria-label]')].some(svg => !svg.closest('button,nav,aside,[role="navigation"]'));
   copy.querySelectorAll('svg').forEach(svg => svg.remove());
@@ -31,7 +34,7 @@ function hasMeaningfulContent(node) {
     if (!media) button.remove();
     else [...button.childNodes].filter(child => child.nodeType === 3).forEach(child => child.remove());
   });
-  return !!copy.textContent.trim() || !!copy.querySelector('img[src],img[srcset],video[src],audio[src],video source[src],audio source[src],iframe[src],object[data],embed[src],canvas') || labeledSvg;
+  return !!copy.textContent.trim() || !!copy.querySelector('img[src],img[srcset],video[src],audio[src],video source[src],audio source[src],iframe[src],object[data],embed[src],canvas') || labeledSvg || conversationControlOnly;
 }
 
 const sidebarSelector = 'nav, aside, [role="navigation"], [role="complementary"], #sidebar, #left-sidebar, #right-sidebar, .sidebar, .app-sidebar, .conversation-sidebar, .sidebar-panel, .sidebar-container, [aria-label*="sidebar" i], [data-testid*="sidebar" i]';
@@ -208,6 +211,11 @@ function containsCollapseUnsafe(node) {
   return collapseUnsafe(node) || [...node.querySelectorAll(`${collapseUnsafeSelector}, ${hintSelector}, [role="textbox"]`)].some(collapseUnsafe);
 }
 const exportExcludedSelector = `script,style,nav,aside,header,footer,form,textarea,input,select,[contenteditable="true"],[role="navigation"],[role="complementary"],[role="toolbar"],[class*="sidebar" i],[class*="toolbar" i],[class*="composer" i],[data-testid*="composer" i],[data-testid*="header" i],[aria-label*="composer" i],[hidden],[aria-hidden="true"],.sr-only,[data-idea-capture-control],[data-idea-capture-owned]`;
+const portableControlSelector = 'input,textarea,select';
+function isPortableControl(element) {
+  if (element.matches('input')) return !/^(?:password|file|hidden|submit|reset|button|image)$/i.test(element.type || 'text');
+  return element.matches('textarea,select');
+}
 const mathSourceSelector = '.katex-mathml, annotation[encoding="application/x-tex"], annotation[encoding="application/x-mathml"]';
 function isMathSource(node) { return !!node.closest?.(mathSourceSelector); }
 
@@ -393,7 +401,7 @@ export function extractConversation(doc = document, url = location.href, options
       const declarations = layoutProperties.map(property => `${property}:${computed[property]}`).filter(value => !value.endsWith(':'));
       element.setAttribute('style', declarations.join(';'));
       for (const attribute of [...element.attributes]) {
-        if (/^on/i.test(attribute.name) || attribute.name === 'srcdoc') element.removeAttribute(attribute.name);
+        if (/^on/i.test(attribute.name) || ['srcdoc','action','formaction','method','target'].includes(attribute.name)) element.removeAttribute(attribute.name);
       }
     });
   };
@@ -563,18 +571,67 @@ export function extractConversation(doc = document, url = location.href, options
     const clonedElements = [...cloned.querySelectorAll('*')];
     const originalForClone = new WeakMap(clonedElements.map((element, index) => [element, originalElements[index]]));
     originalForClone.set(cloned, node);
+    const localTargets = new Set();
+    const visibleInsideTarget = (element, target) => {
+      for (let current = element; current && current !== target; current = current.parentElement) {
+        if (current.hidden || current.getAttribute('aria-hidden') === 'true' || /display\s*:\s*none|visibility\s*:\s*(hidden|collapse)/i.test(current.getAttribute('style') || '')) return false;
+        const style = current.ownerDocument?.defaultView?.getComputedStyle?.(current);
+        if (style?.display === 'none' || style?.visibility === 'hidden' || style?.visibility === 'collapse') return false;
+      }
+      return true;
+    };
+    if (options.includeLayout) {
+      for (const control of [node, ...node.querySelectorAll('[aria-controls]')]) {
+        const ids = (control.getAttribute?.('aria-controls') || '').split(/\s+/).filter(Boolean);
+        if (!ids.length || !isVisibleConversationNode(control)) continue;
+        const targets = ids.map(id => [...node.querySelectorAll('[id]')].filter(candidate => candidate.id === id));
+        if (targets.some(matches => matches.length !== 1)) continue;
+        const [target] = targets[0];
+        const isDisclosure = control.matches?.('button[aria-expanded]') && ids.length === 1 && !target.matches('[role="tabpanel"]');
+        if (!isDisclosure) continue;
+        if (!isVisibleConversationNode(target.parentElement)) continue;
+        localTargets.add(target);
+      }
+      for (const [index, original] of originalElements.entries()) {
+        const copyElement = clonedElements[index];
+        if (!copyElement) continue;
+        if (original.matches('input')) {
+          if (isPortableControl(original)) {
+            if (original.type === 'checkbox' || original.type === 'radio') copyElement.toggleAttribute('checked', original.checked);
+            else if (original.hasAttribute('value') || original.value) copyElement.setAttribute('value', original.value);
+          }
+        } else if (original.matches('textarea')) {
+          copyElement.textContent = original.value;
+        } else if (original.matches('select')) {
+          [...copyElement.options].forEach((option, optionIndex) => option.toggleAttribute('selected', !!original.options[optionIndex]?.selected));
+        }
+        if (original.matches('button[aria-controls][aria-expanded]') && original.getAttribute('aria-controls').split(/\s+/).length === 1) {
+          const target = [...localTargets].find(item => item.id === original.getAttribute('aria-controls'));
+          if (target && !target.matches('[role="tabpanel"]')) copyElement.setAttribute('data-idea-interaction', 'disclosure');
+        }
+      }
+    }
     originalElements.forEach((original, index) => {
-      if (!isVisibleConversationNode(original) && !isMathSource(original)) clonedElements[index]?.remove();
+      const retainedVisibleTarget = options.includeLayout && [...localTargets].some(target => (target === original || target.contains(original)) && visibleInsideTarget(original, target));
+      if (!isVisibleConversationNode(original) && !isMathSource(original) && !retainedVisibleTarget) clonedElements[index]?.remove();
+      if (options.includeLayout && isReadOnlyCodeSurface(original)) clonedElements[index]?.removeAttribute('contenteditable');
     });
     // ChatGPT's CodeMirror panels have no pre/code and their editor is dropped as an input below: rebuild a fenced block from the raw code.
-    copy.querySelectorAll('[data-code-block]').forEach(block => {
+    if (!options.includeLayout) copy.querySelectorAll('[data-code-block]').forEach(block => {
       const content = block.querySelector('.cm-content');
       const raw = block.closest('[data-chatgpt-copy-code]')?.getAttribute('data-chatgpt-copy-code') ?? [...block.querySelectorAll('.cm-line')].map(line => line.textContent).join('\n');
       const pre = doc.createElement('pre'), codeEl = doc.createElement('code');
       if (content?.dataset.language) codeEl.className = `language-${content.dataset.language}`;
       codeEl.textContent = raw; pre.append(codeEl); block.replaceWith(pre);
     });
-    copy.querySelectorAll(exportExcludedSelector).forEach(n => { if (!isMathSource(n)) n.remove(); });
+    copy.querySelectorAll(exportExcludedSelector).forEach(n => {
+      if (isMathSource(n)) return;
+      if (options.includeLayout && n.matches('form')) return;
+      if (options.includeLayout && isReadOnlyCodeSurface(n)) { n.removeAttribute('contenteditable'); return; }
+      if (options.includeLayout && n.matches('header') && n.closest('[data-code-block]')) return;
+      if (options.includeLayout && (isPortableControl(n) || n.matches('button[data-idea-interaction="disclosure"]') || [...localTargets].some(target => target === originalForClone.get(n)))) return;
+      n.remove();
+    });
 
 
     let mediaOrdinal = mediaOrdinals.get(messageIndex) || 0;
@@ -661,7 +718,7 @@ export function extractConversation(doc = document, url = location.href, options
     copy.querySelectorAll('button').forEach(button => {
       const placeholders = button.textContent.match(/\{\{idea-media:[a-zA-Z0-9_-]{1,100}\}\}/g);
       if (placeholders?.length) button.replaceWith(doc.createTextNode(placeholders.join('\n')));
-      else button.remove();
+      else if (!(options.includeLayout && button.matches('button[data-idea-interaction="disclosure"]'))) button.remove();
     });
     copy.querySelectorAll(`${options.includeLayout ? '' : 'svg,'}[data-idea-capture-control],[data-idea-capture-owned]`).forEach(n => n.remove());
     copy.querySelectorAll('a[href],img[src]').forEach(n => {
@@ -723,6 +780,14 @@ export function extractConversation(doc = document, url = location.href, options
         textNode.replaceWith(fragment);
       }
     });
+    markdownCopy.querySelectorAll('[data-code-block]').forEach(block => {
+      const content = block.querySelector('.cm-content');
+      const raw = block.closest('[data-chatgpt-copy-code]')?.getAttribute('data-chatgpt-copy-code') ?? [...block.querySelectorAll('.cm-line')].map(line => line.textContent).join('\n');
+      const pre = doc.createElement('pre'), codeEl = doc.createElement('code');
+      if (content?.dataset.language) codeEl.className = `language-${content.dataset.language}`;
+      codeEl.textContent = raw; pre.append(codeEl); block.replaceWith(pre);
+    });
+    markdownCopy.querySelectorAll(`${portableControlSelector},button,[data-idea-interaction]`).forEach(element => element.remove());
     const markdown = td.turndown(markdownCopy.innerHTML).trim();
     return { markdown, ...(options.includeLayout ? { html: cloned.outerHTML } : {}) };
   };
@@ -827,7 +892,7 @@ export function extractConversation(doc = document, url = location.href, options
     const markdown = converted.map(item => item.markdown).join('\n\n').trim();
     const html = options.includeLayout ? converted.map(item => item.html).join('\n') : undefined;
     return { node, nodes, contentNode, providerId: messageId(node), messageIndex, role: ({ user: 'User', assistant: 'Assistant', system: 'System' })[role] || 'Message', markdown, ...(html ? { html } : {}) };
-  }).filter(message => !includeMarkdown || message.markdown);
+  }).filter(message => !includeMarkdown || message.markdown || options.includeLayout && /<(?:input|select|textarea|details)\b|data-idea-interaction=/i.test(message.html || ''));
   let warning = 'Captures messages currently loaded on the page. Load older messages before exporting; detected media is included when available, and hidden branches are not included.';
   if (unlabeledChatGptTurns) warning = 'Some ChatGPT messages did not expose a speaker label. Their order was inferred from visible turn structure; review the preview before saving. Only loaded content is included.';
   if (chatGptPromptsOnly) warning = 'ChatGPT user prompts were detected, but reply boundaries could not be identified. The capture may be incomplete; review the preview before saving. Only loaded content is included.';
