@@ -34,7 +34,6 @@ function inspectModuleReferences(code, label, allowed = new Set()) {
   };
   visit(ast);
 }
-
 function hasClassNameStyling(code, language) {
   let ast;
   try { ast = Babel.packages.parser.parse(code, { sourceType: 'module', plugins: language === 'tsx' ? ['jsx', 'typescript'] : ['jsx'] }); }
@@ -233,4 +232,3 @@ if(typeof Component!=='function'&&!(Component&&typeof Component==='object'&&Comp
 ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(Component));
 })();`;
 }
-

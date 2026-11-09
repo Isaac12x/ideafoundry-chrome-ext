@@ -144,8 +144,8 @@ test('React artifact matches its original rendering and remains interactive in a
 
 test('TSX artifact renders typed memo and forwardRef components', async () => {
   const source = `import React,{memo,forwardRef,useState} from 'react';
-type Props={label:string};
-export default memo(forwardRef<HTMLButtonElement,Props>(function App({label}:Props,ref){
+type Props={label?:string};
+export default memo(forwardRef<HTMLButtonElement,Props>(function App({label='Count'}:Props,ref){
  const [count,setCount]=useState<number>(0);
  return <button ref={ref} onClick={()=>setCount(count+1)}>{label} {count}</button>;
 }));`;

@@ -169,4 +169,3 @@ export function captureArtifacts(doc, messages = []) {
   }
   return artifacts;
 }
-
