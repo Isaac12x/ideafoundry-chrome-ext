@@ -1,5 +1,6 @@
 import TurndownService from 'turndown';
 import { gfm } from 'turndown-plugin-gfm';
+import { captureArtifacts, hasArtifactSurface } from './artifact-capture.js';
 
 const hash = value => {
   let result = 2166136261;
@@ -34,7 +35,7 @@ function hasMeaningfulContent(node) {
     if (!media) button.remove();
     else [...button.childNodes].filter(child => child.nodeType === 3).forEach(child => child.remove());
   });
-  return !!copy.textContent.trim() || !!copy.querySelector('img[src],img[srcset],video[src],audio[src],video source[src],audio source[src],iframe[src],object[data],embed[src],canvas') || labeledSvg || conversationControlOnly;
+  return !!copy.textContent.trim() || !!copy.querySelector('img[src],img[srcset],video[src],audio[src],video source[src],audio source[src],iframe[src],iframe[srcdoc],object[data],embed[src],canvas') || labeledSvg || conversationControlOnly;
 }
 
 const sidebarSelector = 'nav, aside, [role="navigation"], [role="complementary"], #sidebar, #left-sidebar, #right-sidebar, .sidebar, .app-sidebar, .conversation-sidebar, .sidebar-panel, .sidebar-container, [aria-label*="sidebar" i], [data-testid*="sidebar" i]';
@@ -892,7 +893,7 @@ export function extractConversation(doc = document, url = location.href, options
     const markdown = converted.map(item => item.markdown).join('\n\n').trim();
     const html = options.includeLayout ? converted.map(item => item.html).join('\n') : undefined;
     return { node, nodes, contentNode, providerId: messageId(node), messageIndex, role: ({ user: 'User', assistant: 'Assistant', system: 'System' })[role] || 'Message', markdown, ...(html ? { html } : {}) };
-  }).filter(message => !includeMarkdown || message.markdown || options.includeLayout && /<(?:input|select|textarea|details)\b|data-idea-interaction=/i.test(message.html || ''));
+  }).filter(message => !includeMarkdown || message.markdown || options.includeLayout && (/<(?:input|select|textarea|details)\b|data-idea-interaction=/i.test(message.html || '') || hasArtifactSurface(message.node)));
   let warning = 'Captures messages currently loaded on the page. Load older messages before exporting; detected media is included when available, and hidden branches are not included.';
   if (unlabeledChatGptTurns) warning = 'Some ChatGPT messages did not expose a speaker label. Their order was inferred from visible turn structure; review the preview before saving. Only loaded content is included.';
   if (chatGptPromptsOnly) warning = 'ChatGPT user prompts were detected, but reply boundaries could not be identified. The capture may be incomplete; review the preview before saving. Only loaded content is included.';
@@ -930,9 +931,51 @@ export function extractConversation(doc = document, url = location.href, options
     id, label, messageCount: sectionMessages.length,
     ...(options.includeNodes ? { nodes, identityNode, collapseNodes: collapseNodes || nodes } : {}),
   }));
+  const artifacts = options.includeLayout ? captureArtifacts(doc, messages) : [];
+  const artifactMediaIds = new Set();
+  const normalizeUrl = value => {
+    if (!value) return '';
+    try { return new URL(value, url).href; } catch { return value; }
+  };
+  for (const artifact of artifacts) {
+    const message = messages.find(candidate => candidate.messageIndex === artifact.messageIndex);
+    if (!message?.html) continue;
+    const matchingMedia = media.find(item => !artifactMediaIds.has(item.id) && item.messageIndex === artifact.messageIndex && item.kind === 'file' &&
+      (artifact.frameUrl ? normalizeUrl(item.url) === normalizeUrl(artifact.frameUrl) : artifact._frameTitle && item.title === artifact._frameTitle));
+    if (matchingMedia) {
+      const token = `{{idea-media:${matchingMedia.id}}}`;
+      if (message.html.includes(token)) {
+        message.html = message.html.replace(token, `{{idea-artifact:${artifact.id}}}`);
+        artifactMediaIds.add(matchingMedia.id);
+        continue;
+      }
+    }
+    // Artifact source panels keep their provider placement in the export.
+    const template = doc.createElement('template');
+    template.innerHTML = message.html;
+    const frame = [...template.content.querySelectorAll('iframe')].find(candidate =>
+      artifact._frameTestId && candidate.getAttribute('data-testid') === artifact._frameTestId ||
+      artifact._frameTitle && (candidate.getAttribute('title') === artifact._frameTitle || candidate.getAttribute('aria-label') === artifact._frameTitle) ||
+      artifact.frameUrl && normalizeUrl(candidate.getAttribute('src')) === normalizeUrl(artifact.frameUrl));
+    const panel = [...template.content.querySelectorAll('[data-testid], [data-artifact-id], [aria-label]')].find(candidate =>
+      artifact._panelTestId && candidate.getAttribute('data-testid') === artifact._panelTestId ||
+      artifact._panelArtifactId && candidate.getAttribute('data-artifact-id') === artifact._panelArtifactId ||
+      artifact._panelLabel && candidate.getAttribute('aria-label') === artifact._panelLabel);
+    const placement = frame || panel;
+    if (placement) {
+      placement.replaceWith(doc.createTextNode(`{{idea-artifact:${artifact.id}}}`));
+      message.html = template.innerHTML;
+    } else if (artifact._panelTestId || artifact._panelArtifactId || artifact._panelLabel) {
+      message.html += `\n{{idea-artifact:${artifact.id}}}`;
+    } else {
+      throw new Error('An artifact preview was detected, but its position in the selected message could not be preserved. Try refreshing the conversation and capturing again.');
+    }
+  }
+  if (artifactMediaIds.size) for (let index = media.length - 1; index >= 0; index--) if (artifactMediaIds.has(media[index].id)) media.splice(index, 1);
   const layoutHtml = options.includeLayout ? captureLayoutTree(messages) : undefined;
   const publicMessages = messages.map(({ node, nodes, contentNode, providerId, ...message }) => message);
+  const publicArtifacts = artifacts.map(({ _frameTitle, _frameTestId, _panelTestId, _panelArtifactId, _panelLabel, ...artifact }) => artifact);
   const streaming = !!doc.querySelector('[data-is-streaming="true"], [data-testid="stop-button"], button[aria-label="Stop response"]');
   const layout = options.includeLayout ? Object.fromEntries(['color','background-color','font-family','font-size','line-height','margin','padding'].map(property => [property, layoutStyleValues(doc.body || doc.documentElement)[property]])) : undefined;
-  return { title: doc.title.replace(/\s*[-|–]\s*(ChatGPT|Claude|Gemini)\s*$/i, '').trim() || 'Conversation', url, provider, capturedAt: new Date().toISOString(), warning, messages: publicMessages, sections: publicSections, media, streaming, ...(layout ? { layout, layoutHtml } : {}) };
+  return { title: doc.title.replace(/\s*[-|–]\s*(ChatGPT|Claude|Gemini)\s*$/i, '').trim() || 'Conversation', url, provider, capturedAt: new Date().toISOString(), warning, messages: publicMessages, sections: publicSections, media, artifacts: publicArtifacts, streaming, ...(layout ? { layout, layoutHtml } : {}) };
 }

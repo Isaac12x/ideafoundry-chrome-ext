@@ -2,6 +2,7 @@ import { defaults, withDefaults, validateSettings, validateJob, validateTarget, 
 import { uploadInApp, listProjectsInApp } from './kb-upload.js';
 import { mediaOrigins } from './media.js';
 import { handleActionClick } from './action.js';
+import { resolveArtifactSources } from './artifact-sources.js';
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 const settings = async () => withDefaults((await chrome.storage.local.get('settings')).settings || defaults);
 let rendering;
@@ -333,7 +334,9 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
     if (message.type === 'widget-export') {
       if (!sender.tab?.id || !['download', 'kb'].includes(message.destination)) throw new Error('Capture must be started from the page widget.');
       if (!message.conversation || !Array.isArray(message.conversation.messages)) throw new Error('No conversation is ready to save.');
-      const conversation = message.conversation;
+      const conversation = message.format === 'html'
+        ? await resolveArtifactSources(message.conversation, sender.tab.id)
+        : message.conversation;
       if (['html', 'pdf'].includes(message.format) && (!conversation.messages.length || !conversation.layoutHtml && conversation.messages.some(item => typeof item.html !== 'string' || !item.html.trim()))) {
         throw new Error('The styled page snapshot is missing. Select HTML or PDF again from the conversation capture widget to recapture the layout.');
       }

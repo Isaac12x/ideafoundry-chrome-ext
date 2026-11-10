@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Export source-backed React/HTML artifact previews as isolated, self-contained HTML with inline CSS/JavaScript and embedded resources; include packaged React, React DOM, Lucide, and Recharts runtimes.
+- Preserve artifact selection and placement, read accessible preview-frame source, and report missing source/dependencies instead of silently flattening interactive apps.
+- Add pixel-comparison, behavior, resource, selection, upload, and sandbox regressions; document supported source formats and source-initial-state replay.
+
 - Preserve native disclosures, safe local form controls and their live values/selections in styled HTML capture; convert supported local ARIA disclosures into script-free expand/collapse controls.
 - Keep CodeMirror code-panel presentation in HTML while preserving fenced code in Markdown; retain embedded audio/video players and download links for standalone use.
 - Add Chromium interaction regressions for ChatGPT/Claude exports and the script-free IdeaFoundry viewer sandbox. Document that provider scripts, generated app runtimes, external fonts/assets, and exact pixel parity remain outside DOM snapshot capture.

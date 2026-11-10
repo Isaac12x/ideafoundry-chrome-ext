@@ -10,11 +10,18 @@
     "test:html-interactions": "node scripts/html-interaction-test.mjs",
     "queue": "node server/index.mjs",
     "check": "npm test && npm run build",
-    "test:idea-app": "node scripts/idea-app-e2e.mjs"
+    "test:idea-app": "node scripts/idea-app-e2e.mjs",
+    "test:artifacts": "node --test scripts/artifact-browser-test.mjs",
+    "test:artifact-extension": "node scripts/artifact-extension-test.mjs"
   },
   "dependencies": {
+    "@babel/standalone": "^8.1.1",
+    "lucide-react": "^1.70.0",
     "markdown-it": "^14.3.3",
     "pdfmake": "^0.3.11",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "recharts": "^3.10.1",
     "turndown": "^7.2.4",
     "turndown-plugin-gfm": "^1.0.2"
   },
