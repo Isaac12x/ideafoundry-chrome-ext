@@ -15,6 +15,113 @@ test('ChatGPT preserves roles, code, tables, links and strips controls', () => {
   assert.doesNotMatch(markdown(result), /Copy/);
   assert.match(markdown(result), /Source: <https:\/\/chatgpt.com\/c\/123>/);
 });
+test('ChatGPT artifact srcdoc is retained as a separate source descriptor for its assistant turn', () => {
+  const dom = new JSDOM(`<title>Research - ChatGPT</title><main><article data-message-author-role="user"><p>Build a counter</p></article>
+    <article data-message-author-role="assistant"><p>Here is the artifact.</p>
+      <iframe title="Artifact preview" width="640" height="480" srcdoc="&lt;!doctype html&gt;&lt;html&gt;&lt;head&gt;&lt;style&gt;button{color:red}&lt;/style&gt;&lt;/head&gt;&lt;body&gt;&lt;button&gt;Count&lt;/button&gt;&lt;script&gt;let count=0&lt;/script&gt;&lt;/body&gt;&lt;/html&gt;"></iframe>
+    </article></main>`, { url: 'https://chatgpt.com/c/123' });
+  const result = extractConversation(dom.window.document, dom.window.location.href, { includeLayout: true });
+  assert.equal(result.artifacts.length, 1);
+  assert.equal(result.artifacts[0].kind, 'html');
+  assert.equal(result.artifacts[0].messageIndex, 1);
+  assert.equal(result.artifacts[0].sectionId, result.messages[1].sectionId);
+  assert.equal(result.artifacts[0].width, 640);
+  assert.match(result.artifacts[0].source.html, /let count=0/);
+  assert.doesNotMatch(result.messages[1].markdown, /let count=0/);
+  assert.match(result.messages[1].html, /\{\{idea-artifact:artifact-2-1\}\}/);
+  assert.match(result.layoutHtml, /\{\{idea-artifact:artifact-2-1\}\}/);
+  assert.deepEqual(result.media.filter(item => item.kind === 'file'), []);
+  dom.window.close();
+});
+test('Claude artifact panel captures only recognized JSX source and associates it with its message', () => {
+  const dom = new JSDOM(`<div data-testid="user-message">Make a card</div>
+    <div data-is-streaming="false"><p>Preview:</p><section data-testid="artifact-panel" aria-label="Artifact preview">
+      <pre><code class="language-jsx">export default function Card(){ return &lt;button&gt;Run&lt;/button&gt; }</code></pre>
+    </section></div>`, { url: 'https://claude.ai/chat/123' });
+  const result = extractConversation(dom.window.document, dom.window.location.href, { includeLayout: true });
+  assert.equal(result.artifacts.length, 1);
+  assert.equal(result.artifacts[0].kind, 'react');
+  assert.equal(result.artifacts[0].source.language, 'jsx');
+  assert.match(result.artifacts[0].source.code, /export default function Card/);
+  assert.equal(result.artifacts[0].messageIndex, 1);
+  assert.match(result.messages[1].html, /\{\{idea-artifact:artifact-2-1\}\}/);
+  assert.equal(extractConversation(dom.window.document, dom.window.location.href).artifacts.length, 0);
+  dom.window.close();
+});
+test('Claude canvas source remains linked while widget headers mention canvas in aria labels', () => {
+  const dom = new JSDOM(`<main id="thread"><article data-testid="user-message"><p>Keep this generated canvas.</p></article>
+    <article class="font-claude-response">
+      <div class="idea-capture-section-header" data-idea-capture-owned="header"><button aria-label="Collapse section: Keep this generated canvas.">Collapse</button></div>
+      <section data-testid="artifact-preview" data-artifact-id="claude-source"><h2>Claude canvas source</h2><pre><code class="language-jsx">export default function App(){return &lt;button&gt;Go&lt;/button&gt;}</code></pre></section>
+    </article></main>`, { url: 'https://claude.ai/chat/artifact-source' });
+  const result = extractConversation(dom.window.document, dom.window.location.href, { includeLayout: true });
+  assert.equal(result.artifacts.length, 1);
+  assert.equal(result.artifacts[0].messageIndex, result.messages[1].messageIndex);
+  assert.match(result.messages[1].html, /\{\{idea-artifact:artifact-2-1\}\}/);
+  dom.window.close();
+});
+test('a widget header or user prompt mentioning canvas does not become an artifact panel', () => {
+  const dom = new JSDOM(`<main><article data-testid="user-message"><p>Show me a canvas layout.</p><div data-idea-capture-owned="header" aria-label="Current section: canvas layout"></div></article>
+    <article class="font-claude-response"><p>Use a board and a graph.</p></article></main>`, { url: 'https://claude.ai/chat/123' });
+  const result = extractConversation(dom.window.document, dom.window.location.href, { includeLayout: true });
+  assert.deepEqual(result.artifacts, []);
+  dom.window.close();
+});
+test('unreadable artifact frames retain an in-place failure placeholder without duplicate media', () => {
+  const dom = new JSDOM(`<main><article data-message-author-role="assistant"><p>Preview:</p><iframe title="Artifact preview" src="https://artifact.example/app" width="500" height="300"></iframe></article></main>`, { url: 'https://chatgpt.com/c/123' });
+  const result = extractConversation(dom.window.document, dom.window.location.href, { includeLayout: true });
+  assert.equal(result.artifacts.length, 1);
+  assert.ok(result.artifacts[0].unavailableReason);
+  assert.equal(result.media.some(item => item.url === 'https://artifact.example/app'), false);
+  assert.match(result.messages[0].html, /\{\{idea-artifact:artifact-1-1\}\}/);
+  dom.window.close();
+});
+test('artifact-only assistant turns remain selectable for layout export', () => {
+  const dom = new JSDOM('<main><article data-message-author-role="assistant"><iframe title="Artifact preview" srcdoc="&lt;html&gt;&lt;body&gt;&lt;button&gt;Click&lt;/button&gt;&lt;script&gt;window.count=0&lt;/script&gt;&lt;/body&gt;&lt;/html&gt;"></iframe></article></main>', { url: 'https://chatgpt.com/c/123' });
+  const result = extractConversation(dom.window.document, dom.window.location.href, { includeLayout: true });
+  assert.equal(result.messages.length, 1);
+  assert.equal(result.artifacts.length, 1);
+  assert.match(result.messages[0].html, /\{\{idea-artifact:artifact-1-1\}\}/);
+  dom.window.close();
+});
+test('artifact owner index stays aligned with original messageIndex after an empty rendered message is filtered', () => {
+  const dom = new JSDOM(`<main>
+    <article data-message-author-role="assistant"><svg aria-label="Chart"><circle cx="1" cy="1" r="1"></circle></svg></article>
+    <article data-message-author-role="assistant"><iframe title="Artifact preview" srcdoc="&lt;html&gt;&lt;body&gt;&lt;button&gt;Click&lt;/button&gt;&lt;script&gt;window.count=0&lt;/script&gt;&lt;/body&gt;&lt;/html&gt;"></iframe></article>
+  </main>`, { url: 'https://chatgpt.com/c/123' });
+  const result = extractConversation(dom.window.document, dom.window.location.href, { includeLayout: true });
+  assert.equal(result.messages.length, 1);
+  assert.equal(result.messages[0].messageIndex, 1);
+  assert.equal(result.artifacts[0].messageIndex, result.messages[0].messageIndex);
+  dom.window.close();
+});
+test('hidden artifact frames are excluded from capture', () => {
+  const dom = new JSDOM('<style>.hidden{display:none}</style><main><article data-message-author-role="assistant"><p>Answer</p><iframe class="hidden" title="Artifact preview" srcdoc="&lt;html&gt;&lt;body&gt;secret&lt;/body&gt;&lt;/html&gt;"></iframe></article></main>', { url: 'https://chatgpt.com/c/123' });
+  const result = extractConversation(dom.window.document, dom.window.location.href, { includeLayout: true });
+  assert.equal(result.artifacts.length, 0);
+  assert.doesNotMatch(result.messages[0].html, /idea-artifact/);
+  dom.window.close();
+});
+test('detached artifact panels link to a message by provider message id', () => {
+  const dom = new JSDOM(`<main><article data-message-author-role="user" data-message-id="q1"><p>Make a card</p></article>
+    <article data-message-author-role="assistant" data-message-id="a2"><p>Here it is</p></article></main>
+    <section data-testid="artifact-panel" data-message-id="a2"><pre><code class="language-jsx">export default function Card(){return &lt;button&gt;Go&lt;/button&gt;}</code></pre></section>`, { url: 'https://chatgpt.com/c/123' });
+  const result = extractConversation(dom.window.document, dom.window.location.href, { includeLayout: true });
+  assert.equal(result.artifacts.length, 1);
+  assert.equal(result.artifacts[0].messageIndex, 1);
+  assert.match(result.messages[1].html, /\{\{idea-artifact:artifact-2-1\}\}/);
+  dom.window.close();
+});
+test('detached artifact panels with multiple possible message owners fail explicitly', () => {
+  const dom = new JSDOM(`<div data-testid="user-message">Make a card</div><div data-is-streaming="false">Answer</div>
+    <section data-testid="artifact-panel"><pre><code class="language-jsx">export default () =&gt; null</code></pre></section>`, { url: 'https://claude.ai/chat/123' });
+  assert.throws(() => extractConversation(dom.window.document, dom.window.location.href, { includeLayout: true }), /could not be linked to a conversation message/i);
+  dom.window.close();
+});
+test('ordinary code blocks are not misclassified as artifacts', () => {
+  const result = extract('<main><article data-message-author-role="assistant"><pre><code class="language-jsx">const example = 1;</code></pre></article></main>');
+  assert.deepEqual(result.artifacts, []);
+});
 test('math renderer markup exports its source once as readable inline and display math', () => {
   const result = extract(`<main><article data-message-author-role="assistant">
     <p>Inline <span class="katex"><span class="katex-mathml"><math><semantics><mrow><mi>x</mi><mo>=</mo><mn>2</mn></mrow><annotation encoding="application/x-tex">x=2</annotation></semantics></math></span><span class="katex-html" aria-hidden="true">x = 2</span></span> continues.</p>

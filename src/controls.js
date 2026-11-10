@@ -360,7 +360,7 @@ export function createCaptureControls(doc = document, win = window) {
     const sendButton = captureActions.querySelector('[data-action="send-kb"]');
     const pdf = format === 'pdf';
     sendButton.disabled = pdf;
-    formatHint.textContent = pdf ? 'PDF opens the browser print dialog. Choose “Save as PDF”; use Markdown or HTML for direct knowledge-base delivery.' : format === 'html' ? 'HTML preserves page styling. Markdown preserves content and structure.' : 'Markdown preserves content and structure. Choose HTML for page styling.';
+    formatHint.textContent = pdf ? 'PDF opens the browser print dialog. Choose “Save as PDF”; use Markdown or HTML for direct knowledge-base delivery.' : format === 'html' ? 'HTML preserves styling and supported artifact interactions. Open the artifact source view if export reports missing source.' : 'Markdown preserves content and structure. Choose HTML for page styling.';
   };
   const onListChange = event => {
     const input = event.target.closest('input[data-section-id]');
@@ -1252,6 +1252,7 @@ export function createCaptureControls(doc = document, win = window) {
     if (mode === 'export' && conversation.messages.length === 0) throw new Error('Select at least one section before exporting.');
     const includedMessageIndexes = new Set(conversation.messages.map(message => message.messageIndex));
     conversation.media = (conversation.media || []).filter(item => includedMessageIndexes.has(item.messageIndex));
+    conversation.artifacts = (conversation.artifacts || []).filter(item => includedMessageIndexes.has(item.messageIndex));
     if (conversation.layoutHtml) {
       const tree = doc.createElement('template');
       tree.innerHTML = conversation.layoutHtml;

@@ -112,17 +112,56 @@ function embedMedia(content, media) {
   });
 }
 
+function embedArtifacts(safeBody, artifacts = []) {
+  if (!artifacts.length) return safeBody;
+  const parsed = new DOMParser().parseFromString(safeBody, 'text/html');
+  const byId = new Map(artifacts.map(artifact => [artifact.id, artifact]));
+  if (byId.size !== artifacts.length) throw new Error('Artifact capture contains duplicate identifiers. Capture again.');
+  const found = new Set();
+  const walker = parsed.createTreeWalker(parsed.body, 4);
+  const nodes = [];
+  while (walker.nextNode()) nodes.push(walker.currentNode);
+  for (const node of nodes) {
+    const matches = [...node.textContent.matchAll(/\{\{idea-artifact:([a-zA-Z0-9_-]+)\}\}/g)];
+    if (!matches.length) continue;
+    const fragment = parsed.createDocumentFragment();
+    let offset = 0;
+    for (const match of matches) {
+      const artifact = byId.get(match[1]);
+      if (!artifact?.preparedHtml) throw new Error('An interactive artifact was not packaged. Capture it again using HTML.');
+      if (found.has(artifact.id)) throw new Error('An artifact has more than one layout reference. Capture again after removing duplicate source panels.');
+      fragment.append(parsed.createTextNode(node.textContent.slice(offset, match.index)));
+      const frame = parsed.createElement('iframe');
+      frame.setAttribute('sandbox', 'allow-scripts');
+      frame.setAttribute('referrerpolicy', 'no-referrer');
+      frame.setAttribute('title', artifact.title || 'Interactive artifact');
+      frame.setAttribute('data-idea-artifact', artifact.id);
+      const width = Number(artifact.width), height = Number(artifact.height);
+      frame.style.cssText = `display:block;border:0;width:${Number.isFinite(width) && width > 0 ? `${width}px` : '100%'};max-width:100%;height:${Number.isFinite(height) && height > 0 ? height : 600}px`;
+      frame.srcdoc = artifact.preparedHtml;
+      fragment.append(frame);
+      found.add(artifact.id);
+      offset = match.index + match[0].length;
+    }
+    fragment.append(parsed.createTextNode(node.textContent.slice(offset)));
+    node.replaceWith(fragment);
+  }
+  if (found.size !== artifacts.length) throw new Error('An artifact is missing from the selected conversation layout. Open its source in the conversation and capture again.');
+  return parsed.body.innerHTML;
+}
+
 export function conversationHtml(conversation) {
   const media = new Map((conversation.media || []).map(item => [item.id, item]));
   const body = conversation.layoutHtml
     ? embedMedia(conversation.layoutHtml, media)
     : (conversation.messages || []).map(message => `<article aria-label="${escapeAttribute(message.role)}" class="captured-message">${embedMedia(message.html || '', media)}</article>`).join('\n');
-  const safeBody = sanitizeCapturedHtml(body);
+  const safeBody = embedArtifacts(sanitizeCapturedHtml(body), conversation.artifacts);
+  const interactive = !!conversation.artifacts?.length;
   const title = escapeAttribute(conversation.title || 'Conversation');
   const source = escapeAttribute(conversation.url || '');
   const captured = escapeAttribute(conversation.capturedAt || '');
   const bodyStyle = Object.entries(conversation.layout || {}).map(([property, value]) => `${property}:${value}`).join(';');
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; media-src data:; style-src 'unsafe-inline'; font-src data:; base-uri 'none'; form-action 'none'; object-src 'none'; frame-src 'none'"><meta name="referrer" content="no-referrer"><title>${title}</title><style>
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${interactive ? '<meta name="idea-capture-artifacts" content="1">' : ''}<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${interactive ? 'data: blob:' : 'data:'}; media-src ${interactive ? 'data: blob:' : 'data:'}; style-src 'unsafe-inline'; font-src ${interactive ? 'data: blob:' : 'data:'}; base-uri 'none'; form-action 'none'; object-src 'none'; ${interactive ? "script-src 'unsafe-inline'; frame-src about:" : "frame-src 'none'"}"><meta name="referrer" content="no-referrer"><title>${title}</title><style>
 body{margin:0;print-color-adjust:exact;-webkit-print-color-adjust:exact}.provenance{font:11px/1.4 system-ui,sans-serif;padding:8px 12px;border-bottom:1px solid #888;overflow-wrap:anywhere}.provenance h1{font:inherit;font-weight:600;margin:0 0 3px}.provenance a{color:inherit}.captured-message{break-inside:auto}.media-unavailable{font:italic 11px/1.4 system-ui,sans-serif;color:#666}
 @page{size:auto;margin:8mm} @media print{html,body{max-width:100%;overflow:visible}.captured-message{break-inside:auto}.provenance{break-after:avoid}}
 </style></head><body style="${escapeAttribute(bodyStyle)}"><header class="provenance"><h1>${title}</h1><div>Source: <a href="${source}">${source}</a></div><div>Captured: ${captured} · ${escapeAttribute(conversation.provider || '')}</div>${conversation.warning ? `<div>${escapeAttribute(conversation.warning)}</div>` : ''}</header>${safeBody}</body></html>`;
