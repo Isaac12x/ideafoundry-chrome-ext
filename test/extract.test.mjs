@@ -632,3 +632,13 @@ test('settings and remote jobs restrict origins and unsafe destinations', () => 
   assert.equal(validateSettings({}).appUrl, 'https://ideas.local:8443');
   assert.doesNotMatch(filename('../bad/name:thing', 'md'), /[/:]/);
 });
+const titled = (title, html, url) => { const dom = new JSDOM(`<title>${title}</title>${html}`, { url }); return extractConversation(dom.window.document, url).title; };
+test('ChatGPT sidebar/header title beats generic doc.title', () => {
+  assert.equal(titled('ChatGPT', '<nav><a href="/c/1">Other</a><a href="/c/123">Real-time Gene Activation</a></nav><main><div data-message-author-role="user">x</div></main>', 'https://chatgpt.com/c/123'), 'Real-time Gene Activation');
+  assert.equal(titled('ChatGPT', '<header><button aria-haspopup="menu">Real-time Gene Activation ⌄</button></header><main><div data-message-author-role="user">x</div></main>', 'https://chatgpt.com/c/123'), 'Real-time Gene Activation');
+});
+test('Claude header title wins; generic fallbacks', () => {
+  assert.equal(titled('Claude', '<header><button data-testid="chat-title-button">My Claude Chat</button></header><div data-testid="user-message">x</div>', 'https://claude.ai/chat/abc'), 'My Claude Chat');
+  assert.equal(titled('Stale - ChatGPT', '<main><div data-message-author-role="user">x</div></main>', 'https://chatgpt.com/c/123'), 'Stale');
+  assert.equal(titled('ChatGPT', '<main><div data-message-author-role="user">x</div></main>', 'https://chatgpt.com/c/123'), 'Conversation');
+});

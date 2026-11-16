@@ -123,19 +123,26 @@ async function sendToKB(conversation, format, target = {}) {
   await permitted(config.appUrl);
   const dest = { appUrl: config.appUrl, source: target.source ?? config.source, directory: target.directory ?? config.directory };
   const file = await render(conversation, format, false, dest);
-  return withAppTab(config, async tabId => {
-    const results = await chrome.scripting.executeScript({ target: { tabId }, func: uploadInApp, args: [file, dest] });
-    if (!results[0]?.result) throw new Error('Upload did not finish. Check the KB before retrying.');
-    if (!results[0].result.ok) throw new Error(results[0].result.error);
-    return results[0].result;
-  });
+  // Dedicated tab: the user's own app tab may navigate (lock timer, clicks) and kill the injected frame mid-upload.
+  // No retry: the upload may already have reached the server.
+  try {
+    return await withAppTab(config, async tabId => {
+      const results = await chrome.scripting.executeScript({ target: { tabId }, func: uploadInApp, args: [file, dest] });
+      if (!results[0]?.result) throw new Error('Upload did not finish. Check the KB before retrying.');
+      if (!results[0].result.ok) throw new Error(results[0].result.error);
+      return results[0].result;
+    }, `${config.appUrl}/robots.txt`);
+  } catch (error) {
+    if (/Frame with ID \d+ was removed|No tab with id|The tab was closed/i.test(error.message)) throw new Error('The IdeaFoundry tab closed or navigated during the upload. Check the knowledge base before retrying.');
+    throw error;
+  }
 }
 // Runs fn(tabId) in an open app tab, or in a hidden one that is closed afterwards.
-async function withAppTab(config, fn) {
-  const tabs = await chrome.tabs.query({ url: `${config.appUrl}/*` });
-  let tab = tabs[0];
+// With dedicatedUrl it always uses a fresh hidden tab at that (static, script-free) URL.
+async function withAppTab(config, fn, dedicatedUrl) {
+  let tab = dedicatedUrl ? undefined : (await chrome.tabs.query({ url: `${config.appUrl}/*` }))[0];
   const created = !tab;
-  if (created) tab = await chrome.tabs.create({ url: `${config.appUrl}/knowledge-base`, active: false });
+  if (created) tab = await chrome.tabs.create({ url: dedicatedUrl || `${config.appUrl}/knowledge-base`, active: false });
   try {
     await loaded(tab.id);
     return await fn(tab.id);

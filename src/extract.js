@@ -371,6 +371,23 @@ function chatGptInferredTurns(root, bubbles, existingCandidates) {
   return result;
 }
 
+const GENERIC_TITLES = /^(chatgpt|claude|gemini|new chat|new conversation)$/i;
+const cleanTitle = text => (text || '').replace(/[\s\u00a0]+/g, ' ').replace(/[\s⌄⌃▾▼˅∨›>]+$/u, '').trim();
+// Site-visible top-level title: active sidebar link / header title, then doc.title minus provider suffix.
+export function conversationTitle(doc, provider, url = '') {
+  let path = ''; try { path = new URL(url, 'https://x.invalid').pathname; } catch {}
+  const bySelector = selectors => { for (const selector of selectors) { try { for (const node of doc.querySelectorAll(selector)) { const text = cleanTitle(node.textContent); if (text && !GENERIC_TITLES.test(text)) return text; } } catch {} } return ''; };
+  const active = path && path !== '/' ? [`nav a[href$="${path}"]`, `a[href$="${path}"][aria-current]`, `a[href$="${path}"][data-active]`] : [];
+  const sources = {
+    ChatGPT: [...active, 'nav a[aria-current="page"]', '[data-testid="conversation-title"]', '#page-header button', 'header button[aria-haspopup="menu"]'],
+    Claude: ['[data-testid="chat-title-button"]', ...active, 'header [data-testid="chat-title"]'],
+    Gemini: [...active, '.conversation.selected', '[data-test-id="conversation"][aria-selected="true"]', '.conversation-title'],
+  }[provider] || [];
+  const found = bySelector(sources);
+  if (found) return found;
+  const fromDoc = cleanTitle((doc.title || '').replace(/\s*[-|–]\s*(ChatGPT|Claude|Gemini)\s*$/i, ''));
+  return fromDoc && !GENERIC_TITLES.test(fromDoc) ? fromDoc : 'Conversation';
+}
 export function extractConversation(doc = document, url = location.href, options = {}) {
   const host = new URL(url).hostname;
   const includeMarkdown = options.includeMarkdown !== false;
@@ -977,5 +994,5 @@ export function extractConversation(doc = document, url = location.href, options
   const publicArtifacts = artifacts.map(({ _frameTitle, _frameTestId, _panelTestId, _panelArtifactId, _panelLabel, ...artifact }) => artifact);
   const streaming = !!doc.querySelector('[data-is-streaming="true"], [data-testid="stop-button"], button[aria-label="Stop response"]');
   const layout = options.includeLayout ? Object.fromEntries(['color','background-color','font-family','font-size','line-height','margin','padding'].map(property => [property, layoutStyleValues(doc.body || doc.documentElement)[property]])) : undefined;
-  return { title: doc.title.replace(/\s*[-|–]\s*(ChatGPT|Claude|Gemini)\s*$/i, '').trim() || 'Conversation', url, provider, capturedAt: new Date().toISOString(), warning, messages: publicMessages, sections: publicSections, media, artifacts: publicArtifacts, streaming, ...(layout ? { layout, layoutHtml } : {}) };
+  return { title: conversationTitle(doc, provider, url), url, provider, capturedAt: new Date().toISOString(), warning, messages: publicMessages, sections: publicSections, media, artifacts: publicArtifacts, streaming, ...(layout ? { layout, layoutHtml } : {}) };
 }
