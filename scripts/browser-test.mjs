@@ -22,6 +22,7 @@ const longConsent = Array.from({ length: 14 }, (_, i) => `<p>Consent detail ${i 
 const pdfFixture = Buffer.from('%PDF-1.4\n% browser media fixture\n%%EOF\n', 'latin1');
 const fixtureCss = 'body{margin:0;background:#f5f5f2;color:#242824;font:16px/1.6 Georgia,serif}main.chat{max-width:700px;margin:0 auto;padding:32px 24px;min-height:100vh}[data-message-author-role]{display:block;margin:18px 0;padding:16px 20px;border-radius:12px;background:white;box-shadow:0 1px 3px #0001}[data-message-author-role="user"]{margin-left:90px;background:#e9eee9;font-family:system-ui,sans-serif}.long-answer p{margin:0 0 18px}.research-question{color:#203c2d}.answer-card{max-width:660px;margin:18px auto;padding:22px 26px;border:1px solid #d8e0d8;border-radius:14px;background:linear-gradient(135deg,#fff 0%,#eef5ef 100%);color:#24372c;font:16px/1.65 Georgia,serif}.answer-heading{font:600 26px/1.2 Georgia,serif;color:#244f38}.evidence-image{width:480px;height:240px;object-fit:contain}.evidence-chart{display:block;width:480px;height:180px}.evidence-table{width:100%;border-collapse:collapse}.evidence-table th{text-align:left;border-bottom:2px solid #285b42}.answer-card pre{padding:14px;background:#f2f1eb;white-space:pre-wrap}@media(max-width:720px){.answer-card{max-width:calc(100vw - 100px)}.evidence-image,.evidence-chart{width:100%;max-width:100%}}';
 let locked = false;
+let recoveryLocked = false;
 const app = createServer(async (req, res) => {
   const path = new URL(req.url, 'http://fixture').pathname;
   if (path === '/media/evidence.png') {
@@ -55,7 +56,13 @@ const app = createServer(async (req, res) => {
       <div data-message-author-role="assistant"><p>Recruitment and review time are the main risks.</p></div>
     </main>`);
   }
-  if (locked) { res.writeHead(423, { 'Content-Type': 'application/json' }); return res.end('{"error":"Workspace locked"}'); }
+  const reqPath = new URL(req.url, 'http://fixture').pathname;
+  if (recoveryLocked) {
+    if (req.headers.accept === 'application/json') { res.writeHead(423, { 'Content-Type': 'application/json' }); return res.end('{"error":"Enter the recovery passphrase to unlock encrypted data."}'); }
+    if (reqPath !== '/recovery-secret') { res.writeHead(302, { Location: '/recovery-secret' }); return res.end(); }
+  }
+  // Typing lock: reads redirect to the lock screen at '/'; the KB upload is the write-only bypass.
+  if (locked && req.method === 'GET' && !['/', '/robots.txt'].includes(reqPath)) { res.writeHead(302, { Location: '/' }); return res.end(); }
   if (req.method === 'GET' && new URL(req.url, 'http://fixture').pathname === '/knowledge-base/project-list') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     return res.end(JSON.stringify({ projects: [{ source: 0, rel: 'Ferment', name: 'Ferment', locked: false }, { source: 1, rel: 'Deep/Sealed <b>', name: 'Sealed <b>', locked: true }] }));
@@ -103,6 +110,13 @@ try {
     await chrome.runtime.sendMessage({ type: 'settings' });
   }, { appUrl, queueUrl, token });
   await ui.reload();
+  // Section headers and the rail exist only while the capture panel is open.
+  const closeCapture = page => page.locator('#idea-capture-panel [data-action="toggle-panel"]').evaluate(button => button.getAttribute('aria-expanded') === 'true' && button.click());
+  const openCapture = async page => {
+    const toggle = page.locator('#idea-capture-panel [data-action="toggle-panel"]');
+    await toggle.waitFor({ state: 'attached' });
+    if (await toggle.getAttribute('aria-expanded') !== 'true') await toggle.evaluate(button => button.click());
+  };
   const target = await context.newPage();
   target.on('console', message => {
     if (message.type() === 'error' && /Content Security Policy|Refused to apply inline style|style-src/i.test(message.text())) cspErrors.push(message.text());
@@ -110,7 +124,9 @@ try {
   await target.goto(`${appUrl}/chat`);
   const tabId = await worker.evaluate(async appUrl => (await chrome.tabs.query({ url: `${appUrl}/chat` }))[0].id, appUrl);
   await target.locator('#idea-capture-panel').waitFor();
-  assert.equal(await target.locator('.idea-capture-section-header').count(), 3, 'manifest content script adds controls before an explicit capture request');
+  assert.equal(await target.locator('.idea-capture-section-header').count(), 0, 'closed panel leaves the page untouched');
+  await target.locator('#idea-capture-panel [data-action="toggle-panel"]').click();
+  assert.equal(await target.locator('.idea-capture-section-header').count(), 3, 'opening the panel adds the section headers');
   const headers = target.locator('.idea-capture-section-header');
   const initialHeaderBounds = await headers.first().evaluate(node => {
     const parent = node.parentElement;
@@ -125,6 +141,7 @@ try {
   const panel = target.locator('#idea-capture-panel');
   const rail = target.locator('#idea-capture-margin-controls');
   const panelToggle = panel.locator('[data-action="toggle-panel"]');
+  await panelToggle.click();
   assert.equal(await panelToggle.getAttribute('aria-expanded'), 'false', 'the section widget starts closed');
   assert.equal(await panel.locator('.panel-body').isHidden(), true);
   await mkdir('artifacts', { recursive: true });
@@ -348,7 +365,7 @@ try {
   await waitForCaptureHost(pathScopePage, false);
 
   const project = await context.newPage();
-  await project.goto('https://chatgpt.com/g/g-p-demo/project');
+  await project.goto('https://chatgpt.com/g/g-p-demo/c/123');
   const projectHost = project.locator('[data-idea-capture-owned="host"]');
   await projectHost.waitFor({ state: 'attached' });
   await project.waitForFunction(() => {
@@ -426,6 +443,7 @@ try {
     document.querySelector('#inline-png').src = canvas.toDataURL('image/png');
     document.querySelector('#inline-webp').src = canvas.toDataURL('image/webp');
   });
+  await openCapture(project);
   await project.locator('.idea-capture-section-header').first().waitFor();
   const projectCapture = await send({ type: 'capture', tabId: projectTabId });
   assert.equal(projectCapture.ok, true, projectCapture.error);
@@ -451,6 +469,7 @@ try {
   const actualLayout = await context.newPage();
   await actualLayout.setViewportSize({ width: 1440, height: 900 });
   await actualLayout.goto('https://chatgpt.com/g/g-p-demo/c/actual-layout');
+  await openCapture(actualLayout);
   await actualLayout.locator('.idea-capture-section-header').first().waitFor();
   const nativeComposerGeometry = await actualLayout.evaluate(() => {
     const native = window.__nativeComposerGeometry;
@@ -529,6 +548,7 @@ try {
   assert.equal(await actualLayout.locator('#project-link').getAttribute('href'), '#project-link', 'sidebar navigation remains intact');
   assert.equal(await actualLayout.locator('.composer [contenteditable="true"]').textContent(), 'Ask anything', 'the composer remains intact');
   assert.equal(await actualLayout.locator('.markdown a').count(), 1, 'links in provider message content remain intact');
+  await actualLayout.locator('#idea-capture-panel [data-action="toggle-panel"]').evaluate(button => button.click());
   const dock = await actualLayout.evaluate(() => new Promise(resolve => requestAnimationFrame(() => {
     const panel = document.querySelector('[data-idea-capture-owned="host"]').shadowRoot.querySelector('#idea-capture-panel');
     const panelRect = panel.getBoundingClientRect();
@@ -576,6 +596,7 @@ try {
   const reportedLayout = await context.newPage();
   await reportedLayout.setViewportSize({ width: 1440, height: 900 });
   await reportedLayout.goto('https://chatgpt.com/g/g-p-demo/c/reported-layout');
+  await openCapture(reportedLayout);
   await reportedLayout.locator('.idea-capture-section-header').first().waitFor();
   assert.equal(await reportedLayout.locator('.idea-capture-section-header').count(), 2, 'the reported user bubble layout creates two prompt sections');
   assert.equal(await reportedLayout.locator('.bg-user-message').count(), 2);
@@ -653,7 +674,7 @@ try {
   assert.match(collapsedReportedExport.conversation.messages[3].markdown, /three participants/);
   assert.equal(collapsedReportedExport.conversation.media.length, 1, 'collapsed reply media remains exportable');
   const reportedHeaders = reportedLayout.locator('.idea-capture-section-header');
-  await reportedHeaders.nth(0).locator('button[data-idea-section-id]').click();
+  await reportedHeaders.nth(0).locator('button[data-idea-section-id]').evaluate(button => button.click());
   assert.equal(await reportedLayout.locator('.reply-shell').first().isVisible(), true, 'expanding restores the complete nested reply shell');
   assert.equal(await reportedLayout.locator('.gallery-shell').first().isVisible(), true, 'expanding restores gallery padding and card spacing');
   assert.equal(await reportedLayout.locator('.gallery-card').first().isVisible(), true, 'expanding restores image cards');
@@ -668,12 +689,12 @@ try {
   assert.equal(await reportedLayout.locator('#reported-sibling-code').evaluate((node, original) => node === original, reportedCodePanelHandle), true, 'expanding restores the same code panel node');
   assert.equal(await reportedLayout.locator('#reported-orphan-references').isVisible(), true, 'expanding restores sibling reference chips');
   assert.equal(await reportedLayout.locator('#reported-orphan-actions').isVisible(), true, 'expanding restores sibling action controls');
-  await reportedHeaders.nth(1).locator('button[data-idea-section-id]').click();
+  await reportedHeaders.nth(1).locator('button[data-idea-section-id]').evaluate(button => button.click());
   assert.equal(await reportedLayout.locator('.idea-capture-section-collapsed').count(), 0, 'the second section can also be restored after export');
   // Simulate a delayed code renderer inserting a panel after the section is
   // collapsed. It should inherit the section's hidden state without shifting
   // the following prompt or response.
-  await reportedHeaders.nth(0).locator('button[data-idea-section-id]').click();
+  await reportedHeaders.nth(0).locator('button[data-idea-section-id]').evaluate(button => button.click());
   await reportedLayout.waitForFunction(() => document.querySelector('#reported-sibling-code')?.getBoundingClientRect().height === 0);
   await reportedLayout.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   const latePrompt = reportedLayout.locator('.bg-user-message').nth(1);
@@ -693,11 +714,10 @@ try {
   assert.equal(await latePrompt.evaluate((node, original) => node === original, latePromptHandle), true, 'late code insertion preserves the adjacent prompt node');
   const latePromptAfter = await latePrompt.boundingBox();
   assert.ok(latePromptBefore && latePromptAfter && Math.abs(latePromptBefore.x - latePromptAfter.x) < 1 && Math.abs(latePromptBefore.y - latePromptAfter.y) < 1, `late code added while collapsed does not shift its neighboring prompt: ${JSON.stringify({ before: latePromptBefore, after: latePromptAfter })}`);
-  await reportedHeaders.nth(0).locator('button[data-idea-section-id]').click();
+  await reportedHeaders.nth(0).locator('button[data-idea-section-id]').evaluate(button => button.click());
   assert.equal(await reportedLayout.locator('#reported-late-code').isVisible(), true, 'expanding restores code added after collapse');
   assert.equal(await reportedLayout.locator('.composer [contenteditable="true"]').textContent(), composerTextBeforeReportedCollapse, 'neighboring composer content remains intact throughout code-panel collapse');
   assert.ok(await reportedLayout.locator('#thread').evaluate(node => node.scrollHeight) > reportedHeightAfterFirstCollapse + 180, 'expanding restores the removed vertical space');
-  await reportedLayout.locator('#idea-capture-panel [data-action="toggle-panel"]').click();
   const reportedChecks = reportedLayout.locator('#idea-capture-panel input[data-section-id]');
   assert.equal(await reportedChecks.count(), 2);
   await reportedChecks.first().uncheck();
@@ -712,7 +732,9 @@ try {
   const borderAnchor = await context.newPage();
   await borderAnchor.setViewportSize({ width: 1440, height: 900 });
   await borderAnchor.goto('https://chatgpt.com/g/p-demo/c/input-border-anchor');
+  await openCapture(borderAnchor);
   await borderAnchor.locator('.idea-capture-section-header').first().waitFor();
+  await borderAnchor.locator('#idea-capture-panel [data-action="toggle-panel"]').evaluate(button => button.click()); // dock geometry is measured closed
   await borderAnchor.waitForFunction(() => document.querySelector('[data-idea-capture-owned="host"]')?.shadowRoot?.querySelector('#idea-capture-panel.is-docked'));
   await borderAnchor.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   const borderAnchorSample = () => borderAnchor.evaluate(() => {
@@ -726,6 +748,8 @@ try {
   console.log(`Visible input border anchor repro: ${JSON.stringify(borderAnchorEvidence)}`);
   await writeFile('artifacts/input-border-anchor.json', JSON.stringify(borderAnchorEvidence, null, 2));
   assert.ok(Math.abs(borderAnchorEvidence.gap + 1) <= 1, `closed widget tab overlaps the visible rounded input surface top border by 1px: ${JSON.stringify(borderAnchorEvidence)}`);
+  await openCapture(borderAnchor);
+  await borderAnchor.locator('.idea-capture-section-header').first().waitFor();
   const headerHitTest = await borderAnchor.evaluate(() => {
     const editor = document.querySelector('.composer [contenteditable="true"]');
     const header = document.querySelector('.idea-capture-section-header');
@@ -744,6 +768,7 @@ try {
   await borderAnchor.evaluate(() => document.querySelector('.idea-capture-section-header').removeAttribute('style'));
   const borderNative = await borderAnchor.evaluate(() => ({ rect: window.__nativeComposerRect, scroll: window.__nativeScrollStyle, current: (() => { const r = document.querySelector('.composer').getBoundingClientRect(); return { x:r.x,y:r.y,width:r.width,height:r.height,top:r.top,bottom:r.bottom }; })() }));
   assert.deepEqual(borderNative.current, borderNative.rect, `injection preserves the native composer form geometry: ${JSON.stringify(borderNative)}`);
+  await borderAnchor.locator('#idea-capture-panel [data-action="toggle-panel"]').evaluate(button => button.click()); // back to closed
   const borderToggle = borderAnchor.locator('[data-idea-capture-owned="host"]').evaluateHandle(host => host.shadowRoot.querySelector('[data-action="toggle-panel"]'));
   const waitBorderFrame = () => borderAnchor.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   await borderToggle.then(handle => handle.asElement().click());
@@ -850,7 +875,9 @@ try {
   const claudeComposer = await context.newPage();
   await claudeComposer.setViewportSize({ width: 1440, height: 900 });
   await claudeComposer.goto('https://claude.ai/chat/composer-anchor');
+  await openCapture(claudeComposer);
   await claudeComposer.locator('.idea-capture-section-header').first().waitFor();
+  await closeCapture(claudeComposer); // geometry below is measured with the launcher closed
   await claudeComposer.waitForFunction(() => document.querySelector('[data-idea-capture-owned="host"]')?.shadowRoot?.querySelector('#idea-capture-panel.is-docked'));
   const claudeDock = await claudeComposer.evaluate(() => {
     const outer = document.querySelector('.composer'), input = outer.querySelector('[contenteditable="true"]');
@@ -885,7 +912,9 @@ try {
   const pill = await context.newPage();
   await pill.setViewportSize({ width: 1440, height: 900 });
   await pill.goto('https://chatgpt.com/c/pill-surface');
+  await openCapture(pill);
   await pill.locator('.idea-capture-section-header').first().waitFor();
+  await closeCapture(pill); // geometry below is measured with the launcher closed
   await pill.waitForFunction(() => document.querySelector('[data-idea-capture-owned="host"]')?.shadowRoot?.querySelector('#idea-capture-panel.is-docked'));
   await framesOf(pill);
   const pillTab = await tabSample(pill, '.input-surface');
@@ -1078,7 +1107,9 @@ try {
   const stickyRepro = await context.newPage();
   await stickyRepro.setViewportSize({ width: 1440, height: 900 });
   await stickyRepro.goto('https://chatgpt.com/g/p-demo/c/sticky-composer-wheel');
+  await openCapture(stickyRepro);
   await stickyRepro.locator('.idea-capture-section-header').first().waitFor();
+  await closeCapture(stickyRepro);
   await stickyRepro.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   const stickyNativeGeometry = await stickyRepro.evaluate(() => {
     const before = window.__nativeComposerGeometry;
@@ -1134,6 +1165,7 @@ try {
   }
   const reportedSingleLayout = await context.newPage();
   await reportedSingleLayout.goto('https://chatgpt.com/g/g-p-demo/c/reported-single-layout');
+  await openCapture(reportedSingleLayout);
   await reportedSingleLayout.locator('.idea-capture-section-header').first().waitFor();
   const reportedSingleTabId = await worker.evaluate(async () => (await chrome.tabs.query({ url: 'https://chatgpt.com/g/g-p-demo/c/reported-single-layout' }))[0].id);
   const reportedSingleCapture = await send({ type: 'capture', tabId: reportedSingleTabId });
@@ -1144,6 +1176,7 @@ try {
   await roleWrapperPage.setViewportSize({ width: 1440, height: 900 });
   await roleWrapperPage.goto('https://chatgpt.com/g/g-p-demo/c/role-wrapper-layout');
   const roleHeaders = roleWrapperPage.locator('.idea-capture-section-header');
+  await openCapture(roleWrapperPage);
   await roleHeaders.first().waitFor();
   assert.equal(await roleHeaders.count(), 2, 'full-width role wrappers create two prompt sections');
   const galleryCardBounds = await roleWrapperPage.locator('#gallery .gallery-card').last().boundingBox();
@@ -1165,7 +1198,7 @@ try {
   await project.waitForFunction(() => {
     const shadow = document.querySelector('[data-idea-capture-owned="host"]')?.shadowRoot;
     const button = shadow?.querySelector('[data-action="toggle-panel"]');
-    return button?.getAttribute('aria-expanded') === 'false' && shadow?.querySelector('#idea-capture-margin-controls:not([hidden])');
+    return button?.getAttribute('aria-expanded') === 'true' && shadow?.querySelector('#idea-capture-margin-controls:not([hidden])');
   }, null, { timeout: 5000 }).catch(async error => {
     const state = await project.evaluate(() => {
       const shadow = document.querySelector('[data-idea-capture-owned="host"]')?.shadowRoot;
@@ -1179,7 +1212,7 @@ try {
   await project.setViewportSize({ width: 1280, height: 900 });
   await project.screenshot({ path: 'artifacts/chatgpt-project-collapsed-launcher.png' });
   const projectRailAction = await project.evaluate(() => document.querySelector('[data-idea-capture-owned="host"]')?.shadowRoot?.querySelector('#idea-capture-margin-controls button[data-idea-section-id]'));
-  assert.ok(projectRailAction, 'side rail remains available while the section launcher is closed');
+  assert.ok(projectRailAction, 'side rail is available while the capture panel is open');
   await project.evaluate(() => document.querySelector('[data-idea-capture-owned="host"]')?.shadowRoot?.querySelector('#idea-capture-margin-controls button[data-idea-section-id]')?.click());
   const collapsedProjectCapture = await send({ type: 'capture', tabId: projectTabId, mode: 'export' });
   assert.equal(collapsedProjectCapture.ok, true, collapsedProjectCapture.error);
@@ -1313,11 +1346,11 @@ try {
   await panelToggle.click();
   const orderedPage = await context.newPage();
   await orderedPage.goto(`${appUrl}/ordered-turns`);
+  await openCapture(orderedPage);
   await orderedPage.locator('.idea-capture-section-header').nth(2).waitFor();
   const orderedWidget = orderedPage.locator('#idea-capture-panel');
-  await orderedWidget.locator('[data-action="toggle-panel"]').click();
   await orderedWidget.locator('[data-action="collapse-all"]').click();
-  await orderedPage.locator('.idea-capture-section-header button').nth(0).click();
+  await orderedPage.locator('.idea-capture-section-header button').nth(0).evaluate(button => button.click());
   const orderedGeometry = await orderedPage.evaluate(() => ({
     replyBottom: document.querySelector('[data-testid="conversation-turn-1"]').getBoundingClientRect().bottom,
     nextHeaderTop: document.querySelectorAll('.idea-capture-section-header')[1].getBoundingClientRect().top,
@@ -1329,10 +1362,9 @@ try {
   const stress = await context.newPage();
   await stress.setViewportSize({ width: 360, height: 780 });
   await stress.goto(`${appUrl}/layout-stress`);
+  await openCapture(stress);
   await stress.locator('.idea-capture-section-header').nth(11).waitFor();
   const stressPanel = stress.locator('#idea-capture-panel');
-  const stressToggle = stressPanel.locator('[data-action="toggle-panel"]');
-  await stressToggle.click();
   assert.equal(await stress.locator('.idea-capture-section-header').count(), 12, 'long conversation fixture exposes all 12 section controls');
   assert.equal(await stressPanel.locator('.row').count(), 12, 'the widget lists all 12 sections');
   const stressMetrics = await stressPanel.evaluate(node => {
@@ -1375,8 +1407,7 @@ try {
   await stress.screenshot({ path: 'artifacts/widget-long-labels-360x480.png' });
 
   // The side rail tracks the turn under the viewport center and collapses the complete group in place.
-  await panelToggle.click();
-  assert.equal(await panel.locator('.panel-body').isHidden(), true);
+  await openCapture(target); // the rail exists only while the panel is open
   await target.setViewportSize({ width: 1280, height: 900 });
   const firstSectionBounds = await target.evaluate(() => {
     const header = document.querySelector('.idea-capture-section-header');
@@ -1454,7 +1485,6 @@ try {
   await target.evaluate(() => document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })));
   await headers.nth(1).evaluate(node => node.scrollIntoView({ block: 'center' }));
   await target.waitForFunction(() => document.querySelector('#idea-capture-controls')?.shadowRoot?.querySelector('#idea-capture-margin-controls button[aria-label]')?.getAttribute('aria-label').includes('project timeline'));
-  await panelToggle.click();
   assert.equal(await panel.locator('.panel-body').isVisible(), true);
 
   // Unchecking a section filters exports; collapsing selected sections only changes page visibility.
@@ -1490,6 +1520,7 @@ try {
     const assistant = document.createElement('div'); assistant.dataset.messageAuthorRole = 'assistant'; assistant.textContent = 'Document the fallback behavior.';
     document.querySelector('main').append(user, assistant);
   });
+  await openCapture(target);
   await target.locator('.idea-capture-section-header').nth(3).waitFor();
   assert.equal(await target.locator('.idea-capture-section-header').count(), 4);
   await panel.locator('input[data-section-id]').nth(3).waitFor();
@@ -1536,10 +1567,14 @@ try {
     assert.match(uploads.at(-1).toString(), format === 'md' ? /## Assistant/ : /text\/html/);
   }
   locked = true;
+  const lockedSend = await send({ type: 'export', destination: 'kb', format: 'md', conversation: captured.conversation });
+  assert.equal(lockedSend.ok, true, `KB upload works while the typing lock is engaged: ${lockedSend.error}`);
+  locked = false;
+  recoveryLocked = true;
   const uploadCountBeforeLockedAttempt = uploads.length;
   const rejected = await send({ type: 'export', destination: 'kb', format: 'md', conversation: captured.conversation });
-  assert.equal(rejected.ok, false); assert.match(rejected.error, /unlock/i); assert.equal(uploads.length, uploadCountBeforeLockedAttempt);
-  locked = false;
+  assert.equal(rejected.ok, false); assert.match(rejected.error, /recovery passphrase/i); assert.equal(uploads.length, uploadCountBeforeLockedAttempt);
+  recoveryLocked = false;
   const queueRequest = (path, body) => fetch(queueUrl + path, { method: body ? 'POST' : 'GET', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
   const job = await (await queueRequest('/jobs', { url: `${appUrl}/chat?thread=next`, format: 'md' })).json();
   await send({ type: 'poll' });

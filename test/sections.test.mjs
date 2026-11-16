@@ -72,7 +72,7 @@ test('section selection removes excluded media and its placeholder with the excl
     <div data-message-author-role="user">Keep this question</div>
     <div data-message-author-role="assistant">Keep this answer</div>
   </main>`, { url: 'https://chatgpt.com/c/1', pretendToBeVisual: true });
-  const controls = createCaptureControls(dom.window.document, dom.window);
+  const controls = createCaptureControls(dom.window.document, dom.window); controls.open();
   try {
     const checkbox = dom.window.document.querySelector('.idea-capture-section-header input');
     checkbox.checked = false;
@@ -101,7 +101,7 @@ test('inline controls preserve selection through updates, collapse reversibly, a
   const dom = page();
   const { document, location } = dom.window;
   installCollapseStyle(document);
-  const controls = createCaptureControls(document, dom.window);
+  const controls = createCaptureControls(document, dom.window); controls.open();
   let current = controls.capture('preview');
   assert.equal(current.sections.filter(section => section.selected).length, 2);
   const headers = [...document.querySelectorAll('.idea-capture-section-header')];
@@ -157,7 +157,7 @@ test('controller collapses read-only code surfaces and panels without hiding a n
   </main>`, { url: 'https://chatgpt.com/c/123', pretendToBeVisual: true });
   const { document } = dom.window;
   installCollapseStyle(document);
-  const controls = createCaptureControls(document, dom.window);
+  const controls = createCaptureControls(document, dom.window); controls.open();
   t.after(() => { controls.destroy(); dom.window.close(); });
 
   const headers = [...document.querySelectorAll('.idea-capture-section-header')];
@@ -180,7 +180,7 @@ test('controller leaves a read-only textarea outside a marked code frame visible
   </main>`, { url: 'https://chatgpt.com/c/123', pretendToBeVisual: true });
   const { document } = dom.window;
   installCollapseStyle(document);
-  const controls = createCaptureControls(document, dom.window);
+  const controls = createCaptureControls(document, dom.window); controls.open();
   t.after(() => { controls.destroy(); dom.window.close(); });
   document.querySelector('.idea-capture-section-header button').click();
   assert.ok(document.querySelector('pre').closest('.idea-capture-section-collapsed'));
@@ -195,7 +195,7 @@ test('a collapsed latest section absorbs and exports content appended by a strea
     </div>
   </main>`, { url: 'https://chatgpt.com/c/stream', pretendToBeVisual: true });
   const { document } = dom.window;
-  const controls = createCaptureControls(document, dom.window);
+  const controls = createCaptureControls(document, dom.window); controls.open();
   t.after(() => { controls.destroy(); dom.window.close(); });
   const shadow = document.querySelector('[data-idea-capture-owned="host"]').shadowRoot;
   shadow.querySelector('button.collapse').click();
@@ -217,7 +217,7 @@ test('section headers stay in chronological DOM order while later and earlier tu
   </main></body></html>`, { url: 'https://chatgpt.com/c/1', pretendToBeVisual: true });
   const { document } = dom.window;
   installCollapseStyle(document);
-  const controls = createCaptureControls(document, dom.window);
+  const controls = createCaptureControls(document, dom.window); controls.open();
   const turns = [...document.querySelectorAll('article')];
   const shadow = document.querySelector('[data-idea-capture-owned="host"]').shadowRoot;
   assert.equal(shadow.querySelector('[data-action="allow-media"]'), null, 'the capture panel does not request media access');
@@ -279,7 +279,7 @@ test('immediate DOM replacement before export keeps matching section selection',
   const dom = page();
   const { document } = dom.window;
   installCollapseStyle(document);
-  const controls = createCaptureControls(document, dom.window);
+  const controls = createCaptureControls(document, dom.window); controls.open();
   const headers = [...document.querySelectorAll('.idea-capture-section-header')];
   const secondId = headers[1].querySelector('input').dataset.ideaSectionId;
   const secondCheckbox = headers[1].querySelector('input');
@@ -303,7 +303,7 @@ test('replacing only a user node preserves its section state through immediate e
   const dom = page();
   const { document } = dom.window;
   installCollapseStyle(document);
-  const controls = createCaptureControls(document, dom.window);
+  const controls = createCaptureControls(document, dom.window); controls.open();
   const secondHeader = [...document.querySelectorAll('.idea-capture-section-header')][1];
   const secondId = secondHeader.querySelector('input').dataset.ideaSectionId;
   secondHeader.querySelector('button').click();
@@ -334,7 +334,7 @@ test('destroy and reinstall removes only owned DOM, styles, listeners, and colla
   const pageHost = document.createElement('div'); pageHost.id = 'idea-capture-controls'; pageHost.textContent = 'page-owned'; document.body.append(pageHost);
   const pageStyle = document.createElement('style'); pageStyle.id = 'idea-capture-section-style'; document.head.append(pageStyle);
   installCollapseStyle(document);
-  const controls = createCaptureControls(document, dom.window);
+  const controls = createCaptureControls(document, dom.window); controls.open();
   assert.equal(pageHost.textContent, 'page-owned');
   assert.ok(document.querySelector('[data-idea-capture-owned="host"]')?.id !== pageHost.id);
   assert.equal(document.querySelectorAll('style[data-idea-capture-owned="style"]').length, 1);
@@ -351,4 +351,50 @@ test('destroy and reinstall removes only owned DOM, styles, listeners, and colla
   assert.equal(document.querySelectorAll('[data-idea-capture-owned="host"]').length, 1);
   reinstalled.destroy();
   dom.window.close();
+});
+
+test('non-conversation provider routes show no launcher, headers or rail; open() still works', t => {
+  const dom = new JSDOM('<!doctype html><html><body><main><div class="font-claude-response">Welcome back</div></main></body></html>', { url: 'https://claude.ai/login?returnTo=%2F', pretendToBeVisual: true });
+  const { document } = dom.window;
+  const controls = createCaptureControls(document, dom.window);
+  t.after(() => { controls.destroy(); dom.window.close(); });
+  const shadow = document.querySelector('[data-idea-capture-owned="host"]').shadowRoot;
+  assert.equal(shadow.querySelector('[data-idea-panel]').hidden, true, 'no launcher on login');
+  assert.equal(shadow.querySelector('#idea-capture-margin-controls').hidden, true);
+  assert.equal(document.querySelectorAll('.idea-capture-section-header').length, 0);
+  controls.open();
+  assert.equal(shadow.querySelector('[data-idea-panel]').hidden, false, 'toolbar action still opens the panel');
+});
+
+test('claude.ai bare /project/<id> keeps the launcher', t => {
+  const dom = new JSDOM('<!doctype html><html><body><main></main></body></html>', { url: 'https://claude.ai/project/abc', pretendToBeVisual: true });
+  const { document } = dom.window;
+  const controls = createCaptureControls(document, dom.window);
+  t.after(() => { controls.destroy(); dom.window.close(); });
+  const shadow = document.querySelector('[data-idea-capture-owned="host"]').shadowRoot;
+  assert.equal(shadow.querySelector('[data-idea-panel]').hidden, false, 'launcher on project page');
+});
+
+test('closed panel leaves the conversation untouched; opening adds headers, closing removes them and restores collapse', t => {
+  const dom = page();
+  const { document } = dom.window;
+  installCollapseStyle(document);
+  const controls = createCaptureControls(document, dom.window);
+  t.after(() => { controls.destroy(); dom.window.close(); });
+  const shadow = document.querySelector('[data-idea-capture-owned="host"]').shadowRoot;
+  const toggle = shadow.querySelector('[data-action="toggle-panel"]');
+  assert.equal(shadow.querySelector('[data-idea-panel]').hidden, false, 'launcher stays on a conversation route');
+  assert.equal(document.querySelectorAll('.idea-capture-section-header').length, 0);
+  assert.equal(shadow.querySelector('#idea-capture-margin-controls').hidden, true);
+  toggle.click();
+  assert.equal(document.querySelectorAll('.idea-capture-section-header').length, 2);
+  document.querySelector('.idea-capture-section-header button').click();
+  assert.equal(document.querySelectorAll('.idea-capture-section-collapsed').length > 0, true);
+  toggle.click();
+  assert.equal(document.querySelectorAll('.idea-capture-section-header').length, 0);
+  assert.equal(document.querySelectorAll('.idea-capture-section-collapsed').length, 0, 'collapse is restored while closed');
+  assert.equal(shadow.querySelector('#idea-capture-margin-controls').hidden, true);
+  toggle.click();
+  assert.equal(document.querySelectorAll('.idea-capture-section-header').length, 2);
+  assert.equal(document.querySelectorAll('.idea-capture-section-collapsed').length > 0, true, 'collapse state returns on reopen');
 });

@@ -19,7 +19,7 @@ test('either conversation gutter toggles the section whose visible vertical span
     <div data-message-author-role="user">Second prompt</div><div data-message-author-role="assistant">Second answer</div>
   </main></body></html>`, { url: 'https://chatgpt.com/c/1', pretendToBeVisual: true });
   const { document } = dom.window;
-  const controls = createCaptureControls(document, dom.window);
+  const controls = createCaptureControls(document, dom.window); controls.open();
   t.after(() => { controls.destroy(); dom.window.close(); });
 
   const main = document.querySelector('main');
@@ -78,7 +78,7 @@ test('blank padding inside full-width role wrappers toggles while gallery media 
     <div class="assistant-turn" data-message-author-role="assistant"><div class="markdown"><p>Answer</p></div><div class="image-gallery"><img src="https://cdn.example/chart.png" alt="Chart"></div></div>
   </section></main></body></html>`, { url: 'https://chatgpt.com/c/1', pretendToBeVisual: true });
   const { document } = dom.window;
-  const controls = createCaptureControls(document, dom.window);
+  const controls = createCaptureControls(document, dom.window); controls.open();
   t.after(() => { controls.destroy(); dom.window.close(); });
 
   const thread = document.querySelector('#thread');
@@ -109,7 +109,7 @@ test('gutter hit regions are clipped by scroll containers and the viewport', t =
     <div data-message-author-role="user"><p>Prompt</p></div><div data-message-author-role="assistant"><p>Answer</p></div>
   </section></main></body></html>`, { url: 'https://chatgpt.com/c/1', pretendToBeVisual: true });
   const { document } = dom.window;
-  const controls = createCaptureControls(document, dom.window);
+  const controls = createCaptureControls(document, dom.window); controls.open();
   t.after(() => { controls.destroy(); dom.window.close(); });
   const thread = document.querySelector('#thread');
   const [user, assistant] = document.querySelectorAll('[data-message-author-role]');
@@ -390,7 +390,7 @@ test('unmarked replies collapse with their prompt and direct media keeps margin 
   </main></body></html>`, { url: 'https://chatgpt.com/c/1', pretendToBeVisual: true });
   Object.defineProperty(dom.window, 'innerWidth', { configurable: true, value: 1200 });
   const { document } = dom.window;
-  const controls = createCaptureControls(document, dom.window);
+  const controls = createCaptureControls(document, dom.window); controls.open();
   t.after(() => { controls.destroy(); dom.window.close(); });
   const shadow = document.querySelector('[data-idea-capture-owned="host"]').shadowRoot;
   const header = document.querySelector('.idea-capture-section-header');
@@ -431,7 +431,7 @@ test('media in a section is retained when its shared article also contains anoth
   </article></main></body></html>`, { url: 'https://chatgpt.com/c/1', pretendToBeVisual: true });
   Object.defineProperty(dom.window, 'innerWidth', { configurable: true, value: 1200 });
   const { document } = dom.window;
-  const controls = createCaptureControls(document, dom.window);
+  const controls = createCaptureControls(document, dom.window); controls.open();
   t.after(() => { controls.destroy(); dom.window.close(); });
 
   const article = document.querySelector('article');
@@ -456,7 +456,7 @@ test('a grouped prompt and unmarked reply keep the section header visible when c
     <article><div class="bg-user-message">Question</div><div class="reply-content"><p>Unmarked answer</p></div></article>
   </main></body></html>`, { url: 'https://chatgpt.com/c/1', pretendToBeVisual: true });
   const { document } = dom.window;
-  const controls = createCaptureControls(document, dom.window);
+  const controls = createCaptureControls(document, dom.window); controls.open();
   t.after(() => { controls.destroy(); dom.window.close(); });
   const header = document.querySelector('.idea-capture-section-header');
   assert.ok(header);
