@@ -1160,6 +1160,8 @@ export function createCaptureControls(doc = document, win = window) {
         restoreClasses();
         for (const header of headers.values()) header.remove(); headers.clear();
         selected.clear(); collapsed.clear(); shouldCollapse.clear(); sections = []; sectionMediaNodes.clear(); activeSectionId = null; preserveActiveSection = false; cachedContentBounds = null; geometryRoot = null; route = nextRoute;
+        // New conversation: collapse the widget (shared by every provider).
+        if (toggleButton.getAttribute('aria-expanded') === 'true') onTogglePanel();
       }
       const previous = sections;
       const discovery = extractConversation(doc, nextRoute, { includeNodes: true, includeMarkdown: false });
