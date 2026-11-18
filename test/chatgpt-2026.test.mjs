@@ -27,7 +27,7 @@ const start = (t, dom) => { installCollapseStyle(dom.window.document); const con
 
 test('2026 markup: header is the first child of its turn, collapse hides only the turn content, expand restores', t => {
   const dom = page(); const { document } = dom.window;
-  start(t, dom);
+  start(t, dom).open();
   const turns = [...document.querySelectorAll('[data-turn-key]')];
   const headers = [...document.querySelectorAll('.idea-capture-section-header')];
   assert.equal(headers.length, 3);
@@ -96,7 +96,7 @@ test('2026 markup: with no composer on screen a code block (header or editor) is
 
 test('2026 markup: destroy removes headers and collapse state, leaving the turns intact', t => {
   const dom = page(); const { document } = dom.window;
-  const controls = createCaptureControls(document, dom.window);
+  const controls = createCaptureControls(document, dom.window); controls.open();
   installCollapseStyle(document);
   document.querySelectorAll('.idea-capture-section-header button').forEach((button, i) => { if (i !== 1) button.click(); });
   assert.equal(document.querySelectorAll('.idea-capture-section-collapsed').length, 2);

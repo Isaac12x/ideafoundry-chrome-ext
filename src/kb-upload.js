@@ -3,11 +3,13 @@ export async function uploadInApp(file, settings) {
   try {
   if (location.origin !== settings.appUrl) throw new Error('The app tab changed origin.');
   const timeout = () => AbortSignal.timeout(20_000);
-  const page = await fetch('/knowledge-base', { credentials: 'same-origin', signal: timeout() });
-  if (!page.ok || new URL(page.url).pathname !== '/knowledge-base') throw new Error('Open IdeaFoundry and unlock the workspace before sending to KB.');
+  // '/' renders (with the layout's CSRF meta) even while the typing lock is engaged; /knowledge-base would redirect to the lock screen.
+  const page = await fetch('/', { credentials: 'same-origin', signal: timeout() });
+  if (new URL(page.url).pathname === '/recovery-secret') throw new Error('Enter the recovery passphrase in IdeaFoundry to unlock encrypted data, then retry.');
+  if (!page.ok) throw new Error('Open IdeaFoundry and check it is running before sending to KB.');
   const doc = new DOMParser().parseFromString(await page.text(), 'text/html');
   const csrf = doc.querySelector('meta[name="csrf-token"]')?.content;
-  if (!csrf) throw new Error('The app did not provide a CSRF token. Unlock the workspace and retry.');
+  if (!csrf) throw new Error('The app did not provide a CSRF token. Open IdeaFoundry and retry.');
   const body = new FormData();
   body.append('src', String(settings.source));
   body.append('dir', settings.directory);

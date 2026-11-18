@@ -180,6 +180,7 @@ export function createCaptureControls(doc = document, win = window) {
     body.hidden = false;
     void loadProjects(false);
     syncDock();
+    render();
   }
   function showCaptureStatus(message, tone = 'idle') {
     captureStatus.textContent = message;
@@ -327,6 +328,7 @@ export function createCaptureControls(doc = document, win = window) {
     if (!open && !panelHeader.matches('.is-busy,.is-error')) setExportFeedback('');
     if (open) void loadProjects(false); else resetProjectLoads();
     syncDock();
+    render();
   };
   const onRailClick = event => {
     if (event.target !== railButton || !railButton.dataset.ideaSectionId) return;
@@ -419,7 +421,7 @@ export function createCaptureControls(doc = document, win = window) {
 
   function render() {
     count.textContent = `${sections.filter(section => selected.get(section.id) !== false).length} of ${sections.length} sections selected`;
-    panel.hidden = false;
+    syncLauncher();
     empty.hidden = sections.length > 0;
     emptyText.textContent = emptyMessage;
     tools.hidden = sections.length === 0;
@@ -480,7 +482,23 @@ export function createCaptureControls(doc = document, win = window) {
       diagnosticsFallback.select();
     }
   }
+  // Known providers show the launcher only on conversation routes (not login/oauth/settings); other allowed sites always do.
+  const conversationRoutes = [
+    [/(^|\.)(chatgpt\.com|chat\.openai\.com)$/i, /(^|\/)c\/[^/]+/],
+    [/(^|\.)claude\.ai$/i, /^\/(chat\/[^/]+|project\/[^/]+)/],
+    [/^gemini\.google\.com$/i, /^\/(u\/\d+\/)?app\/[^/]+/],
+  ];
+  function onConversationRoute() {
+    const { hostname, pathname } = new URL(win.location.href);
+    const known = conversationRoutes.find(([host]) => host.test(hostname));
+    return !known || known[1].test(pathname);
+  }
+  // An open panel stays visible anywhere (toolbar action); the closed launcher needs a conversation route or a real
+  // user turn (not the generic "Earlier messages" lead section).
+  function syncLauncher() { panel.hidden = body.hidden && !onConversationRoute() && !sections.some(section => section.label !== 'Earlier messages'); }
+  // Headers, collapse state and the rail are export-selection controls: only while the panel is open.
   function syncHeaders() {
+    if (body.hidden) { for (const header of headers.values()) header.remove(); headers.clear(); return; }
     const currentIds = new Set(sections.map(section => section.id));
     for (const [id, header] of headers) if (!currentIds.has(id)) { header.remove(); headers.delete(id); }
     for (const section of sections) {
@@ -557,6 +575,7 @@ export function createCaptureControls(doc = document, win = window) {
   }
   function applyCollapse() {
     shouldCollapse.clear();
+    if (body.hidden) { restoreClasses(); return; }
     for (const section of sections) for (const node of collapseTargets(section)) {
       if (!classStates.has(node)) {
         const hadClass = node.classList.contains(COLLAPSED_CLASS);
@@ -746,7 +765,7 @@ export function createCaptureControls(doc = document, win = window) {
     return edge;
   }
   function syncRail() {
-    if (!sections.length) { rail.hidden = true; return; }
+    if (!sections.length || body.hidden) { rail.hidden = true; return; }
     const section = sections.find(candidate => candidate.id === activeSectionId) || sectionAtViewportCenter();
     if (!section || collapsed.get(section.id) === true) { rail.hidden = true; return; }
     activeSectionId = section.id;
@@ -961,7 +980,7 @@ export function createCaptureControls(doc = document, win = window) {
     if (isChatGptPage()) {
       // Keep a compact, keyboard-reachable launcher available if the page is
       // between composer states or its input edge is clipped/unrecognized.
-      panel.hidden = false;
+      syncLauncher();
     }
     const overlay = docked && isChatGptPage() ? overlayFor(box) : null;
     mountHost(overlay);

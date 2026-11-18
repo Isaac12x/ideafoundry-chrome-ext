@@ -85,3 +85,32 @@ test('a cache from another app address is ignored', async () => {
   store.kbProjectsCache = { appUrl: 'https://elsewhere.test', projects: [{ source: 0, rel: 'X', name: 'X', locked: false }] };
   assert.deepEqual((await send({ type: 'kb-projects', hidden: false })).projects, []);
 });
+
+const conversation = { title: 'T', url: 'https://chatgpt.com/c/1', messages: [{ role: 'user', text: 'hi' }] };
+const sendKb = () => new Promise(resolve => onMessage({ type: 'export', destination: 'kb', format: 'md', conversation }, { id: 'me', url: 'chrome-extension://me/popup.html' }, resolve));
+const realExec = chrome.scripting.executeScript;
+const created = [];
+chrome.offscreen = { hasDocument: async () => true };
+chrome.runtime.sendMessage = async () => ({ ok: true, name: 'x.md', files: [] });
+chrome.tabs.create = async opts => { created.push(opts.url); calls.create++; return { id: 99 }; };
+
+test('KB upload ignores an open app tab and runs in a dedicated static tab that is closed', async () => {
+  reset(); created.length = 0;
+  appTabs = [{ id: 5 }];
+  chrome.scripting.executeScript = async ({ target }) => { calls.exec++; assert.equal(target.tabId, 99); return [{ result: { ok: true, name: 'x.md', appUrl: 'a' } }]; };
+  const reply = await sendKb();
+  assert.equal(reply.name, 'x.md');
+  assert.deepEqual(created, ['https://ideas.local:8443/robots.txt']);
+  assert.equal(calls.remove, 1);
+  chrome.scripting.executeScript = realExec;
+});
+
+test('a frame killed mid-upload gets a human message, no retry, and the tab is closed', async () => {
+  reset(); created.length = 0;
+  chrome.scripting.executeScript = async () => { calls.exec++; throw new Error('Frame with ID 0 was removed.'); };
+  const reply = await sendKb();
+  assert.match(reply.error, /closed or navigated during the upload.*before retrying/);
+  assert.equal(calls.exec, 1);
+  assert.equal(calls.remove, 1);
+  chrome.scripting.executeScript = realExec;
+});
