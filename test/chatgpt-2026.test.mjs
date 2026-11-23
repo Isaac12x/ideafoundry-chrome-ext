@@ -174,3 +174,13 @@ test('2026 markup: a rejected overlay is probed once, not on every sync', async 
   for (let i = 0; i < 3; i++) { document.querySelector('.thread-scroll-container').dispatchEvent(new dom.window.Event('scroll')); await new Promise(resolve => dom.window.requestAnimationFrame(resolve)); }
   assert.equal(probes, 1);
 });
+
+test('widget collapses when the conversation route changes', async t => {
+  const dom = page(); const { document } = dom.window;
+  start(t, dom).open();
+  const toggle = () => document.querySelector('#idea-capture-host, [data-idea-capture-owned="host"]').shadowRoot.querySelector('[data-action="toggle-panel"]');
+  assert.equal(toggle().getAttribute('aria-expanded'), 'true');
+  dom.window.history.pushState({}, '', '/c/2');
+  await new Promise(resolve => setTimeout(resolve, 900));
+  assert.equal(toggle().getAttribute('aria-expanded'), 'false');
+});
