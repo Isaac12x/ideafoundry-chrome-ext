@@ -14,7 +14,6 @@ const temp = await mkdtemp(join(tmpdir(), 'idea-artifact-extension-'));
 const uploads = [];
 let excludedResourceRequests = 0;
 let protectedChildRequests = 0;
-const csrfToken = 'artifact-extension-test-csrf';
 const artifactCsp = "sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data: blob:; media-src data: blob:; frame-src about:; connect-src 'none'; form-action 'none'; base-uri 'none'; object-src 'none'";
 let app;
 let context;
@@ -86,18 +85,14 @@ const claudeCss = `.claude-artifact{padding:24px;color:rgb(70,53,35);background:
 
 const appServer = createServer(async (request, response) => {
   const url = new URL(request.url, 'http://fixture');
-  if (request.method === 'GET' && url.pathname === '/knowledge-base') {
-    response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Set-Cookie': 'artifact-test-session=present; Path=/; HttpOnly; SameSite=Lax' });
-    return response.end(`<!doctype html><meta name="csrf-token" content="${csrfToken}"><h1>Knowledge base fixture</h1>`);
-  }
-  if (request.method === 'POST' && url.pathname === '/knowledge-base/fs/upload') {
-    if (request.headers['x-csrf-token'] !== csrfToken || !/artifact-test-session=present/.test(request.headers.cookie || '')) {
-      response.writeHead(403); return response.end();
+  if (request.method === 'POST' && url.pathname === '/api/v1/capture/kb/upload') {
+    if (request.headers.authorization !== 'Bearer artifact-extension-test-token-at-least-32') {
+      response.writeHead(401); return response.end();
     }
     const bytes = await readBody(request);
     uploads.push({ files: multipartFiles(request.headers['content-type'] || '', bytes), bytes });
-    response.writeHead(302, { Location: '/knowledge-base' });
-    return response.end();
+    response.writeHead(200, { 'Content-Type': 'application/json' });
+    return response.end('{"ok":true,"files":[]}');
   }
   if (request.method === 'GET' && url.pathname === '/excluded.css') {
     excludedResourceRequests++;

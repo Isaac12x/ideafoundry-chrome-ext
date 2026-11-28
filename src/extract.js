@@ -46,11 +46,17 @@ function isInSidebar(node) {
 }
 
 function isVisibleConversationNode(node) {
-  for (let current = node; current?.nodeType === 1; current = current.parentElement) {
+  // Walk root-down; once an ancestor skips rendering (content-visibility), don't call getComputedStyle inside it
+  // (that forces a style update there and logs "Rendering was performed in a subtree hidden by content-visibility").
+  const chain = [];
+  for (let current = node; current?.nodeType === 1; current = current.parentElement) chain.unshift(current);
+  let skipped = false;
+  for (const current of chain) {
     if (current.hidden || current.getAttribute('aria-hidden') === 'true' || /display\s*:\s*none|visibility\s*:\s*(hidden|collapse)/i.test(current.getAttribute('style') || '')) return false;
-    if (current.classList.contains('idea-capture-section-collapsed')) continue;
+    if (skipped || current.classList.contains('idea-capture-section-collapsed')) continue;
     const style = current.ownerDocument?.defaultView?.getComputedStyle?.(current);
     if (style?.display === 'none' || style?.visibility === 'hidden' || style?.visibility === 'collapse') return false;
+    if (style?.contentVisibility === 'hidden' || (style?.contentVisibility === 'auto' && current.checkVisibility?.({ contentVisibilityAuto: true }) === false)) skipped = true;
   }
   return true;
 }
@@ -78,16 +84,7 @@ function chatGptRole(node) {
 
 export function chatGptConversationRoot(doc) {
   const roots = [...doc.querySelectorAll('#thread, main, [role="main"]')].filter(node => !isInSidebar(node));
-  const visible = node => {
-    for (let current = node; current?.nodeType === 1; current = current.parentElement) {
-      if (current.hidden || current.getAttribute('aria-hidden') === 'true') return false;
-      if (/display\s*:\s*none|visibility\s*:\s*(hidden|collapse)/i.test(current.getAttribute('style') || '')) return false;
-      if (current.classList.contains('idea-capture-section-collapsed')) continue;
-      const style = doc.defaultView?.getComputedStyle?.(current);
-      if (style?.display === 'none' || style?.visibility === 'hidden' || style?.visibility === 'collapse') return false;
-    }
-    return true;
-  };
+  const visible = isVisibleConversationNode;
   const count = (node, selector) => [...node.querySelectorAll(selector)]
     .filter(candidate => !isInSidebar(candidate) && visible(candidate)).length;
   const score = node => {

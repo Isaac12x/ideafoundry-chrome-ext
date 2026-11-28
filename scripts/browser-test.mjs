@@ -21,7 +21,6 @@ const longResearch = Array.from({ length: 18 }, (_, i) => `<p>Research note ${i 
 const longConsent = Array.from({ length: 14 }, (_, i) => `<p>Consent detail ${i + 1}: explain the purpose, storage period, access rules, and withdrawal process in plain language.</p>`).join('');
 const pdfFixture = Buffer.from('%PDF-1.4\n% browser media fixture\n%%EOF\n', 'latin1');
 const fixtureCss = 'body{margin:0;background:#f5f5f2;color:#242824;font:16px/1.6 Georgia,serif}main.chat{max-width:700px;margin:0 auto;padding:32px 24px;min-height:100vh}[data-message-author-role]{display:block;margin:18px 0;padding:16px 20px;border-radius:12px;background:white;box-shadow:0 1px 3px #0001}[data-message-author-role="user"]{margin-left:90px;background:#e9eee9;font-family:system-ui,sans-serif}.long-answer p{margin:0 0 18px}.research-question{color:#203c2d}.answer-card{max-width:660px;margin:18px auto;padding:22px 26px;border:1px solid #d8e0d8;border-radius:14px;background:linear-gradient(135deg,#fff 0%,#eef5ef 100%);color:#24372c;font:16px/1.65 Georgia,serif}.answer-heading{font:600 26px/1.2 Georgia,serif;color:#244f38}.evidence-image{width:480px;height:240px;object-fit:contain}.evidence-chart{display:block;width:480px;height:180px}.evidence-table{width:100%;border-collapse:collapse}.evidence-table th{text-align:left;border-bottom:2px solid #285b42}.answer-card pre{padding:14px;background:#f2f1eb;white-space:pre-wrap}@media(max-width:720px){.answer-card{max-width:calc(100vw - 100px)}.evidence-image,.evidence-chart{width:100%;max-width:100%}}';
-let locked = false;
 let recoveryLocked = false;
 const app = createServer(async (req, res) => {
   const path = new URL(req.url, 'http://fixture').pathname;
@@ -56,26 +55,8 @@ const app = createServer(async (req, res) => {
       <div data-message-author-role="assistant"><p>Recruitment and review time are the main risks.</p></div>
     </main>`);
   }
-  const reqPath = new URL(req.url, 'http://fixture').pathname;
-  if (recoveryLocked) {
-    if (req.headers.accept === 'application/json') { res.writeHead(423, { 'Content-Type': 'application/json' }); return res.end('{"error":"Enter the recovery passphrase to unlock encrypted data."}'); }
-    if (reqPath !== '/recovery-secret') { res.writeHead(302, { Location: '/recovery-secret' }); return res.end(); }
-  }
-  // Typing lock: reads redirect to the lock screen at '/'; the KB upload is the write-only bypass.
-  if (locked && req.method === 'GET' && !['/', '/robots.txt'].includes(reqPath)) { res.writeHead(302, { Location: '/' }); return res.end(); }
-  if (req.method === 'GET' && new URL(req.url, 'http://fixture').pathname === '/knowledge-base/project-list') {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    return res.end(JSON.stringify({ projects: [{ source: 0, rel: 'Ferment', name: 'Ferment', locked: false }, { source: 1, rel: 'Deep/Sealed <b>', name: 'Sealed <b>', locked: true }] }));
-  }
-  if (req.method === 'GET' && req.headers.accept === 'application/json') { res.writeHead(406); return res.end('No JSON template'); }
-  if (req.method === 'POST') {
-    if (req.headers['x-csrf-token'] !== 'fixture-csrf') { res.writeHead(403); return res.end(); }
-    const chunks = []; for await (const chunk of req) chunks.push(chunk);
-    uploads.push(Buffer.concat(chunks));
-    res.writeHead(302, { Location: '/knowledge-base' }); return res.end();
-  }
   res.writeHead(200, { 'Content-Type': 'text/html' });
-  res.end('<!doctype html><meta name="csrf-token" content="fixture-csrf"><h1>Knowledge base fixture</h1>');
+  res.end('<!doctype html><h1>Knowledge base fixture</h1>');
 });
 const queue = createQueue({ token, storePath: join(temp, 'queue.json') });
 let context;
@@ -87,7 +68,22 @@ try {
   const appUrl = `http://127.0.0.1:${app.address().port}`;
   // Mount the queue under a path like idea-app does, to exercise base URLs with a path.
   const mount = '/api/v1/capture';
-  mounted = createServer((req, res) => { if (req.url.startsWith(`${mount}/`)) { req.url = req.url.slice(mount.length); queue.emit('request', req, res); } else { res.writeHead(404); res.end(); } });
+  mounted = createServer(async (req, res) => {
+    // Key-auth KB endpoints of idea-app; they work while the app is typing-locked.
+    if (req.url.startsWith(`${mount}/kb/`)) {
+      const json = (status, body) => { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(body)); };
+      if (req.headers.authorization !== `Bearer ${token}`) return json(401, { error: 'unauthorized' });
+      if (req.method === 'GET' && req.url === `${mount}/kb/projects`) return json(200, { projects: [{ source: 0, rel: 'Ferment', name: 'Ferment', locked: false }, { source: 1, rel: 'Deep/Sealed <b>', name: 'Sealed <b>', locked: true }] });
+      if (req.method === 'POST' && req.url === `${mount}/kb/upload`) {
+        const chunks = []; for await (const chunk of req) chunks.push(chunk);
+        if (recoveryLocked) return json(422, { error: 'Enter the recovery passphrase to unlock encrypted data.' });
+        uploads.push(Buffer.concat(chunks));
+        return json(200, { ok: true, files: [] });
+      }
+      return json(404, {});
+    }
+    if (req.url.startsWith(`${mount}/`)) { req.url = req.url.slice(mount.length); queue.emit('request', req, res); } else { res.writeHead(404); res.end(); }
+  });
   await new Promise(r => mounted.listen(0, '127.0.0.1', r));
   const queueUrl = `http://127.0.0.1:${mounted.address().port}${mount}`;
   const extension = join(temp, 'extension'); await cp('dist', extension, { recursive: true });
@@ -1566,10 +1562,6 @@ try {
     assert.equal(response.ok, true, response.error);
     assert.match(uploads.at(-1).toString(), format === 'md' ? /## Assistant/ : /text\/html/);
   }
-  locked = true;
-  const lockedSend = await send({ type: 'export', destination: 'kb', format: 'md', conversation: captured.conversation });
-  assert.equal(lockedSend.ok, true, `KB upload works while the typing lock is engaged: ${lockedSend.error}`);
-  locked = false;
   recoveryLocked = true;
   const uploadCountBeforeLockedAttempt = uploads.length;
   const rejected = await send({ type: 'export', destination: 'kb', format: 'md', conversation: captured.conversation });
