@@ -203,12 +203,15 @@ export function createCaptureControls(doc = document, win = window) {
       previewText.textContent = '';
     }
   }
+  let keyMissing = false;
   const selectedProject = () => (targetSelect.value === '' ? null : projects[Number(targetSelect.value)] || null);
   function applyProjects(reply) {
     if (destroyed) return;
     const current = selectedProject();
     const wanted = firstApply ? reply.remembered : current ? { source: current.source, directory: current.rel, name: current.name } : { default: true };
     firstApply = false;
+    keyMissing = !!reply.noKey;
+    onFormatChange();
     const { list, index, missing } = chooseProject(reply.projects || [], wanted, reply.fresh);
     projects = list;
     while (targetSelect.options.length > 1) targetSelect.remove(1);
@@ -225,12 +228,12 @@ export function createCaptureControls(doc = document, win = window) {
     if (missing) void request({ type: 'kb-remember', target: null }).catch(() => {});
     targetHint.textContent = [
       missing ? 'Your last project is no longer available; using the default folder.' : '',
+      reply.noKey || '',
       reply.unavailable ? `Could not refresh projects (${reply.unavailable})${projects.length ? '' : ' Using the default folder.'}` : '',
       targetNote,
     ].filter(Boolean).join(' ');
   }
-  // On panel open: remembered choice + cached list, refreshed only through an already-open app tab.
-  // hidden: the user opened the menu, so a background app tab may be used. Each at most once per panel open.
+  // On panel open: remembered choice + list refreshed from the app; again once when the menu is focused/opened.
   function loadProjects(hidden) {
     if (hidden ? loaded.hidden || loaded.fresh : loaded.open) return loading;
     loaded[hidden ? 'hidden' : 'open'] = true;
@@ -361,7 +364,7 @@ export function createCaptureControls(doc = document, win = window) {
     const format = shadow.querySelector('[name="format"]:checked')?.value || 'md';
     const sendButton = captureActions.querySelector('[data-action="send-kb"]');
     const pdf = format === 'pdf';
-    sendButton.disabled = pdf;
+    sendButton.disabled = pdf || keyMissing;
     formatHint.textContent = pdf ? 'PDF opens the browser print dialog. Choose “Save as PDF”; use Markdown or HTML for direct knowledge-base delivery.' : format === 'html' ? 'HTML preserves styling and supported artifact interactions. Open the artifact source view if export reports missing source.' : 'Markdown preserves content and structure. Choose HTML for page styling.';
   };
   const onListChange = event => {

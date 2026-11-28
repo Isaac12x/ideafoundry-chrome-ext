@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { validateTarget, normalizeProjects, chooseProject } from '../src/shared.js';
-import { listProjectsInApp } from '../src/kb-upload.js';
+import { listKbProjects, uploadToKb } from '../src/kb-upload.js';
 
 test('target validation reuses the source/directory rules and treats absence as the default', () => {
   assert.deepEqual(validateTarget(undefined), {});
@@ -36,21 +36,36 @@ test('chosen project resolution: cached lists keep an unconfirmed project, fresh
   for (const wanted of [null, undefined, { default: true }]) assert.deepEqual(chooseProject(projects, wanted, true), { list: projects, index: -1, missing: false });
 });
 
-function inApp(response) {
-  globalThis.location = { origin: 'https://app.test' };
-  globalThis.fetch = async () => { if (response instanceof Error) throw response; return response; };
+const config = { appUrl: 'https://app.test', queueUrl: 'https://app.test/api/v1/capture', queueToken: 'k'.repeat(40) };
+const reply = (status, body) => ({ status, ok: status < 400, json: async () => body });
+let seen;
+function api(response) {
+  seen = [];
+  globalThis.fetch = async (url, init) => { seen.push({ url, init }); if (response instanceof Error) throw response; return response; };
 }
-const reply = (status, body, type = 'application/json') => ({ status, ok: status < 400, headers: { get: () => type }, json: async () => body });
+const file = { name: 'a.md', mime: 'text/plain', base64: 'aGk=' };
 
-test('project listing degrades to a reason when the app is older, locked, or unreachable', async () => {
-  inApp(reply(200, { projects: [{ source: 0, rel: 'F', name: 'F', locked: false }] }));
-  assert.deepEqual(await listProjectsInApp({ appUrl: 'https://app.test' }), { ok: true, projects: [{ source: 0, rel: 'F', name: 'F', locked: false }] });
-  inApp(reply(404, {}));
-  const old = await listProjectsInApp({ appUrl: 'https://app.test' });
-  assert.equal(old.ok, false); assert.equal(old.unsupported, true);
-  inApp(reply(200, null, 'text/html')); // typing lock redirects to an HTML page
-  assert.match((await listProjectsInApp({ appUrl: 'https://app.test' })).error, /Unlock/);
-  inApp(new Error('Failed to fetch'));
-  assert.equal((await listProjectsInApp({ appUrl: 'https://app.test' })).error, 'Failed to fetch');
-  assert.equal((await listProjectsInApp({ appUrl: 'https://other.test' })).ok, false);
+test('KB calls use the Bearer key on the capture base and map errors', async () => {
+  api(reply(200, { projects: [{ source: 0, rel: 'F', name: 'F', locked: false }] }));
+  assert.deepEqual(await listKbProjects(config), [{ source: 0, rel: 'F', name: 'F', locked: false }]);
+  assert.equal(seen[0].url, 'https://app.test/api/v1/capture/kb/projects');
+  assert.equal(seen[0].init.headers.Authorization, `Bearer ${config.queueToken}`);
+  api(reply(200, { ok: true, files: [] }));
+  assert.equal((await uploadToKb(file, config, { source: 1, directory: 'd' })).name, 'a.md');
+  assert.equal(seen[0].url, 'https://app.test/api/v1/capture/kb/upload');
+  assert.equal(seen[0].init.body.get('src'), '1'); assert.equal(seen[0].init.body.get('files[]').name, 'a.md');
+  api(reply(401, {}));
+  await assert.rejects(listKbProjects(config), /API key invalid — update it in extension options/);
+  api(reply(422, { error: 'Folder is locked.' }));
+  await assert.rejects(uploadToKb(file, config, { source: 0, directory: 'd' }), /^Error: Folder is locked\.$/);
+  api(new TypeError('Failed to fetch'));
+  await assert.rejects(uploadToKb(file, config, { source: 0, directory: 'd' }), /Idea app not reachable/);
+});
+
+test('no key means no network call', async () => {
+  api(reply(200, {}));
+  const keyless = { ...config, queueToken: '' };
+  await assert.rejects(listKbProjects(keyless), /Add an API key/);
+  await assert.rejects(uploadToKb(file, keyless, { source: 0, directory: 'd' }), /Add an API key/);
+  assert.equal(seen.length, 0);
 });

@@ -1,52 +1,42 @@
-// Runs in the app tab's isolated world. Cookies and CSRF stay with the app origin.
-export async function uploadInApp(file, settings) {
+// Service-worker KB calls: key-auth endpoints under the capture base (queueUrl), Bearer = queueToken. Work while the web app is locked.
+export const NO_KEY = 'Add an API key in extension options to send to KB.';
+export const requireKey = config => { if (!config.queueToken) throw new Error(NO_KEY); };
+
+async function kbFetch(config, path, init) {
+  requireKey(config);
+  let response;
   try {
-  if (location.origin !== settings.appUrl) throw new Error('The app tab changed origin.');
-  const timeout = () => AbortSignal.timeout(20_000);
-  // '/' renders (with the layout's CSRF meta) even while the typing lock is engaged; /knowledge-base would redirect to the lock screen.
-  const page = await fetch('/', { credentials: 'same-origin', signal: timeout() });
-  if (new URL(page.url).pathname === '/recovery-secret') throw new Error('Enter the recovery passphrase in IdeaFoundry to unlock encrypted data, then retry.');
-  if (!page.ok) throw new Error('Open IdeaFoundry and check it is running before sending to KB.');
-  const doc = new DOMParser().parseFromString(await page.text(), 'text/html');
-  const csrf = doc.querySelector('meta[name="csrf-token"]')?.content;
-  if (!csrf) throw new Error('The app did not provide a CSRF token. Open IdeaFoundry and retry.');
+    response = await fetch(`${config.queueUrl}/kb/${path}`, {
+      ...init, headers: { ...init?.headers, Authorization: `Bearer ${config.queueToken}`, Accept: 'application/json' },
+      signal: AbortSignal.timeout(20_000), redirect: 'error', credentials: 'omit',
+    });
+  } catch (error) {
+    throw new Error(error instanceof TypeError ? 'Idea app not reachable' : error.message);
+  }
+  if (response.status === 401) throw new Error('API key invalid — update it in extension options');
+  if (!response.ok) {
+    const details = await response.json().catch(() => ({}));
+    throw new Error(response.status === 422 && details.error ? details.error : `KB request failed (${response.status}).`);
+  }
+  return response.json();
+}
+
+export async function uploadToKb(file, config, dest) {
   const body = new FormData();
-  body.append('src', String(settings.source));
-  body.append('dir', settings.directory);
+  body.append('src', String(dest.source));
+  body.append('dir', dest.directory);
   const files = file.files?.length ? file.files : [{ name: file.name, mime: file.mime, base64: file.base64 }];
-  if (!files.length) throw new Error('The export has no files.');
   for (const entry of files) {
     const binary = atob(entry.base64);
     const bytes = new Uint8Array(binary.length);
     for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index);
     body.append('files[]', new Blob([bytes], { type: entry.mime }), entry.name);
   }
-  // JSON requests get explicit 4xx errors from fs_error and lock checks.
-  // Do not follow the success redirect: KB has an HTML view, not a JSON view.
-  const response = await fetch('/knowledge-base/fs/upload', {
-    method: 'POST', credentials: 'same-origin', signal: timeout(), redirect: 'manual',
-    headers: { Accept: 'application/json', 'X-CSRF-Token': csrf }, body,
-  });
-  if (response.type === 'opaqueredirect') return { ok: true, name: file.name, appUrl: `${settings.appUrl}/knowledge-base?src=${settings.source}` };
-  if (!response.ok) {
-    const details = await response.json().catch(() => ({}));
-    throw new Error(details.error || `KB upload failed (${response.status}).`);
-  }
-  throw new Error('Unexpected upload response. Check the KB before retrying to avoid duplicates.');
-  } catch (error) {
-    return { ok: false, error: error.message };
-  }
+  // No retry: the upload may already have reached the server.
+  await kbFetch(config, 'upload', { method: 'POST', body });
+  return { name: file.name, appUrl: `${config.appUrl}/knowledge-base?src=${dest.source}` };
 }
 
-// Runs in the app tab like uploadInApp. Never throws: { ok, projects } or { ok: false, error, unsupported? }.
-export async function listProjectsInApp(settings) {
-  try {
-    if (location.origin !== settings.appUrl) throw new Error('The app tab changed origin.');
-    const response = await fetch('/knowledge-base/project-list', { credentials: 'same-origin', signal: AbortSignal.timeout(20_000), headers: { Accept: 'application/json' } });
-    if (response.status === 404) return { ok: false, unsupported: true, error: 'This IdeaFoundry version cannot list projects. Update the app.' };
-    if (!response.ok || !(response.headers.get('content-type') || '').includes('json')) throw new Error('Unlock the IdeaFoundry workspace to list projects.');
-    return { ok: true, projects: (await response.json()).projects };
-  } catch (error) {
-    return { ok: false, error: error.message };
-  }
+export async function listKbProjects(config) {
+  return (await kbFetch(config, 'projects')).projects;
 }

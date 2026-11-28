@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 
 // Drive the real background worker with a chrome mock: capture its onMessage listener and call it.
 const store = {};
-const calls = { create: 0, remove: 0, exec: 0 };
-let appTabs = [];
-let listing = { ok: true, projects: [{ source: 0, rel: 'Ferment', name: 'Ferment', locked: false }] };
+const calls = { fetch: 0 };
+let apiReply = { status: 200, body: { projects: [{ source: 0, rel: 'Ferment', name: 'Ferment', locked: false }] } };
+globalThis.fetch = async () => { calls.fetch++; return { status: apiReply.status, ok: apiReply.status < 400, json: async () => apiReply.body }; };
 const noop = { addListener() {} };
 let onMessage;
 globalThis.chrome = {
@@ -19,60 +19,44 @@ globalThis.chrome = {
     },
   },
   permissions: { contains: async () => true },
-  tabs: {
-    query: async () => appTabs,
-    create: async () => { calls.create++; return { id: 99 }; },
-    get: async () => ({ status: 'complete' }),
-    remove: async () => { calls.remove++; },
-  },
-  scripting: { executeScript: async () => { calls.exec++; return [{ result: listing }]; } },
 };
 await import('../src/background.js');
 
 const send = message => new Promise(resolve => onMessage(message, { id: 'me', tab: { id: 1 }, url: 'https://chatgpt.com/' }, resolve));
-const reset = () => { for (const k of Object.keys(store)) delete store[k]; calls.create = calls.remove = calls.exec = 0; appTabs = []; };
+const conversation = { title: 'T', url: 'https://chatgpt.com/c/1', messages: [{ role: 'user', text: 'hi' }] };
+const sendKb = () => new Promise(resolve => onMessage({ type: 'export', destination: 'kb', format: 'md', conversation }, { id: 'me', url: 'chrome-extension://me/popup.html' }, resolve));
+chrome.offscreen = { hasDocument: async () => true };
+chrome.runtime.sendMessage = async () => ({ ok: true, name: 'x.md', mime: 'text/markdown', base64: 'aGk=' });
+const reset = () => { for (const k of Object.keys(store)) delete store[k]; calls.fetch = 0; store.settings = { queueToken: 'k'.repeat(40) }; };
 
-test('panel open without an app tab opens no hidden tab and serves the cached list', async () => {
-  reset();
-  store.kbProjectsCache = { appUrl: 'https://ideas.local:8443', projects: [{ source: 0, rel: 'Cached', name: 'Cached', locked: false }] };
-  store.lastKbTarget = { source: 0, directory: 'Cached', name: 'Cached' };
-  const reply = await send({ type: 'kb-projects', hidden: false });
-  assert.equal(calls.create, 0);
-  assert.equal(calls.exec, 0);
-  assert.equal(reply.fresh, false);
-  assert.deepEqual(reply.projects.map(p => p.rel), ['Cached']);
-  assert.equal(reply.remembered.directory, 'Cached');
-});
-
-test('menu focus may open a hidden tab, closes it, and refreshes the cache', async () => {
-  reset();
-  const reply = await send({ type: 'kb-projects', hidden: true });
-  assert.equal(calls.create, 1);
-  assert.equal(calls.remove, 1);
-  assert.equal(reply.fresh, true);
-  assert.deepEqual(store.kbProjectsCache.projects.map(p => p.rel), ['Ferment']);
-});
-
-test('an already-open app tab refreshes on panel open without a hidden tab; a failed refresh keeps the cache', async () => {
+test('projects refresh from the API and cache; a failed refresh keeps the cache', async () => {
   reset();
   store.kbProjectsCache = { appUrl: 'https://ideas.local:8443', projects: [{ source: 0, rel: 'Old', name: 'Old', locked: false }] };
-  appTabs = [{ id: 5 }];
-  let reply = await send({ type: 'kb-projects', hidden: false });
-  assert.equal(calls.create, 0);
-  assert.deepEqual(reply.projects.map(p => p.rel), ['Ferment']); // refreshed list replaces the cache
-  listing = { ok: false, error: 'Unlock the IdeaFoundry workspace to list projects.' };
-  reply = await send({ type: 'kb-projects', hidden: false });
-  listing = { ok: true, projects: [{ source: 0, rel: 'Ferment', name: 'Ferment', locked: false }] };
-  assert.equal(reply.fresh, false);
-  assert.match(reply.unavailable, /Unlock/);
+  let reply = await send({ type: 'kb-projects' });
+  assert.equal(reply.fresh, true);
   assert.deepEqual(reply.projects.map(p => p.rel), ['Ferment']);
+  assert.deepEqual(store.kbProjectsCache.projects.map(p => p.rel), ['Ferment']);
+  apiReply = { status: 401, body: {} };
+  reply = await send({ type: 'kb-projects' });
+  apiReply = { status: 200, body: { projects: [{ source: 0, rel: 'Ferment', name: 'Ferment', locked: false }] } };
+  assert.equal(reply.fresh, false);
+  assert.match(reply.unavailable, /API key invalid/);
+  assert.deepEqual(reply.projects.map(p => p.rel), ['Ferment']);
+});
+
+test('without an API key the list and send make no network call and say why', async () => {
+  reset(); delete store.settings;
+  const reply = await send({ type: 'kb-projects' });
+  assert.match(reply.noKey, /Add an API key/);
+  assert.match((await sendKb()).error, /Add an API key/);
+  assert.equal(calls.fetch, 0);
 });
 
 test('the choice is remembered on change, including an explicit default', async () => {
   reset();
   await send({ type: 'kb-remember', target: { source: 2, directory: 'Deep/Proj', name: 'Proj' } });
   assert.deepEqual(store.lastKbTarget, { source: 2, directory: 'Deep/Proj', name: 'Proj' });
-  assert.equal((await send({ type: 'kb-projects', hidden: false })).remembered.name, 'Proj');
+  assert.equal((await send({ type: 'kb-projects' })).remembered.name, 'Proj');
   await send({ type: 'kb-remember', target: null });
   assert.deepEqual(store.lastKbTarget, { default: true });
   const bad = await send({ type: 'kb-remember', target: { source: 0, directory: '../x', name: 'x' } });
@@ -81,36 +65,16 @@ test('the choice is remembered on change, including an explicit default', async 
 });
 
 test('a cache from another app address is ignored', async () => {
-  reset();
+  reset(); delete store.settings;
   store.kbProjectsCache = { appUrl: 'https://elsewhere.test', projects: [{ source: 0, rel: 'X', name: 'X', locked: false }] };
-  assert.deepEqual((await send({ type: 'kb-projects', hidden: false })).projects, []);
+  assert.deepEqual((await send({ type: 'kb-projects' })).projects, []);
 });
 
-const conversation = { title: 'T', url: 'https://chatgpt.com/c/1', messages: [{ role: 'user', text: 'hi' }] };
-const sendKb = () => new Promise(resolve => onMessage({ type: 'export', destination: 'kb', format: 'md', conversation }, { id: 'me', url: 'chrome-extension://me/popup.html' }, resolve));
-const realExec = chrome.scripting.executeScript;
-const created = [];
-chrome.offscreen = { hasDocument: async () => true };
-chrome.runtime.sendMessage = async () => ({ ok: true, name: 'x.md', files: [] });
-chrome.tabs.create = async opts => { created.push(opts.url); calls.create++; return { id: 99 }; };
-
-test('KB upload ignores an open app tab and runs in a dedicated static tab that is closed', async () => {
-  reset(); created.length = 0;
-  appTabs = [{ id: 5 }];
-  chrome.scripting.executeScript = async ({ target }) => { calls.exec++; assert.equal(target.tabId, 99); return [{ result: { ok: true, name: 'x.md', appUrl: 'a' } }]; };
-  const reply = await sendKb();
-  assert.equal(reply.name, 'x.md');
-  assert.deepEqual(created, ['https://ideas.local:8443/robots.txt']);
-  assert.equal(calls.remove, 1);
-  chrome.scripting.executeScript = realExec;
-});
-
-test('a frame killed mid-upload gets a human message, no retry, and the tab is closed', async () => {
-  reset(); created.length = 0;
-  chrome.scripting.executeScript = async () => { calls.exec++; throw new Error('Frame with ID 0 was removed.'); };
-  const reply = await sendKb();
-  assert.match(reply.error, /closed or navigated during the upload.*before retrying/);
-  assert.equal(calls.exec, 1);
-  assert.equal(calls.remove, 1);
-  chrome.scripting.executeScript = realExec;
+test('KB upload posts straight to the API; 422 text surfaces', async () => {
+  reset();
+  apiReply = { status: 200, body: { ok: true, files: [] } };
+  const ok = await sendKb(); assert.equal(ok.name, 'x.md', JSON.stringify(ok));
+  apiReply = { status: 422, body: { error: 'Folder is locked.' } };
+  assert.equal((await sendKb()).error, 'Folder is locked.');
+  assert.equal(calls.fetch, 2);
 });

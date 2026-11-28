@@ -1,5 +1,5 @@
 import { defaults, withDefaults, validateSettings, validateJob, validateTarget, normalizeProjects, httpUrl, urlMatchesCaptureSites, resolveCaptureSites } from './shared.js';
-import { uploadInApp, listProjectsInApp } from './kb-upload.js';
+import { uploadToKb, listKbProjects, requireKey, NO_KEY } from './kb-upload.js';
 import { mediaOrigins } from './media.js';
 import { handleActionClick } from './action.js';
 import { resolveArtifactSources } from './artifact-sources.js';
@@ -118,51 +118,24 @@ async function permitted(origin) {
 }
 async function sendToKB(conversation, format, target = {}) {
   if (format === 'pdf') throw new Error('PDF export uses the browser print dialog. Choose Markdown or HTML for direct knowledge-base delivery, or save the print view as PDF first.');
-  conversation = await permissionFilteredMedia(conversation);
   const config = validateSettings(await settings());
-  await permitted(config.appUrl);
+  requireKey(config);
+  conversation = await permissionFilteredMedia(conversation);
+  await permitted(new URL(config.queueUrl).origin);
   const dest = { appUrl: config.appUrl, source: target.source ?? config.source, directory: target.directory ?? config.directory };
-  const file = await render(conversation, format, false, dest);
-  // Dedicated tab: the user's own app tab may navigate (lock timer, clicks) and kill the injected frame mid-upload.
-  // No retry: the upload may already have reached the server.
-  try {
-    return await withAppTab(config, async tabId => {
-      const results = await chrome.scripting.executeScript({ target: { tabId }, func: uploadInApp, args: [file, dest] });
-      if (!results[0]?.result) throw new Error('Upload did not finish. Check the KB before retrying.');
-      if (!results[0].result.ok) throw new Error(results[0].result.error);
-      return results[0].result;
-    }, `${config.appUrl}/robots.txt`);
-  } catch (error) {
-    if (/Frame with ID \d+ was removed|No tab with id|The tab was closed/i.test(error.message)) throw new Error('The IdeaFoundry tab closed or navigated during the upload. Check the knowledge base before retrying.');
-    throw error;
-  }
+  return uploadToKb(await render(conversation, format, false, dest), config, dest);
 }
-// Runs fn(tabId) in an open app tab, or in a hidden one that is closed afterwards.
-// With dedicatedUrl it always uses a fresh hidden tab at that (static, script-free) URL.
-async function withAppTab(config, fn, dedicatedUrl) {
-  let tab = dedicatedUrl ? undefined : (await chrome.tabs.query({ url: `${config.appUrl}/*` }))[0];
-  const created = !tab;
-  if (created) tab = await chrome.tabs.create({ url: dedicatedUrl || `${config.appUrl}/knowledge-base`, active: false });
-  try {
-    await loaded(tab.id);
-    return await fn(tab.id);
-  } finally {
-    if (created) await chrome.tabs.remove(tab.id).catch(() => {});
-  }
-}
-// Projects for the widget's "Save to" menu: the cached list plus the remembered choice, refreshed through an app tab.
-// A hidden tab is opened only when allowHiddenTab (the user opened the menu); failure is a reason, never an error.
-async function kbProjects(allowHiddenTab) {
+// Projects for the widget's "Save to" menu: the cached list plus the remembered choice, refreshed from the app.
+// Failure is a reason, never an error. Without an API key no request is made.
+async function kbProjects() {
   const config = validateSettings(await settings());
   const { lastKbTarget, kbProjectsCache } = await chrome.storage.local.get(['lastKbTarget', 'kbProjectsCache']);
   const cached = kbProjectsCache?.appUrl === config.appUrl ? normalizeProjects(kbProjectsCache.projects) : [];
   const base = { defaultDirectory: config.directory, remembered: lastKbTarget || null, projects: cached, fresh: false };
+  if (!config.queueToken) return { ...base, noKey: NO_KEY };
   try {
-    await permitted(config.appUrl);
-    if (!allowHiddenTab && !(await chrome.tabs.query({ url: `${config.appUrl}/*` })).length) return base;
-    const result = await withAppTab(config, async tabId => (await chrome.scripting.executeScript({ target: { tabId }, func: listProjectsInApp, args: [{ appUrl: config.appUrl }] }))[0]?.result);
-    if (!result?.ok) return { ...base, unavailable: result?.error || 'Projects could not be loaded.' };
-    const projects = normalizeProjects(result.projects);
+    await permitted(new URL(config.queueUrl).origin);
+    const projects = normalizeProjects(await listKbProjects(config));
     await chrome.storage.local.set({ kbProjectsCache: { appUrl: config.appUrl, projects } });
     return { ...base, projects, fresh: true };
   } catch (error) {
@@ -329,7 +302,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
     }
     if (message.type === 'kb-projects') {
       if (!sender.tab?.id) throw new Error('Projects are available only to an open page.');
-      return kbProjects(message.hidden === true);
+      return kbProjects();
     }
     if (message.type === 'kb-remember') {
       if (!sender.tab?.id) throw new Error('The destination can be changed only from an open page.');
